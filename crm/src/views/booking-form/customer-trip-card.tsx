@@ -322,7 +322,7 @@ export function CustomerTripCard({
       <form ref={setForm} onSubmit={(e) => e.preventDefault()} noValidate aria-labelledby="customer-heading">
         <div className="p-5 max-sm:p-4">
           {/* Old links to #trip land here. */}
-          <span id="trip" />
+          <span id="trip" data-focus-target="customer-heading" />
           <HiddenDraftInputs view={view} base={f.base} result={f.state} />
           <input type="hidden" name="paxTotal" value={postedTotal(v, dealFacts)} />
           {lockedTrip ? (

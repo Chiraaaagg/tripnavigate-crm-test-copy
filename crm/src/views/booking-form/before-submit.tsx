@@ -102,8 +102,8 @@ export function PlanCard({ view, action, totalPaise }: { view: BookNowView; acti
   return (
     <SectionCard id="plan" title="Payment plan" icon={CalendarDays} action={editable ? <SaveStatus id="pill-plan" state={save.state} reason={save.reason} label="Payment plan" /> : null}>
       {/* Old links to #payment and #bf-plan land here. */}
-      <span id="payment" />
-      <span id="bf-plan" />
+      <span id="payment" data-focus-target="plan-heading" />
+      <span id="bf-plan" data-focus-target="plan-heading" />
       <form ref={setForm} onSubmit={(e) => e.preventDefault()} noValidate aria-labelledby="plan-heading">
         <SectionBody>
           <HiddenDraftInputs view={view} base={f.base} result={f.state} />
@@ -211,8 +211,8 @@ export function OkCard({ view, actions }: { view: BookNowView; actions: BookingF
     else setProblem(refusalReason(r));
   };
   return (
-    <SectionCard id="ok" title="Customer’s written OK for this version" icon={FileText} action={stored.length > 0 ? <SaveStatus state="saved" text="Stored" label="Customer’s written OK" /> : null}>
-      <span id="bf-acceptance" />
+    <SectionCard id="ok" title="Customer’s written OK for this version" icon={FileText} action={stored.length > 0 || (view.quotationSource && !stale) ? <SaveStatus state="saved" text="Stored" label="Customer’s written OK" /> : null}>
+      <span id="bf-acceptance" data-focus-target="ok-heading" />
       <SectionBody className="flex flex-col gap-3">
         <p className="m-0 text-sm text-quiet">A Bitrix stage is not proof. If you change anything after uploading, upload a new OK.</p>
         <QuotationSourceNote source={view.quotationSource} stale={stale} />
@@ -310,7 +310,7 @@ export function ReviewCard({ vm, view, travellersText }: { vm: BookingFormVM; vi
   const counts = SERVICE_CHIPS.map((s) => ({ label: s.label, n: vm.items.filter((i) => i.serviceType === s.type).length })).filter((s) => s.n > 0);
   return (
     <Collapsed summary="Review trip and services">
-      <span id="review" />
+      <span id="review" data-focus-target="bf-ready-heading" />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <b>Customer</b>

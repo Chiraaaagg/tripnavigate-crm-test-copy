@@ -177,7 +177,8 @@ test.describe('B1.1 browser-only fresh-Deal journey (real local stack)', () => {
       await expect(sales.locator('#customer-heading')).toBeFocused();
       await sales.goto(`/app/deals/${dealId}/book/payment`);
       await expect(sales).toHaveURL(new RegExp(`/app/deals/${dealId}/book/finish(#payment|\\?at=payment)$`), { timeout: 30_000 });
-      await expect(sales.locator('#payment-heading')).toBeFocused();
+      // Book now v2: the payment plan is its own card ("Payment plan", heading #plan-heading); #payment is its old anchor.
+      await expect(sales.locator('#plan-heading')).toBeFocused();
       await sales.goto(`/app/deals/${dealId}/book/travellers`);
     });
 

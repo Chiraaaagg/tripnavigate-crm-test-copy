@@ -257,6 +257,15 @@ function scenario(name: string): Scenario | null {
       const view = ownerView();
       return { view, vm: ownerCore(view, { items: V2_ITEMS, idProofCopyApplies: false, flightFareTotals: { adultPaise: null, childPaise: null, infantPaise: null } }), vn: { ...VN_SEARCH, dealFacts: { ...DEAL_FACTS, bitrixDealHref: null } } };
     }
+    case 'v2-quote': {
+      // Converted from an accepted quotation: the total and the customer's yes come from it; per-person lines are optional.
+      const view = ownerView({
+        evidence: [],
+        checklist: [],
+        quotationSource: { quotationId: 'q0000000-0000-4000-8000-000000000001', reference: 'TQ-1', versionId: 'q0000000-0000-4000-8000-000000000002', versionNo: 1, acceptedAt: '2026-10-24T10:00:00.000Z', acceptedTierKey: 'quoted', acceptanceHref: '#' },
+      });
+      return { view, vm: ownerCore(view, { items: V2_ITEMS, prices: priceView(EMPTY_LINES, { sellingTotalPaise: '3000000', purchaseTotalPaise: null, markupTotalPaise: null, source: 'quotation_total', linesRequired: false }), flightFareTotals: { adultPaise: null, childPaise: null, infantPaise: null } }), vn: { ...VN_SEARCH, dealFacts: DEAL_FACTS } };
+    }
     case 'v2-empty': {
       // A new draft with nothing typed and no Bitrix values (prototype start).
       const view = emptyDraft();
@@ -310,7 +319,7 @@ function scenario(name: string): Scenario | null {
   }
 }
 
-export const BOOKFORM_SCENARIOS = ['v2', 'v2-nocopy', 'v2-empty', 'empty', 'owner', 'gaps', 'refused', 'no-price', 'verified', 'legacy', 'read-only', 'auto', 'vn-deal', 'vn-gaps', 'vn-nodeal', 'vn-billto', 'vn-billto-picked', 'vn-billto-pickfail', 'vn-billto-searchfail'] as const;
+export const BOOKFORM_SCENARIOS = ['v2', 'v2-nocopy', 'v2-quote', 'v2-empty', 'empty', 'owner', 'gaps', 'refused', 'no-price', 'verified', 'legacy', 'read-only', 'auto', 'vn-deal', 'vn-gaps', 'vn-nodeal', 'vn-billto', 'vn-billto-picked', 'vn-billto-pickfail', 'vn-billto-searchfail'] as const;
 export const BOOKFORM_STATES = BOOKFORM_SCENARIOS.flatMap((s) => (['travellers', 'stay', 'finish'] as const).map((step) => `bookform-${s}--${step}`));
 
 export function renderBookformState(state: string): ReactNode | null {

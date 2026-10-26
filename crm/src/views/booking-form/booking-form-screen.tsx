@@ -153,22 +153,21 @@ function ScreenBody({ vm, view, actions, links, ownerText, vn }: BookingFormScre
   // Prototype svcIssues: a chosen service with no rows counts, even when it is only a chip choice.
   const svcIssues = serviceStepIssues(chosen, items);
   const unnamedIndex = paxState ? paxState.firstBlank : slots > named ? named + 1 : null;
-  const adultsSaved = view.travellers.filter((t) => t.type === 'adult');
-  const proofsVisible = Boolean(view.idProofLimits);
-  const idDone = !proofsVisible || (n.a !== null && adultsSaved.length >= n.a && adultsSaved.every((t) => (t.idProofs ?? []).some((p) => p.status === 'stored')));
-  const planSum = (view.plan ?? []).reduce((s, p) => s + BigInt(p.amountPaise || '0'), 0n);
   const rawTotal = liveTotal.paise ?? vm.prices?.sellingTotalPaise ?? view.commercials?.sellingTotalPaise ?? null;
   // Nobody priced yet is "Not worked out yet", never ₹0.
   const total = rawTotal && BigInt(rawTotal) > 0n ? rawTotal : null;
   const cards = queue.cards;
   const ready = readyItems(vm.checklist, {
     s1: { done: custIssues.length === 0 && unnamedIndex === null && cards.customer?.state !== 'fix' && cards.passengers?.state !== 'fix', why: custIssues[0] ?? (unnamedIndex !== null ? `Passenger ${unnamedIndex}: full name as on the ID.` : null) },
-    id: { done: idDone, why: 'Attach ID proof on step 1' },
+    // Stored data (ID proof, Bill To, plan, the customer's yes): the server's readiness decides, so the list never
+    // counts as missing what the server says is fine; the screen adds only a card that is saving or needs a fix.
+    // As the prototype: nothing to prove before anyone travels (the server decides the rest).
+    id: { done: slots > 0, why: 'Attach ID proof on step 1' },
     s2: { done: svcIssues.length === 0, why: svcIssues[0] ?? null },
     price: { done: !vm.prices || (liveTotal.settled && total !== null && cards.price?.state !== 'fix'), why: liveTotal.gap ?? (!countsSaved ? 'Save step 1 first. Prices follow the saved traveller counts.' : 'Fill the final sale per person') },
-    bill: { done: (vm.billTo?.status ?? 'none') !== 'none' && cards.billTo?.state !== 'fix' && cards.billTo?.state !== 'saving', why: cards.billTo?.reason ?? 'Choose or add the customer to bill' },
-    plan: { done: (view.plan ?? []).length > 0 && total !== null && planSum === BigInt(total) && cards.plan?.state !== 'fix', why: 'Instalments must add up to the total' },
-    ok: { done: view.evidence.some((e) => e.status === 'stored'), why: 'Upload the customer’s yes' },
+    bill: { done: cards.billTo?.state !== 'fix' && cards.billTo?.state !== 'saving', why: cards.billTo?.reason ?? 'Choose or add the customer to bill' },
+    plan: { done: cards.plan?.state !== 'fix' && cards.plan?.state !== 'saving', why: cards.plan?.reason ?? 'Instalments must add up to the total' },
+    ok: { done: true, why: 'Upload the customer’s yes' },
   });
   const left = ready.filter((r) => !r.done).length;
   const s2Bad = ready.find((r) => r.key === 's2')!.done === false;

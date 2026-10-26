@@ -94,6 +94,11 @@ export function PackagePriceCard({
   const lines = bookingPriceLines(party, f.values.lines);
   const visible = new Set<PriceCategory>(visiblePriceCategories(party));
   const totals = priceTotals(lines);
+  // A draft from an accepted quotation (or typed before per-person prices) already has its total;
+  // per-person lines are optional there, so it is worked out until someone starts typing lines.
+  const typedAny = lines.some((l) => (Number(l.quantity) || 0) > 0 && (l.purchase.trim() !== '' || l.markup.trim() !== '' || l.sale.trim() !== ''));
+  const storedTotal = prices.source !== 'per_person' && !typedAny ? prices.sellingTotalPaise : null;
+  const shownTotal = totals.salePaise ?? storedTotal;
   const block = priceBlock(party, countsSaved, lines);
   const set = (cat: PriceCategory, fn: (l: PriceLineInput) => PriceLineInput) => f.setValues((s) => ({ ...s, lines: bookingPriceLines(party, s.lines).map((l) => (l.category === cat ? fn(l) : l)) }));
   const refusal = useShownRefusal(f, (name) => {
@@ -122,7 +127,7 @@ export function PackagePriceCard({
     values: f.values,
     dirty: f.dirty,
     enabled: editable,
-    hasStored: prices.lines.some((l) => l.salePaise !== null),
+    hasStored: prices.lines.some((l) => l.salePaise !== null) || (prices.source !== 'per_person' && Boolean(prices.sellingTotalPaise)),
     check: () => {
       const cur = bookingPriceLines(party, f.values.lines);
       const b = priceBlock(party, countsSaved, cur);
@@ -135,10 +140,10 @@ export function PackagePriceCard({
   });
   const settled = save.state === 'saved' || save.state === 'idle';
   const missing = totals.incomplete.map((c) => PRICE_CATEGORY_LABEL[c]).join(', ');
-  const gap = block ?? (save.state === 'fix' && save.reason ? save.reason : missing ? `Fill purchase, markup and final sale for ${missing}` : !totals.salePaise ? 'Fill the final sale per person' : null);
+  const gap = storedTotal ? null : (block ?? (save.state === 'fix' && save.reason ? save.reason : missing ? `Fill purchase, markup and final sale for ${missing}` : !totals.salePaise ? 'Fill the final sale per person' : null));
   useEffect(() => {
-    onTotal?.(totals.salePaise, settled && !block, gap);
-  }, [totals.salePaise, settled, block, gap, onTotal]);
+    onTotal?.(shownTotal, settled && (!block || Boolean(storedTotal)), gap);
+  }, [shownTotal, storedTotal, settled, block, gap, onTotal]);
   const sourceNote =
     prices.source === 'quotation_total'
       ? `Total from the accepted quotation: ${formatInr(prices.sellingTotalPaise, 'not set')}. Per-person prices are optional here. If they add up to a different total, the customer must accept again.`
@@ -153,7 +158,7 @@ export function PackagePriceCard({
       <form ref={setForm} onSubmit={(e) => e.preventDefault()} noValidate aria-labelledby="price-heading">
         <SectionBody>
           <HiddenDraftInputs view={view} base={f.base} result={f.state} />
-          {block && editable ? (
+          {block && editable && !storedTotal ? (
             <div role="status" className="mb-3.5 flex gap-2.5 rounded-control border border-status-danger-line bg-status-danger-tint px-3.5 py-3 text-sm text-status-danger-strong">
               <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
               <p className="m-0">
@@ -258,7 +263,7 @@ export function PackagePriceCard({
             <span className="text-sm text-quiet">{party.total !== null ? `${counted} / ${party.total} passengers` : ''}</span>
             <div className="text-right">
               <span className="text-sm text-quiet">Package selling total</span>
-              <strong className="block text-2xl font-semibold text-ink tabular-nums max-sm:text-xl">{party.total ? formatInr(totals.salePaise, 'Not worked out yet') : 'Not worked out yet'}</strong>
+              <strong className="block text-2xl font-semibold text-ink tabular-nums max-sm:text-xl">{shownTotal && (party.total || storedTotal) ? formatInr(shownTotal) : 'Not worked out yet'}</strong>
               <span className="block text-xs text-status-warning">{totals.salePaise && !block && !settled ? 'Working out, not saved yet' : ''}</span>
             </div>
           </div>

@@ -331,7 +331,7 @@ export function ServicesStep({
 
   return (
     <div className="flex flex-col gap-4.5 outline-none" id={BOOKING_FORM_FIELD_ID.services} tabIndex={-1}>
-      <span id="hotels" />
+      <span id="hotels" data-focus-target="bf-services-label" />
       <Card className="p-5 max-sm:p-4">
         <div id="bf-services-label" className="mb-2.5 font-semibold text-ink">
           Choose services
