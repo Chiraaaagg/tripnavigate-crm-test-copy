@@ -1,0 +1,103 @@
+/*
+ * Stylesheet entry for every page (imported once by the root layout).
+ *
+ * Cascade layers, lowest priority first:
+ *   theme    Tailwind's theme variables plus the design tokens
+ *            (src/components/ui/tokens.css).
+ *   legacy   The existing hand-written stylesheet, src/app/globals.css,
+ *            unchanged. Inside its own layer its rules keep exactly the same
+ *            relative order and specificity, so existing screens render as
+ *            before.
+ *   utilities Tailwind utilities, used only by the new shared components in
+ *            src/components/ui and the component gallery. Being the later
+ *            layer they win over legacy element rules (input, table, h1, a,
+ *            :focus-visible) on new components.
+ *
+ * Tailwind preflight (its CSS reset) is deliberately NOT imported: it would
+ * restyle every existing screen. New components set the properties they need.
+ *
+ * Utility generation is limited to the folders below (source(none) turns off
+ * whole-project scanning). The legacy markup uses class names that are also
+ * Tailwind utilities with different values (mt-1, mt-2, mt-15, mb-0); they must
+ * never be generated. tests/unit/ui-tokens.test.ts guards this. When a screen
+ * moves to the design system, add its folder here.
+ */
+@layer theme, legacy, utilities;
+
+@import 'tailwindcss/theme.css' layer(theme);
+@import './globals.css' layer(legacy);
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+@import '../components/ui/tokens.css';
+/* Customer documents (quotation and itinerary previews; the PDF render inlines the same file). Scoped under .tn-doc. */
+@import '../modules/documents/render/document.css';
+
+@source '../components/ui';
+@source './preview/ui-gallery';
+/* Screen group 1: the staff app frame. */
+@source '../views/StaffShell.tsx';
+@source '../views/user-menu-dismiss.tsx';
+@source '../components/NavLinks.tsx';
+@source './app/loading.tsx';
+/* Direction A R0 (19 October 2026): the staff frame's page error. */
+@source './app/error.tsx';
+/* Screen group 2: Home. */
+@source '../views/home-view.tsx';
+/* Screen group 3: Deals list (its route loading file renders DealsListLoading from here). */
+@source '../views/deals-list-view.tsx';
+/* Screen group 4: Deal page (its route loading file renders DealPageLoading from here). */
+@source '../views/deal-page-view.tsx';
+/* B1 (service items, intake, Flight queue, workflow switches), 10 October 2026. */
+@source '../views/service-labels.tsx';
+@source '../views/deal-services-view.tsx';
+@source '../views/intake-views.tsx';
+@source '../views/intake-forms.tsx';
+@source '../views/flight-views.tsx';
+@source '../views/flight-forms.tsx';
+@source '../views/workflow-views.tsx';
+@source '../views/workflow-forms.tsx';
+/* B1.1 (Book now, claims, department forms, Visa & Passport desk), 11 October 2026: one folder. */
+@source '../views/b11';
+/* B1.2 quotations and itineraries (Phase E/F) */
+@source '../views/b12';
+/* Booking form (22 October 2026): the owner-approved three-step form. */
+@source '../views/booking-form';
+/* Direction A Batch 1 (19 October 2026): Leads list and record, list parts, Deal workspace. */
+@source '../views/list-leads.tsx';
+@source '../views/list-parts.tsx';
+@source '../views/list-rows.tsx';
+@source '../views/list-search.tsx';
+@source '../views/deal-workspace';
+/* DEC-55: the Bitrix names switch card on the Bitrix sync page. */
+@source '../views/bitrix-names-card.tsx';
+/* Direction A Batch 4 (23 October 2026): Settings, department task pages, Accounts screens. */
+@source '../views/settings';
+/* Voice-note batch (24 October 2026): Accounts customer check. */
+@source '../views/accounts';
+@source '../views/department';
+@source '../views/booking-health-views.tsx';
+@source '../views/purchase-views.tsx';
+@source '../views/purchase-forms.tsx';
+@source '../views/procurement-views.tsx';
+@source '../views/finance-views.tsx';
+@source '../views/finance-common.tsx';
+@source '../views/finance-cash-views.tsx';
+@source '../views/finance-destination-views.tsx';
+@source './preview/[state]/batch4-dept-states.tsx';
+/* Root layout: the skip link sits above the sticky top bar (z-60). */
+@source './layout.tsx';
+
+/* Safety net: legacy helper classes with different meanings are never generated. */
+@source not inline('mt-0 mt-1 mt-2 mt-15 mb-0');
+
+/* The staff frame's top bar (under 1024px; Direction A has no top bar on desktop) is sticky: keep in-page jumps (skip link, repair
+   links, focus moves) clear of it. Only pages that render the frame (its root
+   carries the marker class staff-shell, set in src/views/StaffShell.tsx);
+   sign-in and other public pages have no sticky bar. The legacy stylesheet
+   already sets scroll-padding-bottom for its sticky action bar; that rule stays. */
+@layer utilities {
+  @media (width < 64rem) {
+    html:has(.staff-shell) {
+      scroll-padding-top: 4.5rem;
+    }
+  }
+}

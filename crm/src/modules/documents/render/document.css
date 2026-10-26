@@ -1,0 +1,304 @@
+/*
+ * Customer document styles (B1.2 Phase F): one stylesheet for the in-app HTML
+ * preview (imported by src/app/app.css) and the Node render worker (read from
+ * this file and inlined). Everything is scoped under .tn-doc. Brand colours
+ * are tokens here, not hex values in views (review E4-6). Print-safe: A4
+ * width, no background images, no web fonts fetched.
+ */
+
+.tn-doc {
+  --doc-blue: #004aad;
+  --doc-blue-tint: #e8effa;
+  --doc-orange: #f18700;
+  /* Text in orange: darker for 4.5:1 contrast on white. */
+  --doc-orange-text: #a85500;
+  --doc-ink: #14213d;
+  --doc-copy: #2f3a4f;
+  --doc-quiet: #5b667a;
+  --doc-line: #d9dee8;
+  --doc-paper: #ffffff;
+  --doc-wash: #f6f8fb;
+  --doc-fill: #fff4e0;
+  --doc-fill-line: #c76e00;
+
+  box-sizing: border-box;
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 2.25rem 2.5rem;
+  background: var(--doc-paper);
+  color: var(--doc-copy);
+  font-family: Inter, 'Segoe UI', Roboto, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  border: 1px solid var(--doc-line);
+  border-radius: 14px;
+}
+.tn-doc *,
+.tn-doc *::before,
+.tn-doc *::after {
+  box-sizing: inherit;
+}
+.tn-doc h2,
+.tn-doc h3,
+.tn-doc h4,
+.tn-doc p,
+.tn-doc ul,
+.tn-doc ol,
+.tn-doc dl,
+.tn-doc dd {
+  margin: 0;
+}
+.tn-doc ul,
+.tn-doc ol {
+  padding-left: 1.25rem;
+}
+
+.tn-doc .doc-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+.tn-doc .doc-brand {
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--doc-blue);
+}
+.tn-doc .doc-brand b {
+  color: var(--doc-ink);
+  font-weight: 800;
+}
+.tn-doc .doc-tagline {
+  font-size: 0.85rem;
+  color: var(--doc-quiet);
+}
+.tn-doc .doc-meta {
+  text-align: right;
+  font-size: 0.85rem;
+  color: var(--doc-quiet);
+}
+.tn-doc .doc-meta strong {
+  color: var(--doc-ink);
+}
+.tn-doc .doc-bar {
+  height: 4px;
+  margin: 1.1rem 0 1.4rem;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--doc-blue) 0 70%, var(--doc-orange) 70% 100%);
+}
+.tn-doc .doc-title {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 2rem;
+  line-height: 1.2;
+  color: var(--doc-ink);
+}
+.tn-doc .doc-sub {
+  margin-top: 0.35rem;
+  color: var(--doc-quiet);
+}
+.tn-doc .doc-section {
+  margin-top: 1.6rem;
+}
+.tn-doc .doc-section > h3,
+.tn-doc .doc-label {
+  margin-bottom: 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--doc-quiet);
+}
+.tn-doc .doc-prices {
+  display: grid;
+  gap: 0.75rem;
+}
+.tn-doc .doc-prices.two {
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+.tn-doc .doc-price {
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--doc-line);
+  border-radius: 12px;
+  background: var(--doc-wash);
+}
+.tn-doc .doc-price.main {
+  border-color: var(--doc-blue);
+  background: var(--doc-blue-tint);
+}
+.tn-doc .doc-price-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--doc-quiet);
+}
+.tn-doc .doc-amount {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.9rem;
+  color: var(--doc-blue);
+  font-variant-numeric: tabular-nums;
+}
+.tn-doc .doc-small {
+  font-size: 0.85rem;
+  color: var(--doc-quiet);
+}
+.tn-doc .doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.tn-doc .doc-table th,
+.tn-doc .doc-table td {
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid var(--doc-line);
+  text-align: left;
+  vertical-align: top;
+}
+.tn-doc .doc-table th {
+  color: var(--doc-ink);
+  font-weight: 600;
+}
+.tn-doc .doc-table .num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tn-doc .doc-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.tn-doc .doc-list > li {
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--doc-line);
+}
+.tn-doc .doc-strong {
+  font-weight: 600;
+  color: var(--doc-ink);
+}
+.tn-doc .doc-cols {
+  display: grid;
+  gap: 1.2rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+.tn-doc .doc-day {
+  display: grid;
+  grid-template-columns: 4.2rem 1fr;
+  gap: 0.75rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--doc-line);
+}
+.tn-doc .doc-day-n {
+  font-weight: 700;
+  color: var(--doc-orange-text);
+}
+.tn-doc .doc-day p + p {
+  margin-top: 0.3rem;
+}
+.tn-doc .doc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  list-style: none;
+  padding: 0;
+}
+.tn-doc .doc-chips li {
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--doc-line);
+  border-radius: 999px;
+  font-size: 0.82rem;
+}
+.tn-doc .doc-note {
+  padding: 0.75rem 0.9rem;
+  border-left: 4px solid var(--doc-orange);
+  background: var(--doc-wash);
+  border-radius: 6px;
+}
+.tn-doc .doc-foot {
+  margin-top: 1.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--doc-line);
+  font-size: 0.82rem;
+  color: var(--doc-quiet);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+/* DEC-50 statutory line: full width, small and quiet, above the footer notes. */
+.tn-doc .doc-legal {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--doc-quiet);
+}
+/* A missing fact: visible on previews, blocks a final document. */
+.tn-doc .fill {
+  padding: 0 0.3rem;
+  border: 1px dashed var(--doc-fill-line);
+  border-radius: 4px;
+  background: var(--doc-fill);
+  color: var(--doc-ink);
+  font-style: italic;
+}
+.tn-doc .fill::before {
+  content: '[';
+}
+.tn-doc .fill::after {
+  content: ']';
+}
+
+@media (max-width: 40rem) {
+  .tn-doc {
+    padding: 1.25rem 1rem;
+    border-radius: 10px;
+  }
+  .tn-doc .doc-meta {
+    text-align: left;
+  }
+  .tn-doc .doc-title {
+    font-size: 1.6rem;
+  }
+  .tn-doc .doc-day {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+}
+
+@media print {
+  .tn-doc {
+    max-width: none;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+  }
+  .tn-doc .doc-day,
+  .tn-doc .doc-price,
+  .tn-doc .doc-list > li {
+    break-inside: avoid;
+  }
+}
+
+/*
+ * Print pages (app/print/...): no app chrome in a customer document. The
+ * root layout's environment banner and skip link are hidden on any page that
+ * holds .tn-print-root; the document fills a white A4 page.
+ */
+body:has(.tn-print-root) > .env-banner,
+body:has(.tn-print-root) > .skip-link {
+  display: none !important;
+}
+body:has(.tn-print-root) {
+  background: #ffffff;
+}
+.tn-print-root {
+  margin: 0;
+  padding: 0;
+}
+.tn-print-root .tn-doc {
+  border: 0;
+  border-radius: 0;
+  max-width: none;
+}

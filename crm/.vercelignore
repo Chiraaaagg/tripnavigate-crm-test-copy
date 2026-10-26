@@ -1,0 +1,12 @@
+# Secrets and local secret backups must never be uploaded.
+.env
+.env.*
+.env-backups/
+.claude/
+.agents/
+node_modules/
+.next/
+test-results/
+playwright-report/
+coverage/
+*.log

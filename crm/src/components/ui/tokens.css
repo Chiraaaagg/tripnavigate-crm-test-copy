@@ -1,0 +1,264 @@
+/*
+ * TripNavigate design tokens: the ONE place for colours, type, spacing,
+ * radius, shadows and motion of the shared design system.
+ *
+ * Direction A (redesign R0, 19 October 2026): the owner approved Direction A
+ * on 15 October 2026 (docs/implementation/frontend-redesign-2026-10-15/). The
+ * token NAMES are unchanged from "Lagoon" (9 October 2026) so every screen
+ * adopts the new look; only the VALUES changed. Values follow the shadcn/ui
+ * default token structure (MIT upstream: neutral greys, radius 0.625rem,
+ * border / input / ring roles) mapped to the brand:
+ *   primary, ring and link text  #004AAD (brand blue)
+ *   accent surface               #EEF3FB with #003A87 text
+ *   muted text                   #5C5C5C
+ *   input border                 #8A8A8A (3:1 on white)
+ *   orange #F18700               ONLY as a fill behind dark text (brand-accent)
+ * Record: 21st-register.md §8 (theme row) and "R0 implementation".
+ *
+ * Light theme only. Every value here becomes a CSS custom property and, where
+ * Tailwind has a namespace for it, a utility (bg-brand-strong, text-ink,
+ * rounded-card, shadow-card, ...).
+ *
+ * Name rule: no token may reuse a custom property name defined by the legacy
+ * stylesheet (src/app/globals.css: --color-primary, --color-muted,
+ * --color-success, --radius-lg, --shadow-dialog, --motion-fast, ...). The
+ * legacy layer comes later in the cascade and would silently win. A unit test
+ * (tests/unit/ui-tokens.test.ts) enforces this and the contrast ratios below.
+ */
+
+@theme {
+  /* Tailwind's default palette is removed: only these colours exist. */
+  --color-*: initial;
+
+  --color-white: #ffffff;
+
+  /* Slate neutral scale */
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+
+  /* Brand (Direction A).
+     brand (#004AAD, 8.13:1 on white): icons, large shapes and the current-item marker.
+     brand-strong (#004AAD): text, links, button fills, focus ring (shadcn primary / ring).
+     brand-deep (#003A87, 9.64:1 on brand-tint): active navigation text, pressed/hover fills.
+     brand-tint (#EEF3FB): the accent surface (shadcn accent).
+     brand-accent (#F18700): orange FILL ONLY, always behind brand-accent-ink text
+     (7.3:1). Orange text or orange icons on white fail (2.56:1). */
+  --color-brand: #004aad;
+  --color-brand-strong: #004aad;
+  --color-brand-deep: #003a87;
+  --color-brand-tint: #eef3fb;
+  --color-brand-tint-2: #dce7f7;
+  --color-brand-line: #b9cdeb;
+  --color-brand-accent: #f18700;
+  --color-brand-accent-ink: #1a1100;
+
+  /* Neutral roles (shadcn/ui neutral scale; muted text and input border darkened for contrast) */
+  --color-ink: #0a0a0a; /* headings, key values: 18.97:1 on canvas */
+  --color-copy: #262626; /* body text: 14.5:1 on canvas */
+  --color-quiet: #5c5c5c; /* secondary (muted) text: 6.69:1 on white, 6.13:1 on wash */
+  --color-faint: #6b6b6b; /* tertiary text: ONLY on card or canvas (5.11:1 minimum) */
+  --color-line: #e5e5e5; /* hairline borders, dividers (decorative; shadcn border) */
+  --color-line-strong: #d4d4d4; /* control borders next to a label */
+  --color-control: #8a8a8a; /* input and checkbox borders: 3.45:1, meets 3:1 for UI edges */
+  --color-canvas: #fafafa; /* page background (shadcn sidebar surface) */
+  --color-card: #ffffff; /* cards, inputs, menus, main content */
+  --color-wash: #f5f5f5; /* hover rows, quiet fills (shadcn muted) */
+
+  /* Status (text on its own tint; pills ALWAYS show an icon and a word) */
+  --color-status-success: #15803d; /* 4.79:1 on tint */
+  --color-status-success-tint: #f0fdf4;
+  --color-status-success-line: #bbf7d0;
+  --color-status-warning: #b45309; /* 4.84:1 on tint */
+  --color-status-warning-tint: #fffbeb;
+  --color-status-warning-line: #fde68a;
+  --color-status-danger: #b91c1c; /* 5.91:1 on tint */
+  --color-status-danger-strong: #991b1b; /* danger button hover: white text 8.31:1 */
+  --color-status-danger-tint: #fef2f2;
+  --color-status-danger-line: #fecaca;
+  --color-status-info: #1d4ed8; /* 6.16:1 on tint */
+  --color-status-info-tint: #eff6ff;
+  --color-status-info-line: #bfdbfe;
+  --color-status-neutral: #475569; /* 6.92:1 on tint */
+  --color-status-neutral-tint: #f1f5f9;
+  --color-status-neutral-line: #cbd5e1;
+
+  /* Type scale (font size / line height). Body text is 14px. */
+  --text-*: initial;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.25rem;
+  --text-md: 0.9375rem;
+  --text-md--line-height: 1.375rem;
+  --text-lg: 1rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 1.875rem;
+  --text-3xl: 1.75rem;
+  --text-3xl--line-height: 2.125rem;
+
+  --font-weight-display: 650;
+  --tracking-display: -0.02em;
+  --tracking-heading: -0.015em;
+  --tracking-label: 0.06em;
+
+  /* Spacing: Tailwind's 4px step (p-1 = 4px, p-4 = 16px, ...). */
+  --spacing: 0.25rem;
+
+  /* Radius */
+  --radius-*: initial;
+  /* shadcn/ui radius 0.625rem: sm = radius - 4px, md = radius - 2px, lg = radius, xl = radius + 4px. */
+  --radius-chip: 0.375rem; /* 6px: kbd, small chips (sm) */
+  --radius-control: 0.5rem; /* 8px: buttons, inputs, menu items (md) */
+  --radius-card: 0.625rem; /* 10px: cards, dialogs (lg) */
+  --radius-panel: 0.875rem; /* 14px: drawers, large surfaces (xl) */
+
+  /* Soft shadows */
+  --shadow-*: initial;
+  --shadow-button: 0 1px 2px rgb(10 10 10 / 0.08);
+  --shadow-card: 0 1px 2px rgb(10 10 10 / 0.05);
+  --shadow-raised: 0 4px 16px rgb(10 10 10 / 0.08);
+  --shadow-overlay: 0 16px 40px rgb(10 10 10 / 0.16), 0 2px 6px rgb(10 10 10 / 0.06);
+
+  /* Motion. Durations live in :root below so prefers-reduced-motion can zero them. */
+  --ease-calm: cubic-bezier(0.2, 0, 0, 1);
+
+  --animate-ui-fade-in: ui-fade-in var(--ui-duration-base) var(--ease-calm) both;
+  --animate-ui-fade-out: ui-fade-out var(--ui-duration-quick) ease-in both;
+  --animate-ui-pop-in: ui-pop-in var(--ui-duration-base) var(--ease-calm) both;
+  --animate-ui-pop-out: ui-pop-out var(--ui-duration-quick) ease-in both;
+  --animate-ui-slide-in-right: ui-slide-in-right var(--ui-duration-slow) var(--ease-calm) both;
+  --animate-ui-slide-out-right: ui-slide-out-right var(--ui-duration-base) ease-in both;
+  --animate-ui-slide-in-left: ui-slide-in-left var(--ui-duration-slow) var(--ease-calm) both;
+  --animate-ui-slide-out-left: ui-slide-out-left var(--ui-duration-base) ease-in both;
+  --animate-ui-pulse: ui-pulse 1.4s ease-in-out infinite alternate;
+  --animate-ui-spin: ui-spin 0.9s linear infinite;
+
+  @keyframes ui-fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes ui-fade-out {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes ui-pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px) scale(0.98);
+    }
+  }
+  @keyframes ui-pop-out {
+    to {
+      opacity: 0;
+      transform: scale(0.98);
+    }
+  }
+  @keyframes ui-slide-in-right {
+    from {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes ui-slide-out-right {
+    to {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes ui-slide-in-left {
+    from {
+      transform: translateX(-100%);
+    }
+  }
+  @keyframes ui-slide-out-left {
+    to {
+      transform: translateX(-100%);
+    }
+  }
+  @keyframes ui-pulse {
+    to {
+      opacity: 0.55;
+    }
+  }
+  @keyframes ui-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+
+/* Inter from next/font/local (src/app/fonts.ts sets --font-inter and
+   --font-inter-ext on <html>). The latin-ext face (rupee sign and accented
+   letters; its unicode-range limits it to those) comes FIRST: --font-inter
+   ends in its own size-adjusted Arial fallback, which would otherwise catch
+   those characters before the browser reaches the latin-ext face. */
+@theme inline {
+  --font-sans:
+    var(--font-inter-ext), var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans',
+    'Noto Sans Devanagari', sans-serif;
+}
+
+@layer theme {
+  :root {
+    --ui-duration-quick: 120ms;
+    --ui-duration-base: 180ms;
+    --ui-duration-slow: 240ms;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --ui-duration-quick: 0ms;
+      --ui-duration-base: 0ms;
+      --ui-duration-slow: 0ms;
+    }
+  }
+}
+
+/*
+ * Design-review states. The gallery (/preview/ui-gallery) shows hover and
+ * keyboard-focus looks without a pointer by setting data-preview-state on an
+ * element. Real screens never set it, so for them these variants behave
+ * exactly like Tailwind's own `hover` and `focus-visible`.
+ */
+@custom-variant hover {
+  @media (hover: hover) {
+    &:hover {
+      @slot;
+    }
+  }
+  &[data-preview-state~='hover'] {
+    @slot;
+  }
+}
+
+@custom-variant focus-visible {
+  &:focus-visible {
+    @slot;
+  }
+  &[data-preview-state~='focus'] {
+    @slot;
+  }
+}
+
+/* Text controls show their ring on any focus (Chrome does not match
+   :focus-visible on a date input while a date segment has focus). */
+@custom-variant focus {
+  &:focus {
+    @slot;
+  }
+  &[data-preview-state~='focus'] {
+    @slot;
+  }
+}
