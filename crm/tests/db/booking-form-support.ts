@@ -11,12 +11,14 @@ import { b11Helpers } from './b11-support';
 /** Keys booking_form_get gained in 20261124000120, removed so older-body comparisons still hold. */
 export function stripBookingFormKeys(form: Record<string, unknown>): Record<string, unknown> {
   // tripFacts: voice-note batch (20261128000110), stripped the same way.
-  const { party, coverage, itemFilesCanEdit, prices, tripFacts, ...rest } = form;
+  // flightFareTotals, bitrixDealHref, idProofCopyApplies: Book now v2 (20261129000120/0130), stripped the same way.
+  const { party, coverage, itemFilesCanEdit, prices, tripFacts, flightFareTotals, bitrixDealHref, idProofCopyApplies, ...rest } = form;
   void party;
   void coverage;
   void itemFilesCanEdit;
   void prices;
   void tripFacts;
+  void [flightFareTotals, bitrixDealHref, idProofCopyApplies];
   const out: Record<string, unknown> = { ...rest };
   if (out.version && typeof out.version === 'object') {
     const { formRules, ...v } = out.version as Record<string, unknown>;

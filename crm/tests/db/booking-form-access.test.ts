@@ -148,7 +148,7 @@ describe('department tasks after submission', () => {
 });
 
 describe('supplier estimates through booking_service_save', () => {
-  it('commercial readers only; unknown stays null; a change never moves the total, the prices or the budget (H2, H5)', async () => {
+  it('commercial readers only; unknown stays null; a change never moves the total or the prices; the never-typed budget follows it (H2, H5, D2)', async () => {
     await asOwner(db, async () => {
       const r = await h.readyForm();
       const itemId = r.itemIds[0]!;
@@ -159,7 +159,9 @@ describe('supplier estimates through booking_service_save', () => {
       const before = await snapshot();
       const saved = await h.saveService(OWNER, r.versionId, r.rowVersion, { itemId, facts: HOTEL,
         estimate: { roomRatePaise: '1000000', extraBedRatePaise: '200000', noBedRatePaise: null } });
-      expect(await snapshot()).toEqual(before);
+      // Book now v2 (owner decision D2): the budget was never typed, so it follows the new estimate
+      // (3 nights x 2 rooms x 10,000 rupees); the selling total and the price lines stay as they were.
+      expect(await snapshot()).toEqual(before.map((row) => ({ ...row, budget: '6000000' })));
       expect(await owner('select room_rate_paise::text, no_bed_rate_paise from public.service_item_cost_estimates where service_item_id = $1',
         [itemId])).toEqual([{ room_rate_paise: '1000000', no_bed_rate_paise: null }]);
       await refusedWithHint(OWNER, SERVICE_SQL, [r.versionId, saved.rowVersion, itemId, null, JSON.stringify(HOTEL), null,

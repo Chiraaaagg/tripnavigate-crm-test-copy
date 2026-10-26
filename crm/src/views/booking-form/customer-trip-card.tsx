@@ -124,7 +124,8 @@ export function customerInitial(vm: BookingFormCore, view: BookNowView, deal?: D
   // Saved adults (voice-note batch); on older versions worked out from the total.
   const savedAdults = (vm as { partyAdults?: number | null }).partyAdults ?? null;
   const total = d?.total ?? vm.party.total;
-  const adults = d?.adults ?? savedAdults ?? (total !== null && total !== undefined && !(d && d.total !== null && d.adults === null) ? Math.max(0, total - (children ?? 0) - (infants ?? 0)) : null);
+  // A total with no adult count (the Deal's or the stored party's): adults = total − children − infants (the live rule).
+  const adults = d?.adults ?? savedAdults ?? (total !== null && total !== undefined ? Math.max(0, total - (children ?? 0) - (infants ?? 0)) : null);
   return {
     contactName: c?.contactName ?? '',
     mobile: c?.mobile ?? '',

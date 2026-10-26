@@ -33,6 +33,7 @@ export function RefreshDialog({
   dealId,
   dealHref,
   refresh,
+  returnFocusTo = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -40,6 +41,8 @@ export function RefreshDialog({
   /** The Deal in Bitrix (null = no link known). */
   dealHref: string | null;
   refresh: BookingFormActions['refreshFromBitrix'];
+  /** The button that opened the dialog ("Correct" or "Need another traveller?"); focus goes back to it. */
+  returnFocusTo?: HTMLElement | null;
 }) {
   const router = useRouter();
   const toast = useFormToast();
@@ -75,7 +78,16 @@ export function RefreshDialog({
         onOpenChange(o);
       }}
     >
-      <DialogContent closeLabel="Close">
+      <DialogContent
+        closeLabel="Close"
+        onCloseAutoFocus={(e) => {
+          // Opened by state (no trigger), so the dialog would not know where focus came from.
+          if (returnFocusTo?.isConnected) {
+            e.preventDefault();
+            returnFocusTo.focus();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="text-lg">Correct trip details in Bitrix</DialogTitle>
         </DialogHeader>

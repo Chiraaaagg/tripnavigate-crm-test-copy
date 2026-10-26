@@ -597,7 +597,13 @@ describe('booking_form_get', () => {
         expect(prefill).toMatchObject({ available: false });
         expect(typeof idProofCanEdit).toBe('boolean');
         expect(typeof idProofCanRemove).toBe('boolean');
-        const { travellers: oldTravellers, ...oldRest } = before;
+        const { travellers: oldTravellers, ...oldRestRaw } = before;
+        // Book now v2 review round 1: purchaseBudgetPaise reaches booking-form readers only with
+        // commercial access (the budget can now equal the "Our cost" estimate), so it is dropped
+        // from the old body for readers that no longer receive it.
+        const oldRest = JSON.stringify(rest).includes('"purchaseBudgetPaise"')
+          ? oldRestRaw
+          : (JSON.parse(JSON.stringify(oldRestRaw, (k, v) => (k === 'purchaseBudgetPaise' ? undefined : v))) as typeof oldRestRaw);
         expect(rest).toEqual(oldRest);
         expect(idProofLimits).toBeDefined();
         const stripped = (travellers as Array<Record<string, unknown>>).map(({ idProofs, ...t }) => {

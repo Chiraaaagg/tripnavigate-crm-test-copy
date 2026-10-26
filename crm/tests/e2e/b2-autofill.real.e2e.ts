@@ -181,8 +181,8 @@ test.describe('Batch 2 automatic fill from Bitrix (real local stack)', () => {
       await expect(contactName(sales)).toHaveValue('');
       await expect(mobile(sales)).toHaveValue('');
       await expect(perValueAsk(sales)).toHaveCount(0);
-      await expect(sales.locator('main')).toContainText('Details are entered by hand.');
-      await expect(sales.getByRole('button', { name: 'From Bitrix for Contact name: details' })).toHaveCount(0);
+      // Book now v2 (change 15): the marker is a small "From Bitrix" tag inside the label; none when the switch is off.
+      await expect(sales.locator('section#customer')).not.toContainText('From Bitrix');
       await expect(contactTick(sales)).not.toBeChecked();
     });
 
@@ -192,19 +192,26 @@ test.describe('Batch 2 automatic fill from Bitrix (real local stack)', () => {
       await expect(contactName(sales)).toHaveValue(BITRIX.contactName);
       await expect(mobile(sales)).toHaveValue(BITRIX.mobile);
       await expect(email(sales)).toHaveValue(BITRIX.email);
-      for (const field of ['Contact name', 'Contact mobile', 'Contact email']) await expect(sales.getByRole('button', { name: `From Bitrix for ${field}: details` })).toBeVisible();
+      for (const id of ['bf-contact-name', 'bf-contact-mobile', 'bf-contact-email']) await expect(sales.locator(`label[for="${id}"]`)).toContainText('From Bitrix');
       await expect(perValueAsk(sales)).toHaveCount(0);
       await expect(sales.getByRole('button', { name: 'Fill empty fields from Bitrix' })).toHaveCount(0);
       await expect(sales.locator('main')).not.toContainText('Details are entered by hand.');
       // Never filled: the contact check, Bill To (Accounts checks it).
       await expect(contactTick(sales)).not.toBeChecked();
-      await expect(sales.locator('#bf-bill-name')).toHaveValue('');
+      await expect(sales.locator('section#billTo')).not.toContainText(BITRIX.contactName);
     });
 
     await test.step('staff clear the e-mail and save; reloads never refill it', async () => {
       await email(sales).fill('');
-      await sales.getByRole('button', { name: 'Save customer details' }).click();
-      await expect(sales.getByRole('status').filter({ hasText: 'Customer details saved.' })).toBeVisible({ timeout: 30_000 });
+      // Book now v2 (change 2, ruling D1): the card saves itself once every check passes, so the trip
+      // values the Deal does not give and the contact tick are filled first (changing the e-mail asks again).
+      await sales.getByLabel('Destination', { exact: true }).fill('Synthetic Kerala');
+      await sales.getByLabel('Trip', { exact: true }).selectOption('domestic');
+      await sales.getByRole('spinbutton', { name: 'Adults' }).fill('2');
+      await contactTick(sales).check();
+      await expect(sales.locator('#pill-customer')).toHaveAttribute('data-state', 'saved', { timeout: 30_000 });
+      await expect.poll(() => db(async (client) => (await client.query<{ email: string | null }>(
+        `select c.email from public.booking_version_contacts c join public.booking_versions v on v.id = c.booking_version_id where v.deal_id = $1`, [onDeal])).rows.map((r) => r.email ?? 'cleared').join(',')), { timeout: 30_000 }).toBe('cleared');
       for (let i = 0; i < 2; i += 1) {
         await sales.reload();
         await expect(email(sales)).toHaveValue('');
@@ -239,7 +246,8 @@ test.describe('Batch 2 automatic fill from Bitrix (real local stack)', () => {
         );
         return { runs: runs[0]!.n, email: c[0]?.email ?? null, confirmed: c[0]?.contact_confirmed, offRuns: offRuns[0]!.n };
       });
-      expect(facts).toEqual({ runs: '1', email: null, confirmed: false, offRuns: '0' });
+      // Book now v2 (D1): the card is saved only with the contact tick, so the stored contact is confirmed.
+      expect(facts).toEqual({ runs: '1', email: null, confirmed: true, offRuns: '0' });
     });
 
     expect(csp.violations).toEqual([]);

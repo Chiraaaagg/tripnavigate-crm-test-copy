@@ -70,7 +70,7 @@ export function BookingFormScreen(props: BookingFormScreenProps) {
         reloadHref={links.reload}
       >
         <FormStepProvider initialStep={initialStep} hrefs={hrefs}>
-          <SaveQueueProvider>
+          <SaveQueueProvider scope={view.version?.versionId ?? view.dealId}>
             <FormToastProvider>
               <ScreenBody {...props} />
               {auto ? <AutoFillOnOpen {...props} /> : null}
@@ -127,6 +127,11 @@ function ScreenBody({ vm, view, actions, links, ownerText, vn }: BookingFormScre
   const [liveTotal, setLiveTotal] = useState<{ paise: string | null; settled: boolean; gap: string | null }>({ paise: vm.prices?.sellingTotalPaise ?? null, settled: true, gap: null });
   const onTotal = useCallback((paise: string | null, settled: boolean, gap: string | null) => setLiveTotal({ paise, settled, gap }), []);
   const [correctOpen, setCorrectOpen] = useState(false);
+  const [correctOpener, setCorrectOpener] = useState<HTMLElement | null>(null);
+  const openCorrect = () => {
+    setCorrectOpener(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setCorrectOpen(true);
+  };
   const [chosen, setChosen] = useState<ServiceType[]>(() => SERVICE_CHIPS.map((c) => c.type).filter((t) => vm.items.some((i) => i.serviceType === t)));
 
   const n = countsOf(customer);
@@ -236,13 +241,13 @@ function ScreenBody({ vm, view, actions, links, ownerText, vn }: BookingFormScre
           {stepBox(
             'travellers',
             <>
-              <CustomerTripCard vm={vm} view={view} action={actions.saveCustomer} onValues={onCustomer} dealFacts={dealFacts} onCorrect={() => setCorrectOpen(true)} />
+              <CustomerTripCard vm={vm} view={view} action={actions.saveCustomer} onValues={onCustomer} dealFacts={dealFacts} onCorrect={openCorrect} />
               <PassengersCard
                 view={view}
                 counts={{ adults: n.a, children: n.c, infants: n.i }}
                 countsLocked={from.adults}
                 onRows={onRows}
-                onMorePax={() => setCorrectOpen(true)}
+                onMorePax={openCorrect}
                 copyApplies={vm.idProofCopyApplies}
                 actions={{ saveTravellers: actions.saveTravellers, saveIdentity: actions.saveIdentity, uploadIdProof: actions.uploadIdProof, removeIdProof: actions.removeIdProof, retryIdProofCopy: actions.retryIdProofCopy }}
               />
@@ -320,7 +325,7 @@ function ScreenBody({ vm, view, actions, links, ownerText, vn }: BookingFormScre
           )}
         </div>
       </div>
-      <RefreshDialog open={correctOpen} onOpenChange={setCorrectOpen} dealId={view.dealId} dealHref={dealFacts?.bitrixDealHref ?? null} refresh={actions.refreshFromBitrix} />
+      <RefreshDialog open={correctOpen} onOpenChange={setCorrectOpen} dealId={view.dealId} dealHref={dealFacts?.bitrixDealHref ?? null} refresh={actions.refreshFromBitrix} returnFocusTo={correctOpener} />
     </div>
   );
 }

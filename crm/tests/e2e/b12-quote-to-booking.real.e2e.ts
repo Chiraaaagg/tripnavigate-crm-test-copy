@@ -187,16 +187,16 @@ async function signInAndEnrol(context: BrowserContext, email: string): Promise<P
   return page;
 }
 
-// Booking form (owner-approved preview, 22 October 2026): three steps on one screen; the footer saves and moves on.
+// Booking form (owner-approved preview, 22 October 2026; Book now v2): three steps on one screen; the cards
+// save themselves and the footer only moves between steps.
 const STEP_NAME = { travellers: 'Customer & passengers', stay: 'Trip & services', finish: 'Price & Bill To' } as const;
-const saveAndContinue = async (page: Page, next: string) => {
-  await page.getByRole('button', { name: next === STEP_NAME.stay ? 'Save and go to step 2' : 'Save and go to step 3' }).click();
+const goToStep = async (page: Page, next: string) => {
+  await page.getByRole('button', { name: next === STEP_NAME.stay ? 'Go to step 2' : 'Go to step 3' }).click();
   await expect(page).toHaveURL(new RegExp(`/book/${next === STEP_NAME.stay ? 'stay' : 'finish'}`), { timeout: 30_000 });
 };
 const CONTACT_TICK = 'I confirmed the contact details with the customer';
 const SUBMIT_BUTTON = 'Submit booking and create tasks';
 const SUBMIT_DIALOG = 'Submit this booking and create tasks?';
-const NOTHING_LEFT = 'To finish before submitting (0)';
 /** Open one of the six quotation parts (G1) when it is closed (its heading button controls `{part}-body`); an open part stays open. */
 type PartKey = 'details' | 'contact' | 'services' | 'narrative' | 'money' | 'plan';
 const openPart = async (page: Page, part: PartKey) => {
@@ -409,31 +409,33 @@ test.describe('B1.2 quotation to booking journey (real local stack)', () => {
       const main = sales.locator('main');
       await expect(main.getByLabel('Name', { exact: true })).toHaveValue('Synthetic Quote Customer');
       await expect(main.getByLabel('Destination', { exact: true })).toHaveValue('Goa');
-      const pax = main.getByLabel('Total passengers');
-      if ((await pax.inputValue()) === '') await pax.fill('2');
+      // Book now v2: adult, child and infant steppers (no total box).
+      const adults = main.getByRole('spinbutton', { name: 'Adults' });
+      if ((await adults.inputValue()) === '') await adults.fill('2');
       const scope = main.getByLabel('Trip', { exact: true });
       if ((await scope.inputValue()) === '') await scope.selectOption('domestic');
       await main.getByLabel(CONTACT_TICK).check();
-      await main.getByRole('button', { name: 'Save customer details' }).click();
-      await expect(main.getByRole('status').filter({ hasText: 'Customer details saved.' })).toBeVisible({ timeout: 30_000 });
-      // Voice-note batch: passenger rows come from the counts (no Add passenger); only named rows are saved.
-      await main.getByLabel('Passenger 1 name').fill('Synthetic Quote Traveller One');
-      await main.getByLabel('Passenger 2 name').fill('Synthetic Quote Traveller Two');
-      await main.getByRole('button', { name: 'Save passengers' }).click();
-      await expect(main.getByRole('status').filter({ hasText: 'Passengers saved.' })).toBeVisible({ timeout: 30_000 });
-      // Voice-note batch: each passenger row has a visible "Attach ID proof" button that opens the ID proof dialog.
+      // The card saves itself once every check passes (change 2, ruling D1).
+      await expect(sales.locator('#pill-customer')).toHaveAttribute('data-state', 'saved', { timeout: 30_000 });
+      await expect.poll(() => db(async (client) => (await client.query<{ c: boolean | null }>(
+        `select c.contact_confirmed as c from public.booking_version_contacts c join public.booking_versions v on v.id = c.booking_version_id
+         where v.deal_id = $1 and v.status = 'draft'`, [dealId])).rows[0]?.c ?? null), { timeout: 30_000 }).toBe(true);
+      // Passenger rows come from the counts (no Add passenger); named rows save themselves.
+      await main.getByLabel('Passenger 1 full name').fill('Synthetic Quote Traveller One');
+      await main.getByLabel('Passenger 2 full name').fill('Synthetic Quote Traveller Two');
+      await expect.poll(() => db(async (client) => (await client.query<{ n: string }>(
+        'select count(*)::text as n from public.deal_travellers where deal_id = $1', [dealId])).rows[0]!.n), { timeout: 30_000 }).toBe('2');
+      // Each passenger row has a visible "Attach ID proof" button that opens the ID proof dialog; it closes once stored.
       for (const who of ['Synthetic Quote Traveller One', 'Synthetic Quote Traveller Two']) {
         await main.getByRole('button', { name: `Attach ID proof for ${who}` }).click();
         const dialog = sales.getByRole('dialog', { name: `ID proof · ${who}` });
-        const slot = dialog.getByRole('form', { name: `Attach ID proof for ${who}` });
-        await slot.getByLabel('ID proof file').setInputFiles({ name: 'synthetic-id.pdf', mimeType: 'application/pdf', buffer: syntheticPdf(`Synthetic identity proof for ${who} ${tag}`) });
-        await slot.getByLabel('Customer agreed to share this ID for this booking').check();
-        await slot.getByRole('button', { name: `Attach ID proof for ${who}` }).click();
-        await expect(dialog.getByRole('list', { name: `ID proof files of ${who}` })).toContainText('Attached', { timeout: 30_000 });
-        await dialog.getByRole('button', { name: 'Done' }).click();
-        await expect(dialog).toBeHidden();
+        await dialog.getByLabel('ID proof file').setInputFiles({ name: 'synthetic-id.pdf', mimeType: 'application/pdf', buffer: syntheticPdf(`Synthetic identity proof for ${who} ${tag}`) });
+        await dialog.getByLabel('Customer agreed to share this ID for this booking').check();
+        await dialog.getByRole('button', { name: `Attach ID proof for ${who}` }).click();
+        await expect(dialog).toBeHidden({ timeout: 60_000 });
       }
-      await saveAndContinue(sales, STEP_NAME.stay);
+      await expect(main).not.toContainText('ID proof still needed', { timeout: 30_000 });
+      await goToStep(sales, STEP_NAME.stay);
     });
 
     await test.step('step 2: the hotel came from the quotation; who takes part is chosen here', async () => {
@@ -441,14 +443,16 @@ test.describe('B1.2 quotation to booking journey (real local stack)', () => {
       await expect(main).toContainText('Synthetic Beach Resort');
       await main.getByRole('button', { name: 'Edit hotel 1' }).click();
       const hotel = sales.getByRole('dialog', { name: 'Edit hotel stay' });
-      // Voice-note batch: who takes part is a toggle + checkboxes in the main area (no More details on a hotel).
-      await hotel.getByRole('button', { name: /Choose passengers/ }).click();
-      // Travellers did not exist when the quotation was accepted: who takes part is chosen here, by hand.
-      await hotel.getByLabel('Synthetic Quote Traveller One').check();
-      await hotel.getByLabel('Synthetic Quote Traveller Two').check();
+      // Travellers did not exist when the quotation was accepted: who stays is chosen here, by hand (chips).
+      const who = hotel.getByRole('group', { name: 'Who stays here' });
+      for (const name of ['Synthetic Quote Traveller One', 'Synthetic Quote Traveller Two']) {
+        const chip = who.getByRole('button', { name });
+        if ((await chip.getAttribute('aria-pressed')) !== 'true') await chip.click();
+      }
+      await expect(hotel.locator('#svc-who-line')).toContainText('2 of 2 chosen');
       await hotel.getByRole('button', { name: 'Save hotel' }).click();
       await expect(hotel).toBeHidden({ timeout: 30_000 });
-      await saveAndContinue(sales, STEP_NAME.finish);
+      await goToStep(sales, STEP_NAME.finish);
     });
 
     await test.step('step 3: the accepted total stands; Bill To; acceptance from the quotation; submit', async () => {
@@ -458,17 +462,17 @@ test.describe('B1.2 quotation to booking journey (real local stack)', () => {
       // Voice-note batch: Bill To is search first; the typed form opens with "Type the details instead".
       await bill.getByRole('button', { name: 'Type the details instead' }).click();
       await bill.getByRole('button', { name: 'Use booking contact' }).click();
-      await bill.getByText('Billing address').click();
       await bill.getByLabel('Address', { exact: true }).fill('1 Synthetic Lane');
       await bill.getByLabel('City').fill('Jodhpur');
       await bill.getByLabel('State').selectOption('08');
       await bill.getByLabel('PIN code').fill('342001');
-      await bill.getByRole('button', { name: 'Save Bill To' }).click();
-      await expect(bill.getByRole('status').filter({ hasText: 'Bill To saved. Accounts checks it before use.' })).toBeVisible({ timeout: 30_000 });
-      await main.locator('details#bf-before-submit > summary').click();
-      await expect(main).toContainText(/Customer said yes to quotation TQ-\d+, version 1, on /);
+      // Bill To saves itself (change 2).
+      await expect.poll(() => db(async (client) => (await client.query<{ pin: string | null }>(
+        'select postal_code as pin from public.customer_billing_profiles where deal_id = $1', [dealId])).rows[0]?.pin ?? null), { timeout: 30_000 }).toBe('342001');
+      // The customer's written OK came from the quotation (its own card, change 9).
+      await expect(main.locator('section#ok')).toContainText(/Customer said yes to quotation TQ-\d+, version 1, on /);
       await expect(sales.getByRole('link', { name: 'Open the written OK' })).toBeVisible();
-      await expect(sales.getByRole('heading', { name: NOTHING_LEFT, exact: true })).toBeVisible({ timeout: 30_000 });
+      await expect(sales.locator('#bf-ready').getByRole('heading', { name: 'Ready to submit' })).toBeVisible({ timeout: 30_000 });
       await sales.screenshot({ path: `${shotDir}/04-finish.png`, fullPage: true });
       await main.getByRole('button', { name: 'Review and submit' }).click();
       const dialog = sales.getByRole('dialog', { name: SUBMIT_DIALOG });

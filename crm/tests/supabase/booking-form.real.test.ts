@@ -140,7 +140,7 @@ async function formDraft(dealId: string, types: Array<'hotel' | 'flight'>) {
     const saved = await rpc<{ itemId: string; rowVersion: number }>(owner.client, 'booking_service_save', {
       p_version_id: s.versionId, p_expected_row_version: rv, p_item_id: null, p_service_type: type,
       p_facts: type === 'hotel' ? HOTEL : FLIGHT, p_purchase_budget_paise: null,
-      p_estimate: type === 'hotel' ? { kind: 'hotel', roomRatePaise: '450000', extraBedRatePaise: null, noBedRatePaise: null } : { kind: 'flight', fareTotalPaise: '900000' },
+      p_estimate: type === 'hotel' ? { kind: 'hotel', roomRatePaise: '450000', extraBedRatePaise: null, noBedRatePaise: null } : { kind: 'flight', fareAdultPaise: '900000' },
       p_participants: [1, 2], p_request_id: crypto.randomUUID(),
     });
     rv = saved.rowVersion;
@@ -358,7 +358,9 @@ describe.skipIf(!enabled)('booking form against the real stack', () => {
 
     await rpc(flight.client, 'flight_task_claim', { p_task_id: taskIds[1] });
     const flightTask = await rpc<Record<string, unknown>>(flight.client, 'flight_task_get', { p_task_id: taskIds[1] });
-    expect(flightTask.estimate).toEqual({ kind: 'flight', fareTotalPaise: '900000' });
+    // Book now v2: fare per person (the older total is never written by the new form).
+    expect(flightTask.estimate).toEqual({ kind: 'flight', fareTotalPaise: null, fareAdultPaise: '900000', fareChildPaise: null, fareInfantPaise: null });
+    expect(flightTask.fareTotals).toBeNull();
     expect((flightTask.files as Array<{ fileId: string }>).map((f) => f.fileId)).toEqual([screenshotId]);
     expect(JSON.stringify(flightTask)).not.toMatch(SEARCH);
     const flightDownload = await rpc<{ objectPath: string }>(flight.client, 'service_item_file_authorize_download', { p_file_id: screenshotId });

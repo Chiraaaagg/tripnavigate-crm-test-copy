@@ -51,6 +51,8 @@ export const AUTOSAVE_TARGET: Record<AutosaveKey, string> = {
 export const AUTOSAVE_DELAY_MS = 700;
 
 interface QueueContext {
+  /** The draft these saves belong to (the settled states below are kept per draft). */
+  scope: string;
   run: <T>(job: () => Promise<T>) => Promise<T>;
   /** Saves waiting or in flight on this page. */
   pending: number;
@@ -70,7 +72,14 @@ export function createSerialQueue() {
   };
 }
 
-export function SaveQueueProvider({ children }: { children: ReactNode }) {
+/**
+ * Each card's last settled state per draft, kept for this page's life: a card
+ * that mounts again (the step addresses render the screen again) shows what
+ * its last save did, not "Not started".
+ */
+const lastSettled = new Map<string, CardSaveState>();
+
+export function SaveQueueProvider({ scope = '', children }: { scope?: string; children: ReactNode }) {
   const serial = useRef(createSerialQueue());
   const [pending, setPending] = useState(0);
   const [cards, setCards] = useState<Partial<Record<AutosaveKey, CardSaveState>>>({});
@@ -91,12 +100,12 @@ export function SaveQueueProvider({ children }: { children: ReactNode }) {
       return { ...c, [key]: s };
     });
   }, []);
-  const value = useMemo(() => ({ run, pending, cards, report }), [run, pending, cards, report]);
+  const value = useMemo(() => ({ scope, run, pending, cards, report }), [scope, run, pending, cards, report]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 /** Outside the booking form (gallery cards on their own) saves run directly. */
-const DIRECT: QueueContext = { run: (job) => job(), pending: 0, cards: {}, report: () => {} };
+const DIRECT: QueueContext = { scope: '', run: (job) => job(), pending: 0, cards: {}, report: () => {} };
 
 export function useSaveQueue(): QueueContext {
   return useContext(Ctx) ?? DIRECT;
@@ -141,7 +150,17 @@ export function useAutosave<T>({
   refs?: readonly FieldRef[];
 }): CardSaveState & { flushNow: () => void } {
   const queue = useSaveQueue();
-  const [s, setS] = useState<CardSaveState>({ state: hasStored ? 'saved' : 'idle', reason: null });
+  const memoKey = `${queue.scope}:${key}`;
+  const [s, setS] = useState<CardSaveState>(() => {
+    const last = lastSettled.get(memoKey);
+    if (last && (last.state === 'saved' || last.state === 'fix')) return last;
+    return { state: hasStored ? 'saved' : 'idle', reason: null };
+  });
+  // The stored view says the card has data and nothing is typed: it reads "Saved".
+  if (hasStored && !dirty && s.state === 'idle') setS({ state: 'saved', reason: null });
+  useEffect(() => {
+    if (s.state === 'saved' || s.state === 'fix') lastSettled.set(memoKey, s);
+  }, [memoKey, s]);
   const settled = useRef<CardSaveState>(s);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef({ check, send, refs, enabled, dirty });

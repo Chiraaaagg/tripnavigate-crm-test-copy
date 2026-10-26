@@ -113,14 +113,14 @@ async function signInAndEnrol(context: BrowserContext, email: string): Promise<P
 // screen-reader heading "Step n of 3: name"; the footer saves the changed parts and moves on.
 const STEP_NAME = { travellers: 'Customer & passengers', stay: 'Trip & services', finish: 'Price & Bill To' } as const;
 const step = (page: Page, name: string) => page.getByRole('heading', { level: 2, name: new RegExp(`^Step \\d of 3: ${name.replace(/[&]/g, '\\$&')}$`) });
-const saveAndContinue = async (page: Page, next: string) => {
-  await page.getByRole('button', { name: next === STEP_NAME.stay ? 'Save and go to step 2' : 'Save and go to step 3' }).click();
+// Book now v2: the footer only moves between steps (the cards save themselves).
+const goToStep = async (page: Page, next: string) => {
+  await page.getByRole('button', { name: next === STEP_NAME.stay ? 'Go to step 2' : 'Go to step 3' }).click();
   await expect(page).toHaveURL(new RegExp(`/book/${next === STEP_NAME.stay ? 'stay' : 'finish'}`), { timeout: 30_000 });
 };
 const CONTACT_TICK = 'I confirmed the contact details with the customer';
 const SUBMIT_BUTTON = 'Submit booking and create tasks';
 const SUBMIT_DIALOG = 'Submit this booking and create tasks?';
-const NOTHING_LEFT = 'To finish before submitting (0)';
 const syntheticPdf = (label: string) => Buffer.from(`%PDF-1.4\n% ${label}\n%%EOF\n`);
 
 test.describe('B1.1 browser-only fresh-Deal journey (real local stack)', () => {
@@ -181,88 +181,87 @@ test.describe('B1.1 browser-only fresh-Deal journey (real local stack)', () => {
       await sales.goto(`/app/deals/${dealId}/book/travellers`);
     });
 
-    await test.step('step 1: customer, trip and party in one card; passengers as compact rows', async () => {
+    await test.step('step 1: customer, trip and party in one card that saves itself; passengers as compact rows', async () => {
       const main = sales.locator('main');
       await main.getByLabel('Name', { exact: true }).fill('Synthetic Journey Customer');
       await main.getByLabel('Phone', { exact: true }).first().fill('9876500099');
       await main.getByLabel('Destination', { exact: true }).fill('Mumbai');
       await main.getByLabel('Travel date').fill('2026-12-10');
-      await main.getByLabel('Total passengers').fill('2');
+      await main.getByRole('spinbutton', { name: 'Adults' }).fill('2');
       await main.getByLabel('Return date').fill('2026-12-13');
       await main.getByLabel('Trip', { exact: true }).selectOption('domestic');
       await main.getByLabel(CONTACT_TICK).check();
-      await main.getByRole('button', { name: 'Save customer details' }).click();
-      await expect(main.getByRole('status').filter({ hasText: 'Customer details saved.' })).toBeVisible({ timeout: 30_000 });
-      // Voice-note batch: passenger rows come from the counts (no Add passenger); only named rows are saved.
-      await main.getByLabel('Passenger 1 name').fill('Synthetic Traveller One');
-      await main.getByLabel('Passenger 2 name').fill('Synthetic Traveller Two');
-      await main.getByRole('button', { name: 'Save passengers' }).click();
-      await expect(main.getByRole('status').filter({ hasText: 'Passengers saved.' })).toBeVisible({ timeout: 30_000 });
+      // Book now v2 (change 2, ruling D1): the card saves itself once every check passes.
+      await expect(sales.locator('#pill-customer')).toHaveAttribute('data-state', 'saved', { timeout: 30_000 });
+      await expect.poll(() => db(async (client) => (await client.query<{ n: number | null }>(
+        `select pax_total as n from public.booking_versions where deal_id = $1 and status = 'draft'`, [dealId])).rows[0]?.n ?? null), { timeout: 30_000 }).toBe(2);
+      // Passenger rows come from the counts (no Add passenger); named rows save themselves.
+      await main.getByLabel('Passenger 1 full name').fill('Synthetic Traveller One');
+      await main.getByLabel('Passenger 2 full name').fill('Synthetic Traveller Two');
+      await expect(main.locator('#bf-pax-named')).toHaveText('2 of 2 named');
+      await expect.poll(() => db(async (client) => (await client.query<{ n: string }>(
+        'select count(*)::text as n from public.deal_travellers where deal_id = $1', [dealId])).rows[0]!.n), { timeout: 30_000 }).toBe('2');
     });
 
-    await test.step('step 1: identity proof per adult in the Details drawer, consent required', async () => {
+    await test.step('step 1: identity proof per adult from the passenger row, consent required', async () => {
       await expect(sales.locator('main')).toContainText('ID proof still needed: Synthetic Traveller One, Synthetic Traveller Two', { timeout: 30_000 });
       for (const [i, who] of ['Synthetic Traveller One', 'Synthetic Traveller Two'].entries()) {
-        await sales.locator('main').getByRole('button', { name: `Details for passenger ${i + 1}` }).click();
-        const drawer = sales.getByRole('dialog', { name: 'Passenger details' });
-        const slot = drawer.getByRole('form', { name: `Attach ID proof for ${who}` });
-        await slot.getByLabel('ID proof file').setInputFiles({ name: 'synthetic-id.pdf', mimeType: 'application/pdf', buffer: syntheticPdf(`Synthetic identity proof for ${who} ${ref}`) });
+        await sales.locator('main').getByRole('button', { name: `Attach ID proof for ${who}` }).click();
+        const dialog = sales.getByRole('dialog', { name: `ID proof · ${who}` });
+        // The first adult sends the front and the back together (one dialog, two files).
+        const files = i === 0
+          ? [
+              { name: 'synthetic-id.pdf', mimeType: 'application/pdf', buffer: syntheticPdf(`Synthetic identity proof for ${who} ${ref}`) },
+              { name: 'synthetic-id-back.pdf', mimeType: 'application/pdf', buffer: syntheticPdf(`Synthetic identity proof back for ${who} ${ref}`) },
+            ]
+          : [{ name: 'synthetic-id.pdf', mimeType: 'application/pdf', buffer: syntheticPdf(`Synthetic identity proof for ${who} ${ref}`) }];
+        await dialog.getByLabel('ID proof file').setInputFiles(files);
         if (i === 0) {
-          await slot.getByRole('button', { name: `Attach ID proof for ${who}` }).click();
-          await expect(slot.locator('[data-slot="error-summary"]')).toContainText('Customer agreed to share this ID for this booking');
+          // Without the consent tick nothing is sent.
+          await dialog.getByRole('button', { name: `Attach ID proof for ${who}` }).click();
+          await expect(dialog.getByRole('alert')).toContainText('Tick the customer’s agreement first. Nothing was uploaded.');
         }
-        await slot.getByLabel('Customer agreed to share this ID for this booking').check();
-        await slot.getByRole('button', { name: `Attach ID proof for ${who}` }).click();
-        await expect(drawer.getByRole('list', { name: `ID proof files of ${who}` })).toContainText('Attached', { timeout: 30_000 });
-        if (i === 0) {
-          // Echo follow-up (form reset): a second file (the back) for the same passenger, without a reload.
-          await slot.getByLabel('ID proof file').setInputFiles({ name: 'synthetic-id-back.pdf', mimeType: 'application/pdf', buffer: syntheticPdf(`Synthetic identity proof back for ${who} ${ref}`) });
-          await slot.getByLabel('Customer agreed to share this ID for this booking').check();
-          await slot.getByRole('button', { name: `Attach ID proof for ${who}` }).click();
-          await expect(drawer.getByRole('list', { name: `ID proof files of ${who}` }).getByRole('listitem')).toHaveCount(2, { timeout: 30_000 });
-          await expect(slot.locator('[data-slot="error-summary"]')).toHaveCount(0);
-        }
-        await drawer.getByRole('button', { name: 'Cancel' }).click();
-        await expect(drawer).toBeHidden();
+        await dialog.getByLabel('Customer agreed to share this ID for this booking').check();
+        await dialog.getByRole('button', { name: `Attach ID proof for ${who}` }).click();
+        await expect(dialog).toBeHidden({ timeout: 60_000 });
       }
+      await expect.poll(() => db(async (client) => (await client.query<{ n: string }>(
+        "select count(*)::text as n from public.traveller_id_proofs where deal_id = $1 and status = 'stored'", [dealId])).rows[0]!.n), { timeout: 30_000 }).toBe('3');
       await expect(sales.locator('main')).not.toContainText('ID proof still needed', { timeout: 30_000 });
       await sales.screenshot({ path: `${shotDir}/01-travellers.png`, fullPage: true });
-      await saveAndContinue(sales, STEP_NAME.stay);
+      await goToStep(sales, STEP_NAME.stay);
     });
 
     await test.step('step 2: a hotel covering every trip night, then a flight; supplier estimates only', async () => {
       const main = sales.locator('main');
       await main.getByRole('group', { name: 'Choose services' }).getByRole('button', { name: /Hotels/ }).click();
-      await main.getByRole('button', { name: 'Add stay' }).click();
+      await main.getByRole('button', { name: 'Add hotel', exact: true }).click();
       const hotel = sales.getByRole('dialog', { name: 'Add hotel stay' });
       await hotel.getByLabel('City').fill('Mumbai');
       await hotel.getByLabel('Hotel', { exact: true }).fill('Synthetic Sea View Hotel');
       await expect(hotel.getByLabel('Check-in')).toHaveValue('2026-12-10');
       await hotel.getByLabel('Nights').fill('3');
-      await hotel.getByLabel('Room / night, rupees').fill('15000');
+      await hotel.getByLabel('Rooms: our cost per night').fill('15000');
       await expect(hotel).toContainText('₹45,000');
-      // Voice-note batch: no More details and no adults box on a hotel; the adults come from the booking (shown as text).
-      await expect(hotel.locator('#svc-adults')).toContainText('2');
-      await expect(hotel.locator('#svc-adults')).toContainText('from the booking');
-      await hotel.getByLabel(/Purchase budget/).fill('45000');
+      // Book now v2 (change 16): no adults box, no budget; the people are the chips (both named adults).
+      await expect(hotel.locator('#svc-who-line')).toContainText('2 of 2 chosen');
+      await expect(hotel.getByLabel(/Purchase budget/)).toHaveCount(0);
       await hotel.getByRole('button', { name: 'Save hotel' }).click();
       await expect(hotel).toBeHidden({ timeout: 30_000 });
       await expect(main).toContainText('Synthetic Sea View Hotel', { timeout: 30_000 });
-      await expect(main).toContainText('3 / 3 tour nights covered', { timeout: 30_000 });
+      await expect(main.getByRole('status').filter({ hasText: /trip nights/ })).toContainText('3 / 3 trip nights have a hotel', { timeout: 30_000 });
 
       await main.getByRole('group', { name: 'Choose services' }).getByRole('button', { name: /Flights/ }).click();
-      await main.getByRole('button', { name: 'Add flight' }).first().click();
+      await main.getByRole('button', { name: 'Add flight', exact: true }).click();
       const flight = sales.getByRole('dialog', { name: 'Add flight' });
-      await flight.getByLabel('From').fill('JDH');
-      await flight.getByLabel('To', { exact: true }).fill('BOM');
+      await flight.locator('#ap-from').fill('JDH');
+      await flight.locator('#ap-from').press('Enter');
+      await flight.locator('#ap-to').fill('BOM');
+      await flight.locator('#ap-to').press('Enter');
       await expect(flight.getByLabel('Departure date')).toHaveValue('2026-12-10');
-      // Voice-note batch: passengers flying is a choice of the named passengers (toggle + checkboxes), not a number.
-      await flight.getByRole('button', { name: /Choose passengers/ }).click();
-      await flight.getByLabel('Synthetic Traveller One').check();
-      await flight.getByLabel('Synthetic Traveller Two').check();
-      await expect(flight.locator('#svc-who-hint')).toHaveText('2 of 2 passengers fly.');
-      await flight.getByText('More details').click();
-      await flight.getByLabel(/Flight budget/).fill('20000');
+      // Passengers flying: every named passenger starts chosen (change 6).
+      await expect(flight.locator('#svc-who-line')).toContainText('2 of 2 chosen');
+      await flight.locator('#svc-fare-adult').fill('10000');
       await flight.getByRole('button', { name: 'Save flight' }).click();
       await expect(flight).toBeHidden({ timeout: 30_000 });
       await expect(main).toContainText('JDH – BOM', { timeout: 30_000 });
@@ -280,29 +279,30 @@ test.describe('B1.1 browser-only fresh-Deal journey (real local stack)', () => {
       await expect(sales.locator('section#price')).toBeVisible();
     });
 
-    await test.step('step 3: per-person price, Bill To, a reported cash payment and the plan', async () => {
+    await test.step('step 3: per-person price, Bill To, a reported cash payment and the plan (each card saves itself)', async () => {
       const main = sales.locator('main');
       const price = main.locator('section#price');
       await price.getByLabel('Adult purchase per person, rupees').fill('40000');
       await price.getByLabel('Adult markup per person, rupees').fill('7500');
       await expect(price.getByLabel('Adult final sale per person, rupees')).toHaveValue('47500.00');
       await expect(price).toContainText('₹95,000');
-      await price.getByRole('button', { name: 'Save prices' }).click();
-      await expect(price.getByRole('status').filter({ hasText: 'Prices saved. Package selling total ₹95,000.' })).toBeVisible({ timeout: 30_000 });
+      await expect.poll(() => db(async (client) => (await client.query<{ t: string | null }>(
+        `select c.selling_total_paise::text as t from public.booking_version_commercials c join public.booking_versions v on v.id = c.version_id
+         where v.deal_id = $1 and v.status = 'draft'`, [dealId])).rows[0]?.t ?? null), { timeout: 30_000 }).toBe('9500000');
 
       const bill = main.locator('section#billTo');
-      // Voice-note batch: Bill To is search first; the typed form opens with "Type the details instead".
+      // Bill To is search first; the typed form opens with "Type the details instead".
       await bill.getByRole('button', { name: 'Type the details instead' }).click();
       await bill.getByRole('button', { name: 'Use booking contact' }).click();
-      await bill.getByText('Billing address').click();
       await bill.getByLabel('Address', { exact: true }).fill('1 Synthetic Lane');
       await bill.getByLabel('City').fill('Jodhpur');
       await bill.getByLabel('State').selectOption('08');
       await bill.getByLabel('PIN code').fill('342001');
-      await bill.getByRole('button', { name: 'Save Bill To' }).click();
-      await expect(bill.getByRole('status').filter({ hasText: 'Bill To saved. Accounts checks it before use.' })).toBeVisible({ timeout: 30_000 });
+      await expect.poll(() => db(async (client) => (await client.query<{ pin: string | null }>(
+        'select postal_code as pin from public.customer_billing_profiles where deal_id = $1', [dealId])).rows[0]?.pin ?? null), { timeout: 30_000 }).toBe('342001');
 
-      await main.locator('details#bf-before-submit > summary').click();
+      // "Payment already received? (optional)" is collapsed (change 9).
+      await main.locator('details#sec-claim > summary').click();
       const claim = sales.getByRole('form', { name: 'Tell Accounts about a payment' });
       await claim.getByLabel('How they paid').selectOption('cash');
       // Form reset (React 19): a refused report keeps "Cash" on screen and the retry posts it.
@@ -318,25 +318,28 @@ test.describe('B1.1 browser-only fresh-Deal journey (real local stack)', () => {
       await expect(main).toContainText('Reported, not checked yet', { timeout: 30_000 });
       await expect.poll(() => db(async (client) => (await client.query<{ mode: string }>('select mode from public.customer_payment_claims where deal_id = $1', [dealId])).rows.map((r) => r.mode).join(',')), { timeout: 30_000 }).toBe('cash');
 
-      const plan = sales.getByRole('form', { name: 'Payment plan' });
-      await plan.getByRole('group', { name: 'Instalment 1' }).getByLabel('Label').fill('Advance');
-      await plan.getByRole('group', { name: 'Instalment 1' }).getByLabel('Amount ₹').fill('30000');
-      await plan.getByRole('group', { name: 'Instalment 1' }).getByLabel('Due date').fill(istToday());
+      const plan = main.locator('section#plan');
+      // A new plan has no rows yet.
       await plan.getByRole('button', { name: 'Add instalment' }).click();
-      await plan.getByRole('group', { name: 'Instalment 2' }).getByLabel('Label').fill('Balance');
-      await plan.getByRole('group', { name: 'Instalment 2' }).getByLabel('Amount ₹').fill('65000');
-      await plan.getByRole('group', { name: 'Instalment 2' }).getByLabel('Due date').fill('2026-12-01');
+      await plan.getByLabel('Instalment 1', { exact: true }).fill('Advance');
+      await plan.locator('#payment-1-amount').fill('30000');
+      await plan.locator('#payment-1-due').fill(istToday());
+      await plan.getByRole('button', { name: 'Add instalment' }).click();
+      await plan.getByLabel('Instalment 2', { exact: true }).fill('Balance');
+      await plan.locator('#payment-2-amount').fill('65000');
+      await plan.locator('#payment-2-due').fill('2026-12-01');
       await expect(plan).toContainText('matches the total');
-      await expect(main).toContainText('Unsaved changes in: Payment plan');
-      await plan.getByRole('button', { name: 'Save payment plan' }).click();
-      await expect(sales.getByRole('status').filter({ hasText: 'Payment plan saved' })).toBeVisible({ timeout: 30_000 });
+      await expect.poll(() => db(async (client) => (await client.query<{ n: string }>(
+        'select count(*)::text as n from public.booking_version_instalments where deal_id = $1', [dealId])).rows[0]!.n), { timeout: 30_000 }).toBe('2');
+      await expect(sales.locator('#pill-plan')).toHaveAttribute('data-state', 'saved', { timeout: 30_000 });
     });
 
     await test.step('step 3: acceptance proof, then "Review and submit"', async () => {
+      // Choosing the file uploads it (change 9: its own card).
       await sales.getByLabel('Acceptance file').setInputFiles({ name: 'synthetic-acceptance.pdf', mimeType: 'application/pdf', buffer: syntheticPdf(`Synthetic acceptance for ${ref}`) });
-      await sales.getByRole('button', { name: 'Upload acceptance' }).click();
-      await expect(sales.getByRole('list', { name: 'Proof files' })).toContainText('synthetic-acceptance.pdf', { timeout: 30_000 });
-      await expect(sales.getByRole('heading', { name: NOTHING_LEFT, exact: true })).toBeVisible({ timeout: 30_000 });
+      await expect(sales.locator('section#ok')).toContainText('synthetic-acceptance.pdf', { timeout: 30_000 });
+      await expect(sales.locator('#bf-ready').getByRole('heading', { name: 'Ready to submit' })).toBeVisible({ timeout: 30_000 });
+      await expect(sales.locator('#bf-ready')).toContainText('7 of 7 done');
       await sales.screenshot({ path: `${shotDir}/03-finish.png`, fullPage: true });
       await sales.locator('main').getByRole('button', { name: 'Review and submit' }).click();
       const dialog = sales.getByRole('dialog', { name: SUBMIT_DIALOG });
