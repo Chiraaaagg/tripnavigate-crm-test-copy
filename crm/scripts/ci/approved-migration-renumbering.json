@@ -1,0 +1,54 @@
+{
+  "_comment": [
+    "Owner-approved migration renumbering (7 October 2026, PR #13 review fix 1).",
+    "The local-bitrix-live migrations shared versions 20261006000100, 20261007000100 and 20261007000200 with main, so supabase start / db reset failed (schema_migrations primary key).",
+    "All nine are moved, in their original order, after the latest version on main; their content is unchanged (git rename similarity 100).",
+    "Databases that applied the old versions need `supabase migration repair` (see docs/implementation/history/pr-fix-log.md).",
+    "Only renames listed here pass the migration-history check, and only with unchanged content.",
+    "Stage 0 combined release (8 October 2026): the hosted database never applied any 20261009* migration, so main's integration chain moves after the product chain (20261101000100 ... 20261105000100).",
+    "20261009001100_rls_predicate_indexes moves byte for byte to 20261107000200 (git rename similarity 100). The other ten 20261009* files are replaced by the reviewed combined migration 20261107000100_integration_sync_transition.sql (deleted, not renamed).",
+    "Only the retired local Docker copy ever applied 20261009*; it needs no repair because it is being retired. Any other database that applied them must not receive this transition without a reviewed history mapping."
+  ],
+  "renames": [
+    {
+      "from": "20261006000100_bitrix_auto_sync.sql",
+      "to": "20261009000100_bitrix_auto_sync.sql"
+    },
+    {
+      "from": "20261007000100_bitrix_staff_access.sql",
+      "to": "20261009000200_bitrix_staff_access.sql"
+    },
+    {
+      "from": "20261007000200_deal_read_policy_performance.sql",
+      "to": "20261009000300_deal_read_policy_performance.sql"
+    },
+    {
+      "from": "20261007000300_intake_read_policy_performance.sql",
+      "to": "20261009000400_intake_read_policy_performance.sql"
+    },
+    {
+      "from": "20261008000100_deal_soft_removal.sql",
+      "to": "20261009000500_deal_soft_removal.sql"
+    },
+    {
+      "from": "20261008000200_sync_date_resync.sql",
+      "to": "20261009000600_sync_date_resync.sql"
+    },
+    {
+      "from": "20261008000300_apply_current_sync_settings.sql",
+      "to": "20261009000700_apply_current_sync_settings.sql"
+    },
+    {
+      "from": "20261008000400_deal_id_order.sql",
+      "to": "20261009000800_deal_id_order.sql"
+    },
+    {
+      "from": "20261008000500_auto_sync_health.sql",
+      "to": "20261009000900_auto_sync_health.sql"
+    },
+    {
+      "from": "20261009001100_rls_predicate_indexes.sql",
+      "to": "20261107000200_rls_predicate_indexes.sql"
+    }
+  ]
+}

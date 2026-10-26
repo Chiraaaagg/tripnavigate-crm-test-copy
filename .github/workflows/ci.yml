@@ -1,0 +1,381 @@
+# TripNavigate CRM continuous integration.
+# Runs on pull requests and pushes. It never deploys and never uses production
+# credentials: every job runs against synthetic data and local services.
+#
+# Results are also published as check-run annotations (::notice summaries,
+# ::error per failure) so they are readable through the public API without
+# log access. Real-stack jobs set REQUIRE_REAL_STACK=1: missing configuration
+# FAILS the job instead of skipping tests (contract T16).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, 'phase-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: crm
+
+env:
+  # Pinned: flags used below (start -x, status -o env --override-name,
+  # db reset, db lint --level, gen types --lang --local --schema, stop --no-backup)
+  # verified against the 2.119.0 CLI reference.
+  SUPABASE_CLI_VERSION: 2.119.0
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  checks:
+    name: Typecheck, lint, unit and policy tests, build, browser tests
+    runs-on: ubuntu-latest
+    # 50 minutes: on GitHub-hosted runners this job took over 30 minutes on
+    # 26 October 2026 (unit + PGlite about 10, browser tests about 18) and was
+    # cut off while every test so far had passed.
+    timeout-minutes: 50
+    env:
+      # Placeholder, non-secret values: the build must not need real credentials.
+      APP_ENV: local
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder_not_a_key
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5)
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crm/package-lock.json
+      - run: npm ci
+      # Duplicate versions, edited/renamed or out-of-order migrations fail; a
+      # deleted migration (approved revert only) is a warning for reviewers.
+      - name: Migration history (unique versions, no edited migrations)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+            node scripts/ci/check-migrations.mjs --base FETCH_HEAD
+          else
+            node scripts/ci/check-migrations.mjs
+          fi
+      # Trailing whitespace or stray CR in lines this pull request adds (FETCH_HEAD: base branch, fetched above).
+      - name: Whitespace (git diff --check)
+        if: github.base_ref != ''
+        run: git diff --check FETCH_HEAD HEAD
+      - name: Markdown links (relative targets exist)
+        run: node scripts/ci/check-doc-links.mjs
+      - run: npm run typecheck
+      - run: npm run lint
+      # Phase 5: the Bitrix receiver Edge Function runs on Deno; type-check it as Deno would.
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+      - name: Deno type-check of the Bitrix receiver Edge Function
+        run: deno check supabase/functions/bitrix-events/index.ts
+      - name: Unit, server-action and PGlite RLS tests
+        run: >
+          npx vitest run --project unit --project db
+          --reporter=default --reporter=json --outputFile.json=test-results/vitest-unit-db.json
+      - name: Annotate unit and PGlite results
+        if: always()
+        run: node scripts/ci/annotate-test-results.mjs "unit+db (PGlite)" test-results/vitest-unit-db.json
+      - run: npm run build
+      - name: Client bundle must not reference the secret key
+        # Next.js inlines values, not names: check the name and, when this job
+        # has one, the value. A missing bundle directory is a failure, not a pass.
+        run: |
+          test -d .next/static || { echo "::error title=client bundle::.next/static missing"; exit 1; }
+          if grep -rl "SUPABASE_SECRET_KEY" .next/static; then
+            echo "::error title=client bundle::the secret key name appears in the client bundle"; exit 1
+          fi
+          if [ -n "${SUPABASE_SECRET_KEY:-}" ] && grep -rlF -- "$SUPABASE_SECRET_KEY" .next/static; then
+            echo "::error title=client bundle::the secret key value appears in the client bundle"; exit 1
+          fi
+      - run: npx playwright install --with-deps chromium
+      # Four test files at a time (playwright.config.ts workers, owner decision 25 October 2026);
+      # production CSP and the real journeys stay one at a time.
+      - name: Routing and accessibility (axe) browser tests
+        run: npx playwright test --project=e2e --workers=4
+      - name: Annotate browser results
+        if: always()
+        run: node scripts/ci/annotate-test-results.mjs "e2e (mock server)" test-results/playwright-e2e.json --playwright
+      - name: Production CSP (next start on the build above, providerless)
+        if: always()
+        env:
+          PROD_CSP_SKIP_BUILD: '1'
+        run: npx playwright test --config=playwright.prod.config.ts --project=prod-csp
+      - name: Annotate production CSP results
+        if: always()
+        run: node scripts/ci/annotate-test-results.mjs "prod-csp" test-results/playwright-prod-csp.json --playwright
+
+  supabase-integration:
+    name: Real local Supabase stack (Auth + Data API + Postgres + Mailpit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      REQUIRE_REAL_STACK: '1'
+      LOCAL_FIXTURE_PASSWORD: ci-Synthetic-Only-Password-1
+      MAILPIT_URL: http://127.0.0.1:54324
+      # The app served against the stack (email links: GET /auth/confirm ->
+      # /auth/accept -> same-origin POST). Matches config.toml site_url.
+      APP_ENV: local
+      APP_BASE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      # Phase 2 intake against an in-process MOCK Bitrix server started by
+      # tests/supabase/intake-routes.real.test.ts on this loopback port. These are
+      # synthetic CI-only values, not credentials: a loopback REST base URL is
+      # accepted only with APP_ENV=local, and no real Bitrix portal is contacted.
+      BITRIX_WEBHOOK_BASE_URL: http://127.0.0.1:54390/rest/1/ciSyntheticMockWebhook0001/
+      BITRIX_EVENT_APPLICATION_TOKEN: ci-synthetic-application-token-not-a-secret
+      INTAKE_WORKER_SECRET: ci-synthetic-worker-secret-not-a-secret-0001
+      # Phase 5: synthetic Vercel Cron bearer (must differ from INTAKE_WORKER_SECRET).
+      CRON_SECRET: ci-synthetic-cron-secret-not-a-secret-000001
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5)
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crm/package-lock.json
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3 (= v1)
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - run: npm ci
+      - run: supabase --version
+      # Mailpit (inbucket) stays running: tests read invitation/recovery emails.
+      - run: supabase start -x realtime,imgproxy,edge-runtime,logflare,vector,supavisor
+      - name: Export local stack connection values
+        run: >
+          supabase status -o env
+          --override-name api.url=SUPABASE_URL
+          --override-name auth.anon_key=SUPABASE_PUBLISHABLE_KEY
+          --override-name auth.service_role_key=SUPABASE_SECRET_KEY
+          --override-name db.url=TEST_DATABASE_URL
+          | grep -E '^(SUPABASE_URL|SUPABASE_PUBLISHABLE_KEY|SUPABASE_SECRET_KEY|TEST_DATABASE_URL)='
+          | sed 's/"//g' >> "$GITHUB_ENV"
+      - name: Point the app build at the local stack
+        run: |
+          echo "NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY" >> "$GITHUB_ENV"
+      - name: Real-stack configuration must be complete
+        run: |
+          for name in SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_SECRET_KEY TEST_DATABASE_URL LOCAL_FIXTURE_PASSWORD APP_BASE_URL NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY BITRIX_WEBHOOK_BASE_URL BITRIX_EVENT_APPLICATION_TOKEN INTAKE_WORKER_SECRET; do
+            if [ -z "${!name}" ]; then echo "::error title=real-stack config::$name is missing"; exit 1; fi
+          done
+          echo "::add-mask::$SUPABASE_SECRET_KEY"
+          curl -fsS "$MAILPIT_URL/api/v1/messages?limit=1" > /dev/null || { echo "::error title=real-stack config::Mailpit API not reachable"; exit 1; }
+      - run: supabase db reset
+      - name: Generate database types from the reset schema
+        id: gentypes
+        run: supabase gen types --lang typescript --local --schema public > "$RUNNER_TEMP/database.types.generated.ts"
+      - name: Preserve complete generated types (annotations can be truncated)
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (= v6)
+        with:
+          name: database-types
+          path: ${{ runner.temp }}/database.types.generated.ts
+          retention-days: 7
+          if-no-files-found: error
+      - run: supabase db lint --level warning
+      - name: Seed synthetic fixtures
+        run: DATABASE_URL="$TEST_DATABASE_URL" node scripts/seed-local.mjs
+      - name: RLS policy tests against real Supabase Postgres
+        run: >
+          npx vitest run --project db
+          --reporter=default --reporter=json --outputFile.json=test-results/vitest-db-real.json
+      - name: Annotate DB policy results
+        if: always()
+        run: node scripts/ci/annotate-test-results.mjs "db (real Postgres)" test-results/vitest-db-real.json
+      - name: Build and start the app against the local stack (port 3000)
+        if: always()
+        run: |
+          npm run build
+          nohup npx next start --port 3000 --hostname 127.0.0.1 > "$RUNNER_TEMP/next.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null "$APP_BASE_URL/sign-in"; then exit 0; fi
+            sleep 2
+          done
+          echo "::error title=real-stack config::app did not start on $APP_BASE_URL"
+          tail -50 "$RUNNER_TEMP/next.log"
+          exit 1
+      - name: Auth, session, recovery, email-link and Data API tests against the real stack
+        if: always()
+        run: >
+          npx vitest run --project supabase
+          --reporter=default --reporter=json --outputFile.json=test-results/vitest-supabase.json
+      - name: Annotate real-stack results
+        if: always()
+        run: node scripts/ci/annotate-test-results.mjs "supabase (real Auth/Data API)" test-results/vitest-supabase.json
+      - name: Required real suites (intake, Phase 5A finance, B1 journey, B1.1 Won-only, booking form) ran (not skipped) and passed
+        if: always()
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const report = JSON.parse(readFileSync("test-results/vitest-supabase.json", "utf8"));
+            const want = ["tests/supabase/intake.real.test.ts", "tests/supabase/intake-routes.real.test.ts", "tests/supabase/intake-receiver.real.test.ts", "tests/supabase/finance-concurrency.real.test.ts", "tests/supabase/b1-journey.real.test.ts", "tests/supabase/b11-won-only.real.test.ts", "tests/supabase/booking-form.real.test.ts"];
+            let failed = false;
+            for (const file of want) {
+              const suite = report.testResults.find((r) => r.name.endsWith(file));
+              const tests = suite?.assertionResults ?? [];
+              const passed = tests.filter((t) => t.status === "passed").length;
+              if (!suite || tests.length === 0 || passed !== tests.length) {
+                console.log(`::error title=phase-2 intake::${file}: ${passed}/${tests.length} passed (missing, skipped or failed)`);
+                failed = true;
+              } else {
+                console.log(`::notice title=phase-2 intake::${file}: ${passed}/${tests.length} passed`);
+              }
+            }
+            process.exit(failed ? 1 : 0);
+          '
+      - name: Intake secrets never appear in the app log (P2-13)
+        if: always()
+        run: |
+          test -s "$RUNNER_TEMP/next.log" || { echo "::error title=P2-13::app log missing"; exit 1; }
+          webhook_code="$(echo "$BITRIX_WEBHOOK_BASE_URL" | sed -E 's#^.*/rest/[0-9]+/([^/]+)/?$#\1#')"
+          for value in "$BITRIX_EVENT_APPLICATION_TOKEN" "$INTAKE_WORKER_SECRET" "$CRON_SECRET" "$webhook_code"; do
+            if grep -qF -- "$value" "$RUNNER_TEMP/next.log"; then
+              echo "::error title=P2-13::an intake secret value appears in the app log"; exit 1
+            fi
+          done
+          if grep -rlE 'BITRIX_WEBHOOK_BASE_URL|BITRIX_EVENT_APPLICATION_TOKEN|INTAKE_WORKER_SECRET|CRON_SECRET|INTAKE_RECEIVER_CREDENTIAL|ciSyntheticMockWebhook0001|ci-synthetic-cron-secret' .next/static; then
+            echo "::error title=P2-13::intake configuration referenced in the client bundle"; exit 1
+          fi
+      - name: Bootstrap first administrator on a fresh database (T13)
+        if: always()
+        env:
+          APP_ENV: local
+          SITE_URL: http://127.0.0.1:3000
+          BOOTSTRAP_OPERATOR: ci-bootstrap-check
+          BOOTSTRAP_EMAIL: first.admin@example.test
+        run: |
+          supabase db reset
+          run_bootstrap() {
+            node scripts/bootstrap-first-admin.mjs --email "$1" --display-name "Synthetic First Admin" \
+              --branch-code JDH --confirm-project-ref local
+          }
+          # Guards: wrong project ref and missing APP_ENV must refuse.
+          if node scripts/bootstrap-first-admin.mjs --email "$BOOTSTRAP_EMAIL" --display-name "X Admin" --branch-code JDH --confirm-project-ref abcdefghijklmnopqrst; then
+            echo "::error title=bootstrap::mismatched project ref was accepted"; exit 1; fi
+          if env -u APP_ENV node scripts/bootstrap-first-admin.mjs --email "$BOOTSTRAP_EMAIL" --display-name "X Admin" --branch-code JDH --confirm-project-ref local; then
+            echo "::error title=bootstrap::missing APP_ENV was accepted"; exit 1; fi
+          run_bootstrap "$BOOTSTRAP_EMAIL" | tee "$RUNNER_TEMP/bootstrap-1.log"
+          grep -q 'outcome=created' "$RUNNER_TEMP/bootstrap-1.log"
+          run_bootstrap "$BOOTSTRAP_EMAIL" | tee "$RUNNER_TEMP/bootstrap-2.log"
+          grep -q 'outcome=already_admin' "$RUNNER_TEMP/bootstrap-2.log"
+          if run_bootstrap second.admin@example.test; then
+            echo "::error title=bootstrap::a second administrator was accepted"; exit 1; fi
+          sleep 2
+          node scripts/ci/verify-bootstrap.mjs
+      - name: Generated database types match src/lib/database.types.ts
+        if: always() && steps.gentypes.outcome == 'success'
+        run: node scripts/ci/check-database-types.mjs "$RUNNER_TEMP/database.types.generated.ts"
+      - if: always()
+        run: supabase stop --no-backup
+
+  real-browser-journey:
+    name: Real browser journey (Next production build + real local Supabase + Mailpit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      REQUIRE_REAL_STACK: '1'
+      APP_ENV: local
+      LOCAL_FIXTURE_PASSWORD: ci-Synthetic-Only-Password-1
+      MAILPIT_URL: http://127.0.0.1:54324
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3100
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5)
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crm/package-lock.json
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3 (= v1)
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - run: npm ci
+      - name: Point Auth email links at the Playwright server (port 3100)
+        run: |
+          sed -i 's#^site_url = "http://127.0.0.1:3000"#site_url = "http://127.0.0.1:3100"#' supabase/config.toml
+          grep -q '^site_url = "http://127.0.0.1:3100"' supabase/config.toml
+      - run: supabase start -x realtime,imgproxy,edge-runtime,logflare,vector,supavisor
+      - name: Export local stack connection values
+        run: |
+          supabase status -o env \
+            --override-name api.url=SUPABASE_URL \
+            --override-name auth.anon_key=SUPABASE_PUBLISHABLE_KEY \
+            --override-name auth.service_role_key=SUPABASE_SECRET_KEY \
+            --override-name db.url=TEST_DATABASE_URL \
+            | grep -E '^(SUPABASE_URL|SUPABASE_PUBLISHABLE_KEY|SUPABASE_SECRET_KEY|TEST_DATABASE_URL)=' \
+            | sed 's/"//g' > "$RUNNER_TEMP/stack.env"
+          cat "$RUNNER_TEMP/stack.env" >> "$GITHUB_ENV"
+          . "$RUNNER_TEMP/stack.env"
+          echo "NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY" >> "$GITHUB_ENV"
+          rm "$RUNNER_TEMP/stack.env"
+      - name: Real-stack configuration must be complete
+        run: |
+          for name in SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_SECRET_KEY TEST_DATABASE_URL LOCAL_FIXTURE_PASSWORD NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; do
+            if [ -z "${!name}" ]; then echo "::error title=real-stack config::$name is missing"; exit 1; fi
+          done
+          echo "::add-mask::$SUPABASE_SECRET_KEY"
+          curl -fsS "$MAILPIT_URL/api/v1/messages?limit=1" > /dev/null || { echo "::error title=real-stack config::Mailpit API not reachable"; exit 1; }
+      - run: supabase db reset
+      - name: Seed synthetic fixtures
+        run: DATABASE_URL="$TEST_DATABASE_URL" node scripts/seed-local.mjs
+      - run: npx playwright install --with-deps chromium
+      - name: Production build against the local stack
+        run: npm run build
+      - name: Client bundle must not reference the secret key
+        # Next.js inlines values, not names: check the name and, when this job
+        # has one, the value. A missing bundle directory is a failure, not a pass.
+        run: |
+          test -d .next/static || { echo "::error title=client bundle::.next/static missing"; exit 1; }
+          if grep -rl "SUPABASE_SECRET_KEY" .next/static; then
+            echo "::error title=client bundle::the secret key name appears in the client bundle"; exit 1
+          fi
+          if [ -n "${SUPABASE_SECRET_KEY:-}" ] && grep -rlF -- "$SUPABASE_SECRET_KEY" .next/static; then
+            echo "::error title=client bundle::the secret key value appears in the client bundle"; exit 1
+          fi
+      - name: Real browser journey (T14 CSP + T15)
+        run: npx playwright test --config=playwright.real.config.ts --project=real-journey
+
+      - name: Required real browser journeys ran (not skipped) and passed
+        if: always()
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const report = JSON.parse(readFileSync("test-results/playwright-real-journey.json", "utf8"));
+            const tests = [];
+            const walk = (s) => { for (const spec of s.specs ?? []) for (const t of spec.tests) tests.push({ file: spec.file, status: t.status, results: t.results.map((r) => r.status) }); for (const c of s.suites ?? []) walk(c); };
+            for (const s of report.suites ?? []) walk(s);
+            let failed = false;
+            for (const file of ["accounts.real.e2e.ts", "journey.real.e2e.ts", "b11-journey.real.e2e.ts", "b12-quote-to-booking.real.e2e.ts", "b2-autofill.real.e2e.ts", "b3-referral.real.e2e.ts", "bookform-journey.real.e2e.ts"]) {
+              const mine = tests.filter((t) => t.file.split("/").pop() === file);
+              const passed = mine.filter((t) => t.status === "expected" && t.results.includes("passed")).length;
+              if (mine.length === 0 || passed !== mine.length) { console.log(`::error title=real journey::${file}: ${passed}/${mine.length} passed (missing, skipped or failed)`); failed = true; }
+              else console.log(`::notice title=real journey::${file}: ${passed}/${mine.length} passed`);
+            }
+            process.exit(failed ? 1 : 0);
+          '
+      - name: Annotate journey results
+        if: always()
+        run: node scripts/ci/annotate-test-results.mjs "real browser journey" test-results/playwright-real-journey.json --playwright
+      - name: Upload journey screenshots, traces and report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (= v6)
+        with:
+          name: real-browser-journey
+          path: |
+            crm/test-results/
+            crm/playwright-report/
+          retention-days: 14
+          if-no-files-found: warn
+      - if: always()
+        run: supabase stop --no-backup
