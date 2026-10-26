@@ -333,12 +333,13 @@ test.describe('Batch 3: referral draft page', () => {
     await dialog.getByRole('button', { name: 'Close draft' }).click();
     await expect(dialog).toBeHidden();
     // After the refresh the page is the closed draft; the answer stays in the page-level line and takes focus.
-    const result = page.locator('[data-slot="draft-result"]');
-    await expect(result).toContainText('Draft closed. Closed drafts stay readable and can be reopened.');
-    await expect(result.locator('[tabindex="-1"]')).toBeFocused();
-    await expect(page.locator('main header')).toContainText('Closed');
+    // Wait for the refreshed page first (under load the refresh can land after the default 5 s), then the focus.
+    await expect(page.locator('main header')).toContainText('Closed', { timeout: 30_000 });
     await expect(page.getByRole('button', { name: 'Reopen draft' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Close draft' })).toHaveCount(0);
+    const result = page.locator('[data-slot="draft-result"]');
+    await expect(result).toContainText('Draft closed. Closed drafts stay readable and can be reopened.');
+    await expect(result.locator('[tabindex="-1"]')).toBeFocused({ timeout: 15_000 });
   });
 
   test('Link to Bitrix: nothing preselected; choosing then confirming links; the answer is shown', async ({ page }) => {

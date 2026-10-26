@@ -102,8 +102,11 @@ jobs:
       - run: npx playwright install --with-deps chromium
       # Four test files at a time (playwright.config.ts workers, owner decision 25 October 2026);
       # production CSP and the real journeys stay one at a time.
+      # One retry on GitHub-hosted runners (26 October 2026): under four workers a few
+      # unrelated pages timed out waiting for "networkidle". A retried pass is
+      # reported as flaky in the annotation below, never hidden.
       - name: Routing and accessibility (axe) browser tests
-        run: npx playwright test --project=e2e --workers=4
+        run: npx playwright test --project=e2e --workers=4 --retries=1
       - name: Annotate browser results
         if: always()
         run: node scripts/ci/annotate-test-results.mjs "e2e (mock server)" test-results/playwright-e2e.json --playwright

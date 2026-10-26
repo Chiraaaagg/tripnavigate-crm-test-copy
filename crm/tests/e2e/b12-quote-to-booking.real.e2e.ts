@@ -474,7 +474,11 @@ test.describe('B1.2 quotation to booking journey (real local stack)', () => {
       await expect(sales.getByRole('link', { name: 'Open the written OK' })).toBeVisible();
       await expect(sales.locator('#bf-ready').getByRole('heading', { name: 'Ready to submit' })).toBeVisible({ timeout: 30_000 });
       await sales.screenshot({ path: `${shotDir}/04-finish.png`, fullPage: true });
+      // Book now v2 (prototype footSubmit): the footer "Review and submit" only scrolls to "Before you submit";
+      // the dialog opens from the submit card's own button.
       await main.getByRole('button', { name: 'Review and submit' }).click();
+      await expect(sales.locator('#bf-ready')).toBeInViewport();
+      await main.getByRole('region', { name: 'Submit' }).getByRole('button', { name: SUBMIT_BUTTON }).click();
       const dialog = sales.getByRole('dialog', { name: SUBMIT_DIALOG });
       await expect(dialog).toContainText('It creates 1 internal task', { timeout: 30_000 });
       await dialog.getByRole('button', { name: SUBMIT_BUTTON }).click();
