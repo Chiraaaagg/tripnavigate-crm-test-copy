@@ -387,12 +387,26 @@ async function signIn(browser: Browser, key: UserKey, secret: string): Promise<S
   return { context, page };
 }
 
+/**
+ * How long one response body may take to read. A body the browser can no
+ * longer give (the page navigated away, as after "Mark as sent" and a reload)
+ * either rejects or, for some server action responses, never settles at all:
+ * without a bound, step 7 waited on it until the test timed out (CI, 2 Nov
+ * 2026). Such a body counts as unreadable, exactly like a rejected read.
+ */
+const BODY_READ_MS = 10_000;
+
 /** Every same-origin response body the Purchase browser receives (HTML, RSC payloads, server action results). */
-function recordResponses(page: Page, into: Array<Promise<{ url: string; body: string }>>) {
+function recordResponses(page: Page, into: Array<Promise<{ url: string; body: string; readable: boolean }>>) {
   page.on('response', (res) => {
     const url = res.url();
     if (!url.startsWith('http://127.0.0.1') || /\/_next\/static\//.test(url)) return;
-    into.push(res.text().then((body) => ({ url, body })).catch(() => ({ url, body: '' })));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unreadable = new Promise<{ url: string; body: string; readable: boolean }>((resolve) => {
+      timer = setTimeout(() => resolve({ url, body: '', readable: false }), BODY_READ_MS);
+    });
+    const read = res.text().then((body) => ({ url, body, readable: true })).catch(() => ({ url, body: '', readable: false }));
+    into.push(Promise.race([read, unreadable]).finally(() => clearTimeout(timer)));
   });
 }
 
@@ -490,7 +504,7 @@ test.describe('Purchase department: real end-to-end flow (Purchase build)', () =
       writeFileSync(p, fakePdf(4096));
       return p;
     };
-    const purchaseResponses: Array<Promise<{ url: string; body: string }>> = [];
+    const purchaseResponses: Array<Promise<{ url: string; body: string; readable: boolean }>> = [];
     let seeded!: Seeded;
     let secrets!: Record<UserKey, string>;
     let P!: Session;
@@ -865,7 +879,8 @@ test.describe('Purchase department: real end-to-end flow (Purchase build)', () =
         }
         const bodies = await Promise.all(purchaseResponses);
         const hits = bodies.flatMap((b) => leaksIn(b.body).map((l) => `${new URL(b.url).pathname}${new URL(b.url).search}: ${l}`));
-        check('7 · no money leak · network responses', hits.length === 0, hits.length ? [...new Set(hits)].slice(0, 10).join('; ') : `${bodies.length} responses clean`);
+        const read = bodies.filter((b) => b.readable).length;
+        check('7 · no money leak · network responses', hits.length === 0, hits.length ? [...new Set(hits)].slice(0, 10).join('; ') : `${read} readable responses clean (${bodies.length - read} navigated away before they could be read)`);
         // Positive control: the values do exist for Accounts (the check is meaningful).
         await A.page.goto('/app/accounts/supplier-payments?tab=all');
         const accountsHtml = await A.page.content();

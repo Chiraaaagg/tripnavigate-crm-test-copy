@@ -107,6 +107,11 @@ test.describe('staff app frame: layout and behaviour', () => {
       // Voice-note batch: stored customers that Accounts checks.
       'Customers to check',
       'Reported payments',
+      // Purchase build: hotel commitments and supplier money, after Reported payments.
+      'Hotel go-ahead',
+      'Supplier payments',
+      'Supplier invoices',
+      'Company funding',
       'Department costs',
       'Branch cash',
       'Company accounts',

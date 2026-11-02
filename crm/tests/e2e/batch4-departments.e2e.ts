@@ -90,6 +90,9 @@ test.describe('Batch 4 department privacy (money-privacy-settings §10)', () => 
   }
 
   test('task tabs never carry a count and there is no Money tab (T-B4-08)', async ({ page }) => {
+    // 23 task pages in one test, each waiting for network idle: on a loaded CI runner that is close to
+    // the default 30 s on its own (2 Nov: both attempts ran out on the last Visa pages, nothing hung).
+    test.setTimeout(120_000);
     for (const state of TASKS.filter((s) => !s.endsWith('-sales'))) {
       await open(page, state);
       const tabs = page.getByRole('navigation', { name: 'Task sections' });

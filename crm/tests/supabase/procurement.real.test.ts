@@ -17,7 +17,12 @@ import { createRealStack, resolveRealStackEnv, type SignedIn } from '../helpers/
  * supplier, and a temporary purchase membership for the synthetic Accounts
  * user (the second Purchase person). Not the Visa user: session-recovery.real
  * deliberately leaves that user in an open MFA recovery case, which blocks
- * every query, so the outcome would depend on file order. afterAll removes them as the local table
+ * every query, so the outcome would depend on file order. Purchase build
+ * (20261130000110): supplier confirmation also needs the booking request
+ * e-mail and the Accounts go-ahead; a run-tagged synthetic Accounts user
+ * (created and removed by this file) gives the go-ahead, because the fixture
+ * Accounts user holds the temporary Purchase membership here and Accounts
+ * never decides with a Purchase role. afterAll removes them as the local table
  * owner, disabling the append-only/guard triggers inside its own transaction
  * (test-only, local). audit_events stay. Fails (never skips) when
  * REQUIRE_REAL_STACK=1 and the stack or TEST_DATABASE_URL is missing.
@@ -61,6 +66,7 @@ const supplierIds: string[] = [];
 const bookingObjects: string[] = [];
 const purchaseObjects: string[] = [];
 let tempMembership = false;
+let goAheadUser: { id: string; email: string } | null = null;
 
 async function ownerQuery<T extends pg.QueryResultRow>(sql: string, params: unknown[] = []): Promise<T[]> {
   const client = new pg.Client({ connectionString: dbUrl! });
@@ -85,6 +91,52 @@ async function settle<T>(client: SupabaseClient, fn: string, args: Record<string
 let owner: SignedIn;
 let purchaseA: SignedIn;
 let purchaseB: SignedIn;
+let accounts: SignedIn;
+
+/**
+ * Owner decision 1 (2 Nov 2026, migration 20261130000110): before supplier
+ * confirmation the assignee sends the booking request for the latest final
+ * rate and Accounts gives the hotel go-ahead. Supplier e-mail sending is off
+ * (the default), so the request is recorded as marked sent. SYNTHETIC
+ * FIXTURE: the Accounts booking review of the task's current version is set to
+ * approved as the database owner; the request and the go-ahead go through the
+ * real commands over the Data API.
+ */
+async function bookingRequestAndGoAhead(taskId: string, assignee: SignedIn): Promise<void> {
+  const [latest] = await ownerQuery<{ n: number }>(
+    'select max(version_no)::int as n from public.purchase_cost_versions where task_id = $1',
+    [taskId],
+  );
+  const sent = await rpc<{ status: string; goAheadRequestId: string | null }>(assignee.client, 'purchase_booking_request_send', {
+    p_task_id: taskId,
+    p_expected_cost_version_no: latest!.n,
+    p_to: 'desk@example.test',
+    p_cc: [],
+    p_subject: `Booking request · SYN-PRC-${runTag} · Synthetic Hotel (CI fixture)`,
+    p_body: 'Synthetic booking request (CI fixture).',
+    p_request_id: crypto.randomUUID(),
+  });
+  expect(sent.status).toBe('marked_sent');
+  await ownerQuery(
+    `insert into public.accounts_booking_reviews (booking_version_id, deal_id, legal_entity_id, status, reviewed_by, reviewed_at)
+     select v.id, v.deal_id, v.legal_entity_id, 'approved', $2, now()
+     from public.booking_versions v where v.id = authz.task_current_version($1)
+     on conflict (booking_version_id) do update set status = 'approved', reviewed_by = excluded.reviewed_by, reviewed_at = now()`,
+    [taskId, goAheadUser!.id],
+  );
+  const [pending] = await ownerQuery<{ id: string; row_version: number }>(
+    `select id, row_version from public.purchase_go_ahead_requests where task_id = $1 and status = 'pending'`,
+    [taskId],
+  );
+  expect(pending?.id).toBe(sent.goAheadRequestId);
+  expect(await rpc(accounts.client, 'purchase_go_ahead_decide', {
+    p_request: pending!.id,
+    p_decision: 'approve',
+    p_reason: null,
+    p_expected_row_version: pending!.row_version,
+    p_request_id: crypto.randomUUID(),
+  })).toMatchObject({ status: 'approved', outcome: 'created' });
+}
 
 async function confirmedTask(suffix = ''): Promise<string> {
   const [deal] = await ownerQuery<{ id: string }>(
@@ -137,6 +189,23 @@ beforeAll(async () => {
     [FIXTURE_USERS.accountsJodhpur],
   );
   tempMembership = true;
+  const email = `procurement.accounts.${runTag.toLowerCase()}@example.test`;
+  const created = await stack!.admin().auth.admin.createUser({ email, password: env!.fixturePassword, email_confirm: true });
+  if (created.error) throw created.error;
+  goAheadUser = { id: created.data.user!.id, email };
+  await ownerQuery(
+    `insert into public.staff_profiles (user_id, display_name, work_email, status, activated_at)
+     values ($1, 'Synthetic procurement Accounts', $2, 'active', now())`,
+    [goAheadUser.id, email],
+  );
+  await ownerQuery(
+    `insert into public.memberships (user_id, legal_entity_id, branch_id, role_code, status)
+     select $1, b.legal_entity_id, b.id, 'accounts', 'active'
+     from public.branches b join public.legal_entities e on e.id = b.legal_entity_id
+     where e.code = 'HOLIDAY_CHACHA' and b.code = 'JDH'`,
+    [goAheadUser.id],
+  );
+  accounts = await stack!.signInAal2(email, goAheadUser.id);
   owner = await stack!.signInAal2(FIXTURE_EMAILS.salesDelhiA, FIXTURE_USERS.salesDelhiA);
   purchaseA = await stack!.signInAal2(FIXTURE_EMAILS.purchaseJodhpur, FIXTURE_USERS.purchaseJodhpur);
   purchaseB = await stack!.signInAal2(FIXTURE_EMAILS.accountsJodhpur, FIXTURE_USERS.accountsJodhpur);
@@ -157,6 +226,10 @@ afterAll(async () => {
         // that the confirmation check constraint would refuse.
         await client.query('set local session_replication_role = replica');
         const tasks = `select id from public.fulfilment_tasks where deal_id = any($1::uuid[])`;
+        // Purchase build (20261130000100): go-ahead requests, booking request e-mails and the synthetic review approvals.
+        await client.query(`delete from public.purchase_go_ahead_requests where task_id in (${tasks})`, [dealIds]);
+        await client.query(`delete from public.purchase_supplier_emails where task_id in (${tasks})`, [dealIds]);
+        await client.query('delete from public.accounts_booking_reviews where deal_id = any($1::uuid[])', [dealIds]);
         await client.query(`delete from public.purchase_cost_approvals where task_id in (${tasks})`, [dealIds]);
         await client.query(`delete from public.purchase_cost_versions where task_id in (${tasks})`, [dealIds]);
         await client.query(`delete from public.purchase_evidence where task_id in (${tasks})`, [dealIds]);
@@ -199,9 +272,20 @@ afterAll(async () => {
       }
     }
   } finally {
-    // Always remove this run's MFA factors, even if data cleanup failed:
-    // later suites refuse users with a verified factor they do not know.
-    await stack?.cleanup();
+    try {
+      // Always remove this run's MFA factors, even if data cleanup failed:
+      // later suites refuse users with a verified factor they do not know.
+      await stack?.cleanup();
+    } finally {
+      // The run's synthetic Accounts user: profile rows first (auth.users is ON DELETE RESTRICT), then Auth.
+      if (enabled && goAheadUser) {
+        await ownerQuery('delete from public.memberships where user_id = $1', [goAheadUser.id]);
+        await ownerQuery('delete from public.staff_security_state where user_id = $1', [goAheadUser.id]);
+        await ownerQuery('delete from public.staff_profiles where user_id = $1', [goAheadUser.id]);
+        const removed = await stack!.admin().auth.admin.deleteUser(goAheadUser.id);
+        if (removed.error) throw removed.error;
+      }
+    }
   }
 });
 
@@ -352,6 +436,10 @@ describe.skipIf(!enabled)('Phase 4 procurement against the real stack', () => {
   });
 
   it('P4-06 / P4-07: parallel supplier confirmations with the same reference: one created, the rest existing', async () => {
+    // Owner decision 1: without the booking request the confirmation is refused by name.
+    const early = await settle(worker.client, 'purchase_supplier_confirm', { p_task_id: taskId, p_expected_version_no: 2, p_reference: `SYN-${runTag}` });
+    expect(early.error).toMatchObject({ code: '55000', message: 'booking_request_not_sent' });
+    await bookingRequestAndGoAhead(taskId, worker);
     const results = await Promise.all(
       Array.from({ length: 5 }, () =>
         rpc<{ outcome: string }>(worker.client, 'purchase_supplier_confirm', { p_task_id: taskId, p_expected_version_no: 2, p_reference: `SYN-${runTag}` }),
@@ -441,7 +529,7 @@ describe.skipIf(!enabled)('Phase 4 procurement against the real stack', () => {
     expect([kept.quotes.length, kept.costVersions.length]).toEqual([1, 1]);
   });
 
-  /** Claimed by `worker`, one quote, proposed cost version 1, stored supplier proof: ready to confirm. */
+  /** Claimed by `worker`, one quote, proposed cost version 1, stored supplier proof, booking request and go-ahead: ready to confirm. */
   async function readyTaskReal(suffix: string): Promise<string> {
     const id = await confirmedTask(suffix);
     await rpc(worker.client, 'purchase_task_claim', { p_task_id: id });
@@ -465,6 +553,7 @@ describe.skipIf(!enabled)('Phase 4 procurement against the real stack', () => {
     if (up.error) throw up.error;
     purchaseObjects.push(ev.objectPath);
     await rpc(worker.client, 'purchase_evidence_finish', { p_evidence_id: ev.evidenceId, p_ok: true });
+    await bookingRequestAndGoAhead(id, worker);
     return id;
   }
 

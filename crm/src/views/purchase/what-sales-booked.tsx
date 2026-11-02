@@ -14,7 +14,8 @@ import { hotelBreakup } from './purchase-vm';
  * "What Sales booked for this hotel" (owner review of the prototype, 1 Nov
  * 2026): stay, travellers, meal plan, inclusions, the room breakup from the
  * Book now cost estimate (rooms × cost per room per night, extra beds, guests
- * without a bed) and the total budget. Without a breakup it shows what exists
+ * without a bed) and the approved budget, in named sections (Stay or "<type>
+ * details", Travellers and budget). Without a breakup it shows what exists
  * and says Sales gave none. The special request is a warning notice with an
  * icon and the words "Special request". Cost side only: no selling price.
  */
@@ -32,96 +33,110 @@ function nightsText(n: number): string {
   return `${n} ${n === 1 ? 'night' : 'nights'}`;
 }
 
-/** The stay facts, breakup table, total budget and special request (shared by Details and Work). */
-export function BookedFacts({ task }: { task: PurchaseTaskView }) {
+const subHeadingClass = 'm-0 mb-2 text-base font-semibold text-ink';
+
+/**
+ * The stay facts, breakup table, approved budget and special request (shared by Details and Work).
+ * Each part is a named section (Stay, or "<type> details", and Travellers and budget), as on the
+ * Flight task, so screen-reader users can jump to it and a transfer or activity never shows hotel fields.
+ */
+export function BookedFacts({ task, idPrefix = 'booked' }: { task: PurchaseTaskView; idPrefix?: string }) {
   const breakup = hotelBreakup(task);
   const hotel = task.serviceType === 'hotel';
+  const factsId = `${idPrefix}-${hotel ? 'stay' : 'facts'}`;
+  const budgetId = `${idPrefix}-travellers`;
   return (
     <div className="flex flex-col gap-4">
-      {hotel ? (
-        <dl className={dlClass}>
-          <dt className={dtClass}>Stay</dt>
-          <dd className={ddClass}>
-            {task.checkIn && task.checkOut ? (
+      <section aria-labelledby={factsId} className="flex flex-col gap-3">
+        <h3 id={factsId} className={subHeadingClass}>
+          {hotel ? 'Stay' : `${SERVICE_TYPE_LABEL[task.serviceType]} details`}
+        </h3>
+        {hotel ? (
+          <dl className={dlClass}>
+            <dt className={dtClass}>Check-in</dt>
+            <dd className={ddClass}>{task.checkIn ? formatDateOnly(task.checkIn) : 'Not set'}</dd>
+            <dt className={dtClass}>Check-out</dt>
+            <dd className={ddClass}>{task.checkOut ? formatDateOnly(task.checkOut) : 'Not set'}</dd>
+            <dt className={dtClass}>Nights</dt>
+            <dd className={ddClass}>{task.checkIn && task.checkOut ? nightsText(task.nights) : 'Not set'}</dd>
+            {!breakup ? (
               <>
-                <span className="whitespace-nowrap">{formatDateOnly(task.checkIn)}</span> → <span className="whitespace-nowrap">{formatDateOnly(task.checkOut)}</span> · {nightsText(task.nights)}
+                <dt className={dtClass}>Rooms</dt>
+                <dd className={ddClass}>
+                  {task.rooms}
+                  {task.roomType ? ` × ${task.roomType}` : ''}
+                </dd>
               </>
-            ) : (
-              'Dates not set'
-            )}
-          </dd>
+            ) : null}
+            <dt className={dtClass}>Meal plan</dt>
+            <dd className={ddClass}>{task.mealPlan ?? 'Not specified'}</dd>
+            <dt className={dtClass}>Inclusions</dt>
+            <dd className={cn(ddClass, 'whitespace-pre-wrap')}>{task.inclusions ?? 'Not specified'}</dd>
+          </dl>
+        ) : (
+          <FactsBlock facts={task.facts} />
+        )}
+        {hotel && breakup ? (
+          <Table label="Room breakup from Book now" wrapperClassName="rounded-control border border-line" stackOnMobile>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Room or bed</TableHead>
+                <TableHead>Quantity</TableHead>
+                <TableHead numeric>Cost per night</TableHead>
+                <TableHead numeric>Nights</TableHead>
+                <TableHead numeric>Line total</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {breakup.lines.map((l) => (
+                <TableRow key={l.key} className="align-top">
+                  <TableCell label="Room or bed" className="font-medium text-ink">
+                    {l.label}
+                  </TableCell>
+                  <TableCell label="Quantity">{l.quantityText}</TableCell>
+                  <TableCell label="Cost per night" numeric>
+                    {l.ratePaise ? (
+                      <>
+                        {formatPaise(l.ratePaise)}
+                        <span className="block text-sm font-normal text-quiet">{l.rateUnit}</span>
+                      </>
+                    ) : (
+                      <span className="font-normal text-quiet">No rate given</span>
+                    )}
+                  </TableCell>
+                  <TableCell label="Nights" numeric>
+                    {l.nights}
+                  </TableCell>
+                  <TableCell label="Line total" numeric>
+                    {l.totalPaise ? formatPaise(l.totalPaise) : <span className="font-normal text-quiet">Not known</span>}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : hotel ? (
+          <p className="m-0 text-sm text-quiet">Sales did not give a room breakup.</p>
+        ) : null}
+      </section>
+      <section aria-labelledby={budgetId} className="border-t border-line pt-3">
+        <h3 id={budgetId} className={subHeadingClass}>
+          Travellers and budget
+        </h3>
+        <dl className={dlClass}>
           <dt className={dtClass}>Travellers</dt>
           <dd className={ddClass}>{travellersText(task.travellers)}</dd>
-          {!breakup ? (
-            <>
-              <dt className={dtClass}>Rooms</dt>
-              <dd className={ddClass}>
-                {task.rooms}
-                {task.roomType ? ` × ${task.roomType}` : ''}
-              </dd>
-            </>
-          ) : null}
-          <dt className={dtClass}>Meal plan</dt>
-          <dd className={ddClass}>{task.mealPlan ?? 'Not specified'}</dd>
-          <dt className={dtClass}>Inclusions</dt>
-          <dd className={cn(ddClass, 'whitespace-pre-wrap')}>{task.inclusions ?? 'Not specified'}</dd>
+          <dt className={cn(dtClass, 'font-semibold text-ink')}>Approved budget</dt>
+          <dd className={cn(ddClass, 'font-semibold tabular-nums')}>
+            {budgetText(task.purchaseBudgetPaise)}
+            {breakup?.perNightPaise && breakup.totalPaise === task.purchaseBudgetPaise ? (
+              <span className="font-normal text-quiet">
+                {' '}
+                ({formatPaise(breakup.perNightPaise)} a night × {nightsText(breakup.nights)})
+              </span>
+            ) : null}
+          </dd>
         </dl>
-      ) : (
-        <FactsBlock facts={task.facts} />
-      )}
-      {hotel && breakup ? (
-        <Table label="Room breakup from Book now" wrapperClassName="rounded-control border border-line" stackOnMobile>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead>Room or bed</TableHead>
-              <TableHead>Quantity</TableHead>
-              <TableHead numeric>Cost per night</TableHead>
-              <TableHead numeric>Nights</TableHead>
-              <TableHead numeric>Line total</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {breakup.lines.map((l) => (
-              <TableRow key={l.key} className="align-top">
-                <TableCell label="Room or bed" className="font-medium text-ink">
-                  {l.label}
-                </TableCell>
-                <TableCell label="Quantity">{l.quantityText}</TableCell>
-                <TableCell label="Cost per night" numeric>
-                  {l.ratePaise ? (
-                    <>
-                      {formatPaise(l.ratePaise)}
-                      <span className="block text-sm font-normal text-quiet">{l.rateUnit}</span>
-                    </>
-                  ) : (
-                    <span className="font-normal text-quiet">No rate given</span>
-                  )}
-                </TableCell>
-                <TableCell label="Nights" numeric>
-                  {l.nights}
-                </TableCell>
-                <TableCell label="Line total" numeric>
-                  {l.totalPaise ? formatPaise(l.totalPaise) : <span className="font-normal text-quiet">Not known</span>}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      ) : hotel ? (
-        <p className="m-0 text-sm text-quiet">Sales did not give a room breakup.</p>
-      ) : null}
-      <dl className={cn(dlClass, 'border-t border-line pt-3')}>
-        <dt className={cn(dtClass, 'font-semibold text-ink')}>Total budget</dt>
-        <dd className={cn(ddClass, 'font-semibold tabular-nums')}>
-          {budgetText(task.purchaseBudgetPaise)}
-          {breakup?.perNightPaise && breakup.totalPaise === task.purchaseBudgetPaise ? (
-            <span className="font-normal text-quiet">
-              {' '}
-              ({formatPaise(breakup.perNightPaise)} a night × {nightsText(breakup.nights)})
-            </span>
-          ) : null}
-        </dd>
-      </dl>
+      </section>
       {task.specialRequests ? (
         <Notice tone="warning" title="Special request">
           <p className="whitespace-pre-wrap wrap-break-word">{task.specialRequests}</p>
@@ -147,7 +162,7 @@ export function WhatSalesBookedCard({ task, id = 'task-booked', actions }: { tas
           {actions}
         </CardHeader>
         <CardBody>
-          <BookedFacts task={task} />
+          <BookedFacts task={task} idPrefix={id} />
         </CardBody>
       </section>
     </Card>

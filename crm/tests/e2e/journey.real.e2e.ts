@@ -42,6 +42,8 @@ const SALES_EMAIL = 'sales.delhi.a@example.test';
 const SALES_ID = 'a0000000-0000-4000-8000-000000000001';
 const PURCHASE_EMAIL = 'purchase.jodhpur@example.test';
 const PURCHASE_ID = 'a0000000-0000-4000-8000-000000000003';
+const ACCOUNTS_EMAIL = 'accounts.jodhpur@example.test';
+const ACCOUNTS_ID = 'a0000000-0000-4000-8000-000000000006';
 const JOURNEY_HOTEL = 'Synthetic Hotel (journey)';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
 const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_PUBLISHABLE_KEY;
@@ -402,7 +404,7 @@ test.describe('real stack browser journey (T15)', () => {
     // SYNTHETIC FIXTURE STEP: unknown fixture TOTP secrets; remove any factor so
     // this run enrols fresh ones (Sales via the Auth API, Purchase via the UI).
     await withDb((db) =>
-      db.query('delete from auth.mfa_factors where user_id = any($1::uuid[])', [[SALES_ID, PURCHASE_ID]]),
+      db.query('delete from auth.mfa_factors where user_id = any($1::uuid[])', [[SALES_ID, PURCHASE_ID, ACCOUNTS_ID]]),
     );
 
     const { dealId, taskId, salesSecret } = await test.step('fixture: Sales confirms a synthetic hotel booking (real commands, aal2 Sales session)', () =>
@@ -447,28 +449,29 @@ test.describe('real stack browser journey (T15)', () => {
       await expect(purchase.getByRole('main')).not.toContainText(/selling|margin/i);
       // Batch 4 (DA-16): offers, cost, files and the supplier confirmation are on the Work tab.
       await purchase.goto(`/app/purchase/${taskId}?tab=work`);
-      await expect(purchase.getByRole('main')).toContainText('Not confirmed yet · hotel not booked');
+      // Purchase build: the Work tab badge reads "Booking: Not booked yet" (the first word for screen readers).
+      await expect(purchase.getByRole('main')).toContainText('Booking: Not booked yet');
       await expect(purchase.getByRole('main')).not.toContainText(/selling|margin/i);
       await shot(purchase, 'purchase-task-taken');
     });
 
-    await test.step('Purchase adds a supplier offer and proposes the agreed cost', async () => {
-      await purchase.getByText('Add a supplier offer', { exact: true }).click();
-      const offer = purchase.getByRole('form', { name: 'Add a supplier offer' });
-      await offer.getByLabel('Supplier', { exact: true }).selectOption({ label: supplierName });
+    await test.step('Purchase adds the supplier rate and uses it as the final rate (cost version 1)', async () => {
+      // Purchase build: the Work tab "Rate negotiation" card replaces the offer and cost forms.
+      const form = purchase.getByRole('form', { name: 'Add a rate' });
+      await form.getByLabel('Supplier', { exact: true }).selectOption({ label: supplierName });
       // A cost no Sales figure can contain (budget ₹30,000, selling ₹76,543.21): searched for in Sales' raw HTML below.
-      await offer.getByLabel('Supplier price for the stay (₹)').fill(String(PURCHASE_COST_RUPEES));
-      await offer.getByRole('button', { name: 'Add offer' }).click();
-      await expect(offer.getByRole('status')).toContainText('Supplier offer added.', { timeout: 30_000 });
-      await expect(purchase.getByRole('list', { name: 'Supplier offers' })).toContainText(supplierName);
-
-      await purchase.getByText('Propose the agreed cost', { exact: true }).click();
-      const cost = purchase.getByRole('form', { name: 'Propose a cost' });
-      await expect(cost.getByLabel('Agreed cost (₹)')).not.toHaveValue('');
-      await cost.getByLabel('Agreed cost (₹)').fill(String(PURCHASE_COST_RUPEES));
-      await cost.getByRole('button', { name: 'Propose cost' }).click();
-      await expect(cost.getByRole('status')).toContainText('Cost proposed as version 1. Nothing is payable yet.', { timeout: 30_000 });
-      await expect(purchase.getByRole('list', { name: 'Cost versions, newest first' })).toContainText('version 1');
+      await form.getByLabel('Amount for the whole stay (₹)', { exact: true }).fill(String(PURCHASE_COST_RUPEES));
+      await form.getByRole('button', { name: 'Add rate' }).click();
+      const rates = purchase.getByRole('list', { name: 'Rates from suppliers' });
+      await expect(rates.getByRole('listitem', { name: supplierName, exact: true })).toContainText(PURCHASE_COST_TEXT, { timeout: 30_000 });
+      await rates.getByRole('listitem', { name: supplierName, exact: true }).getByRole('button', { name: 'Use as final rate' }).click();
+      const finalTile = rates.getByRole('listitem', { name: `${supplierName}, final rate`, exact: true });
+      await expect(finalTile).toContainText(PURCHASE_COST_TEXT, { timeout: 30_000 });
+      await expect(finalTile).toContainText('Final rate');
+      const costs = await withDb((db) => db.query<{ version_no: number; stage: string; amount: string }>(
+        'select version_no, stage, amount_paise::text as amount from public.purchase_cost_versions where task_id = $1 order by version_no', [taskId]));
+      expect(costs.rows).toEqual([{ version_no: 1, stage: 'proposed', amount: PURCHASE_COST_PAISE }]);
+      await expect(purchase.getByRole('main')).not.toContainText(/selling|margin/i);
       await shot(purchase, 'purchase-offer-and-cost');
     });
 
@@ -512,11 +515,45 @@ test.describe('real stack browser journey (T15)', () => {
       const download = await purchase.request.get(fileHref, { maxRedirects: 0 });
       expect(download.status()).toBe(302);
       expect(new URL(download.headers()['location'] ?? '', 'http://invalid.test').origin).toBe(new URL(supabaseUrl!).origin);
-      await expect(purchase.getByRole('main')).toContainText('Everything needed is here. Record the supplier’s confirmation.');
+      // Owner decision 1 (Purchase build): with the proof stored, the next step is the booking request, not the confirmation.
+      const finalTile = purchase.getByRole('list', { name: 'Rates from suppliers' }).getByRole('listitem', { name: `${supplierName}, final rate`, exact: true });
+      await expect(finalTile.getByRole('button', { name: 'Send booking request', exact: true })).toBeVisible();
+      await expect(purchase.getByRole('button', { name: 'Record supplier confirmation' })).toHaveCount(0);
       await shot(purchase, 'purchase-proof-stored');
     });
 
+    await test.step('Purchase sends the booking request (marked as sent); the confirmation waits for the Accounts go-ahead', async () => {
+      const finalTile = purchase.getByRole('list', { name: 'Rates from suppliers' }).getByRole('listitem', { name: `${supplierName}, final rate`, exact: true });
+      await finalTile.getByRole('button', { name: 'Send booking request', exact: true }).click();
+      const dialog = purchase.getByRole('dialog', { name: 'Send the booking request' });
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByLabel('Subject', { exact: true })).toHaveValue(new RegExp(`Booking request · ${dealRef}`));
+      // The supplier was added without an e-mail address: Purchase types it.
+      await dialog.getByLabel('To', { exact: true }).fill('journey.desk@example.test');
+      await dialog.getByRole('button', { name: 'Mark as sent' }).click();
+      await expect(purchase.getByText(/Booking request recorded/).first()).toBeVisible({ timeout: 30_000 });
+      const close = dialog.getByRole('button', { name: 'Close', exact: true });
+      if (await close.isVisible()) await close.click();
+      await purchase.reload();
+      await expect(purchase.getByText('Waiting for Accounts go-ahead').first()).toBeVisible();
+      await expect(purchase.getByRole('button', { name: 'Record supplier confirmation' })).toHaveAttribute('aria-disabled', 'true');
+      const sent = await withDb((db) => db.query<{ kind: string; status: string; cost_version_no: number; to_email: string }>(
+        `select kind, status, cost_version_no, to_email from public.purchase_supplier_emails where task_id = $1`, [taskId]));
+      expect(sent.rows).toEqual([{ kind: 'booking_request', status: 'marked_sent', cost_version_no: 1, to_email: 'journey.desk@example.test' }]);
+      const pending = await withDb((db) => db.query<{ status: string; amount: string }>(
+        `select status, amount_paise::text as amount from public.purchase_go_ahead_requests where task_id = $1`, [taskId]));
+      expect(pending.rows).toEqual([{ status: 'pending', amount: PURCHASE_COST_PAISE }]);
+      await expect(purchase.getByRole('main')).not.toContainText(/selling|margin/i);
+      await shot(purchase, 'purchase-waiting-go-ahead');
+    });
+
+    await test.step('fixture: Accounts gives the hotel go-ahead (real command, aal2 Accounts session)', async () => {
+      await accountsGoAhead(taskId);
+    });
+
     await test.step('Purchase records the supplier confirmation through the dialog', async () => {
+      await purchase.reload();
+      await expect(purchase.getByText('Accounts go-ahead given').first()).toBeVisible();
       await purchase.getByRole('button', { name: 'Record supplier confirmation' }).click();
       const dialog = purchase.getByRole('dialog', { name: 'Record that the supplier confirmed this hotel?' });
       await expect(dialog).toBeVisible();
@@ -526,9 +563,22 @@ test.describe('real stack browser journey (T15)', () => {
       await dialog.getByRole('button', { name: 'Record supplier confirmation' }).click();
       const main = purchase.getByRole('main');
       await expect(main).toContainText(`Confirmed · reference ${reference}`, { timeout: 30_000 });
-      await expect(main).toContainText('No payment, bill or invoice was created.');
-      await expect(purchase.getByRole('list', { name: 'Cost versions, newest first' })).toContainText('Committed cost · version 2');
+      // Purchase build: the task header and the "Supplier confirmation" card replace the old result line.
+      await expect(main).toContainText('The CRM sent nothing to the customer. Paying the supplier is a separate request to Accounts.');
+      await expect(main).toContainText('The confirmation locked the final rate.');
       await expect(purchase.getByRole('button', { name: 'Record supplier confirmation' })).toHaveCount(0);
+      await purchase.reload();
+      await expect(main).toContainText(`Confirmed · reference ${reference}`);
+      await expect(purchase.getByRole('form', { name: 'Add a rate' })).toHaveCount(0);
+      const committed = await withDb((db) => db.query<{ version_no: number; stage: string; amount: string }>(
+        'select version_no, stage, amount_paise::text as amount from public.purchase_cost_versions where task_id = $1 order by version_no', [taskId]));
+      expect(committed.rows).toEqual([
+        { version_no: 1, stage: 'proposed', amount: PURCHASE_COST_PAISE },
+        { version_no: 2, stage: 'committed', amount: PURCHASE_COST_PAISE },
+      ]);
+      // No payment, bill or invoice was created by the confirmation.
+      const payments = await withDb((db) => db.query('select 1 from public.supplier_payment_requests where task_id = $1', [taskId]));
+      expect(payments.rows).toEqual([]);
       await shot(purchase, 'purchase-supplier-confirmed');
     });
 
@@ -946,6 +996,37 @@ test.describe('real stack browser journey (T15)', () => {
 // ---------------------------------------------------------------------------
 // Phase 4 Purchase journey fixtures (synthetic, local stack only)
 // ---------------------------------------------------------------------------
+
+/**
+ * SYNTHETIC FIXTURE STEP (the Accounts go-ahead screen is covered by
+ * purchase-flow.real.e2e.ts): the fixture Accounts person approves the
+ * booking review of the task's current version (owner SQL, as the other
+ * Purchase suites do) and gives the hotel go-ahead through the real command
+ * with an aal2 session (Auth API, fresh TOTP factor).
+ */
+async function accountsGoAhead(taskId: string): Promise<void> {
+  await withDb((db) => db.query(
+    `insert into public.accounts_booking_reviews (booking_version_id, deal_id, legal_entity_id, status, reviewed_by, reviewed_at)
+     select v.id, v.deal_id, v.legal_entity_id, 'approved', $2, now() from public.booking_versions v where v.id = authz.task_current_version($1)
+     on conflict (booking_version_id) do update set status = 'approved', reviewed_by = excluded.reviewed_by, reviewed_at = now()`,
+    [taskId, ACCOUNTS_ID],
+  ));
+  const accounts = createClient(supabaseUrl!, publishableKey!, { auth: noPersist });
+  const signedIn = await accounts.auth.signInWithPassword({ email: ACCOUNTS_EMAIL, password: fixturePassword! });
+  if (signedIn.error) throw new Error(`Accounts sign-in failed (${signedIn.error.status ?? 'no status'})`);
+  const enrolled = await accounts.auth.mfa.enroll({ factorType: 'totp', friendlyName: `journey-accounts-${Date.now()}` });
+  if (enrolled.error) throw new Error('Accounts TOTP enrolment failed');
+  const verified = await accounts.auth.mfa.challengeAndVerify({ factorId: enrolled.data.id, code: await totpCode(enrolled.data.totp.secret) });
+  if (verified.error) throw new Error('Accounts TOTP verification failed');
+  const { rows } = await withDb((db) => db.query<{ id: string; row_version: number }>(
+    `select id, row_version from public.purchase_go_ahead_requests where task_id = $1 and status = 'pending'`, [taskId]));
+  expect(rows, 'one pending go-ahead request').toHaveLength(1);
+  const decided = await rpcOk<{ status: string; outcome: string }>(accounts, 'purchase_go_ahead_decide', {
+    p_request: rows[0]!.id, p_decision: 'approve', p_reason: null, p_expected_row_version: rows[0]!.row_version, p_request_id: crypto.randomUUID(),
+  });
+  expect(decided).toMatchObject({ status: 'approved', outcome: 'created' });
+  await accounts.auth.signOut({ scope: 'local' });
+}
 
 async function rpcOk<T>(client: SupabaseClient, fn: string, args: Record<string, unknown>): Promise<T> {
   const { data, error } = await client.rpc(fn, args);

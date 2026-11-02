@@ -710,7 +710,7 @@ export function PurchaseWorkTab({
             )}
           </CardHeader>
           <CardBody>
-            <BookedFacts task={t} />
+            <BookedFacts task={t} idPrefix="work-booked" />
           </CardBody>
         </section>
       </Card>

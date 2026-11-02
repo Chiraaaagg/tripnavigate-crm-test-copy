@@ -29,8 +29,8 @@ import { HOTEL, PURCHASE_CLAIM_SQL, b1Helpers } from './b1-support';
  * setup), on fresh synthetic Deals (SYN-PCC-<run>-n), never the fixture
  * Deals. afterAll deletes every row of those Deals as the local table owner
  * with triggers off (session_replication_role = replica, test-only, local),
- * removes the temporary Accounts membership and restores the service-items
- * switch, so the rolled-back suites that run after this file see the
+ * removes the temporary Accounts membership, restores the service-items
+ * switch and deletes every audit row the run committed, so the rolled-back suites that run after this file see the
  * database as seeded.
  *
  * Synthetic actors: PURCHASE (Purchase Jodhpur), ACC (Accounts Jodhpur),
@@ -57,6 +57,8 @@ let monitor: pg.Client;
 let c2Pid = 0;
 let originalSwitch = false;
 let addedMembership = false;
+/** Highest audit id before this file wrote anything (committed rows above it are this run's). */
+let auditStart = '0';
 const dealIds: string[] = [];
 let seq = 0;
 
@@ -76,6 +78,7 @@ beforeAll(async () => {
   c2 = await connect();
   monitor = await connect();
   c2Pid = (await c2.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid;
+  auditStart = (await db.query<{ m: string }>('select coalesce(max(id), 0)::text as m from public.audit_events'))[0]!.m;
   originalSwitch = (await db.query<{ on: boolean }>('select service_items_enabled as on from public.workflow_settings where id'))[0]!.on;
   const inserted = await db.query(
     `insert into public.memberships (user_id, legal_entity_id, branch_id, role_code, status)
@@ -135,6 +138,10 @@ async function cleanup(): Promise<void> {
       await db.query(`delete from public.memberships where user_id = $1 and role_code = 'accounts'`, [U.visaJodhpur]);
     }
     await db.query('update public.workflow_settings set service_items_enabled = $1 where id', [originalSwitch]);
+    // Every audit row this run committed, including the company-less ones the
+    // setup wrote (settings.workflow_changed for the service-items switch, the
+    // membership change): the suites after this file count those actions.
+    await db.query('delete from public.audit_events where id > $1::bigint', [auditStart]);
     await db.exec('commit');
   } catch (error) {
     await db.exec('rollback');

@@ -109,9 +109,21 @@ export function DraftResultLine() {
   }, []);
   useEffect(() => {
     if (!text) return;
-    // After the dialog has closed and returned focus, move it here.
-    const timer = window.setTimeout(() => ref.current?.focus(), 80);
-    return () => window.clearTimeout(timer);
+    // After the dialog has closed and returned focus to its button, move it here. The dialog closes
+    // when the answer arrives, but its button only leaves the page with the refresh that follows; a
+    // slow refresh used to let the dialog hand focus back to that button after a fixed 80 ms move,
+    // and focus was lost when the button went. So check every 80 ms and take focus once no dialog has
+    // been open for two checks in a row (its hand-back has run by then), or after about 5 s.
+    let tries = 0;
+    let clearChecks = 0;
+    const timer = window.setInterval(() => {
+      tries += 1;
+      clearChecks = document.querySelector('[role="dialog"]') ? 0 : clearChecks + 1;
+      if (clearChecks < 2 && tries < 60) return;
+      window.clearInterval(timer);
+      ref.current?.focus();
+    }, 80);
+    return () => window.clearInterval(timer);
   }, [text]);
   return (
     <div role="status" aria-live="polite" data-slot="draft-result">
