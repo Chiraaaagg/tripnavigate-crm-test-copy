@@ -1,0 +1,3 @@
+-- Intentionally empty. Synthetic fixtures need Auth users created through the
+-- Auth admin API first, so they are loaded by scripts/seed-local.mjs instead.
+-- See docs/implementation/04-setup-and-environments.md.

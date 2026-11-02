@@ -1,0 +1,9 @@
+﻿Customer ID,Type,Name,Contact Person,Phone,Email,Address,Address Line 2,City,State,PIN,GST Registered,GSTIN,GST Reason
+TST-C-001,Business,Test Traders Pvt Ltd,Test Contact One,98765 00011,accounts@test-traders.example,1 Test Market,,Jodhpur,Rajasthan,342001,Yes,08AAAAA0000A1Z5,
+TST-C-002,Personal,Test Person Two,,+91 98765 00012,person.two@example.test,2 Test Colony,Flat 3,Delhi,07,110001,,,
+TST-C-003,Business,Test Small Shop,Test Contact Three,98765 00013,,3 Test Bazaar,,Ahmedabad,Gujarat,380001,No,,Turnover is below the GST registration limit
+TST-C-004,Business,Test Mismatch Co,,98765 00014,,4 Test Road,,Jaipur,Rajasthan,302001,Yes,07AAAAA0000A1Z5,
+TST-C-005,Personal,Test Person Five,,12345,not-an-email,5 Test Street,,Jodhpur,Rajasthan,012345,,,
+TST-C-001,Personal,Test Duplicate ID,,98765 00016,,6 Test Lane,,Jodhpur,Rajasthan,342002,,,
+TST-C-007,Firm,Test Unknown Type,,,,7 Test Road,,Jodhpur,Rajasthan,342003,,,
+,Personal,Test Person Two,,98765 00018,,8 Test Colony,,Delhi,Delhi,110002,,,
