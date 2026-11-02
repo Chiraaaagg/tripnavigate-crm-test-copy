@@ -880,7 +880,9 @@ test.describe('Purchase department: real end-to-end flow (Purchase build)', () =
         const bodies = await Promise.all(purchaseResponses);
         const hits = bodies.flatMap((b) => leaksIn(b.body).map((l) => `${new URL(b.url).pathname}${new URL(b.url).search}: ${l}`));
         const read = bodies.filter((b) => b.readable).length;
-        check('7 · no money leak · network responses', hits.length === 0, hits.length ? [...new Set(hits)].slice(0, 10).join('; ') : `${read} readable responses clean (${bodies.length - read} navigated away before they could be read)`);
+        // A check over bodies nobody could read proves nothing: require a real sample (about 65 of
+        // ~400 are readable in a full run; the rest navigated away first).
+        check('7 · no money leak · network responses', hits.length === 0 && read >= 20, read < 20 ? `only ${read} responses were readable` : hits.length ? [...new Set(hits)].slice(0, 10).join('; ') : `${read} readable responses clean (${bodies.length - read} navigated away before they could be read)`);
         // Positive control: the values do exist for Accounts (the check is meaningful).
         await A.page.goto('/app/accounts/supplier-payments?tab=all');
         const accountsHtml = await A.page.content();

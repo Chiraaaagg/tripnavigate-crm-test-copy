@@ -569,6 +569,7 @@ test.describe('real stack browser journey (T15)', () => {
       await expect(purchase.getByRole('button', { name: 'Record supplier confirmation' })).toHaveCount(0);
       await purchase.reload();
       await expect(main).toContainText(`Confirmed · reference ${reference}`);
+      await expect(main).toContainText('The confirmation locked the final rate.');
       await expect(purchase.getByRole('form', { name: 'Add a rate' })).toHaveCount(0);
       const committed = await withDb((db) => db.query<{ version_no: number; stage: string; amount: string }>(
         'select version_no, stage, amount_paise::text as amount from public.purchase_cost_versions where task_id = $1 order by version_no', [taskId]));
