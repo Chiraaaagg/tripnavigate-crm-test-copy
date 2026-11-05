@@ -85,6 +85,8 @@ test('every pb- and pm- state: axe clean, one h1, no sideways scroll at 1280, 37
 });
 
 test('Purchase screens never show a selling price, margin or company funding reason', async ({ page }) => {
+  // One test walks every pb- state; the gallery index grew with the Flight build, so 30 s is too tight in CI.
+  test.setTimeout(120_000);
   const states = (await statesFromIndex(page)).filter((s) => s.startsWith('pb-'));
   for (const state of states) {
     await open(page, state);
