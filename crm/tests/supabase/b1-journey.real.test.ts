@@ -387,8 +387,13 @@ describe.skipIf(!enabled)('B1 journey against the real stack', () => {
     expect(purchaseCounts.waitingForMe).toBe(purchaseQueue.filter((t) => t.status === 'not_started' || (t.status === 'in_progress' && t.assignedToYou)).length);
     expect(purchaseCounts.receiptsToVerify).toBeNull();
     const flightQueue = await rpc<Array<{ status: string; assignedToYou: boolean }>>(flight.client, 'flight_task_list');
+    // Flight build (20261201000150): Home counts flight work only through flight_home_counts (one row per Deal),
+    // so the combined waitingForMe no longer includes flight tasks.
     const flightCounts = await rpc<MyWorkCounts>(flight.client, 'my_work_counts');
-    expect(flightCounts.waitingForMe).toBe(flightQueue.filter((t) => t.status === 'not_started' || (t.status === 'in_progress' && t.assignedToYou)).length);
+    expect(flightCounts.waitingForMe).toBe(0);
+    const flightHome = await rpc<{ flightDealsNotTaken: number; flightDealsMine: number }>(flight.client, 'flight_home_counts');
+    expect(flightHome.flightDealsNotTaken + flightHome.flightDealsMine)
+      .toBe(flightQueue.some((t) => t.status === 'not_started' || (t.status === 'in_progress' && t.assignedToYou)) ? 1 : 0);
     const ownerCounts = await rpc<MyWorkCounts>(owner.client, 'my_work_counts');
     const [draftRow] = await ownerQuery<{ drafts: string }>(
       `select count(*)::text as drafts from public.booking_versions v join public.deals d on d.id = v.deal_id

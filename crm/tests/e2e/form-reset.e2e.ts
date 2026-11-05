@@ -131,25 +131,13 @@ test.describe('choices stay as shown after a reply', () => {
     expectPosted(await pressAndCapture(page, button), 'state', 'refused');
   });
 
-  test('Flight cost: what it was for and who paid stay chosen after a refusal', async ({ page }) => {
+  test('Flight cost: the old "Record a cost" form is retired for flights', async ({ page }) => {
+    // Flight build (contract decision 3 / B13): the per-passenger fare breakup is the only flight cost record,
+    // so the manual cost form whose choices this test used to check no longer exists on flight tasks.
+    // Typed input kept after a refusal in the new Confirm tickets popup is covered by flight-screens.e2e.ts.
     await open(page, 'b11-flight-task-cost-over-limit');
-    const form = page.getByRole('form', { name: 'Record a cost' });
-    const kind = form.getByLabel('What was it for');
-    const paidBy = form.getByLabel('Paid by');
-    const chosenKind = await chooseOther(kind);
-    // Not the first option: a reset lands on the first option of a select, so choosing it would prove nothing.
-    const chosenPaidBy = 'customer_direct';
-    await expect(paidBy).not.toHaveValue(chosenPaidBy);
-    await paidBy.selectOption(chosenPaidBy);
-    await form.getByLabel('Amount ₹').fill('1200');
-    const save = form.getByRole('button', { name: 'Save cost' });
-    await pressAndWait(page, save);
-    await expect(form.locator('[data-slot="error-summary"]')).toBeVisible();
-    await expect(kind).toHaveValue(chosenKind);
-    await expect(paidBy).toHaveValue(chosenPaidBy);
-    const body = await pressAndCapture(page, save);
-    expectPosted(body, 'costKind', chosenKind);
-    expectPosted(body, 'paidBy', chosenPaidBy);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.getByRole('form', { name: 'Record a cost' })).toHaveCount(0);
   });
 
   test('Quotation Details: "Domestic or international" stays chosen after a refusal', async ({ page }) => {
