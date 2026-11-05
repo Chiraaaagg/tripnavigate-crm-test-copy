@@ -1,0 +1,154 @@
+# Targeted re-run of named tests only (owner instruction, 26 October 2026:
+# "no need to run entire tests again just test the things that were broke in
+# last test so that it saves time").
+#
+# Started by hand (workflow_dispatch) with the test files to run. It never
+# deploys, uses no repository secrets and runs on synthetic data only, like
+# ci.yml. It does not replace the full ci.yml gate before a release.
+name: Targeted tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      unit:
+        description: 'Vitest files (unit or PGlite db), space-separated; empty = none'
+        required: false
+        default: ''
+      gallery:
+        description: 'Gallery browser test files (tests/e2e/*.e2e.ts), space-separated; empty = none'
+        required: false
+        default: ''
+      journeys:
+        description: 'Real browser journey files (tests/e2e/*.real.e2e.ts), space-separated; empty = none'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: targeted-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: crm
+
+env:
+  SUPABASE_CLI_VERSION: 2.119.0
+  NEXT_TELEMETRY_DISABLED: 1
+
+jobs:
+  checks:
+    name: Typecheck, lint, named unit and gallery browser tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      APP_ENV: local
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder_not_a_key
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      UNIT_FILES: ${{ inputs.unit }}
+      GALLERY_FILES: ${{ inputs.gallery }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5)
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crm/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Named unit and PGlite tests
+        if: env.UNIT_FILES != ''
+        run: npx vitest run --project unit --project db $UNIT_FILES
+      - name: Production build
+        if: env.GALLERY_FILES != ''
+        run: npm run build
+      - name: Install the browser
+        if: env.GALLERY_FILES != ''
+        run: npx playwright install --with-deps chromium
+      - name: Named gallery browser tests
+        if: env.GALLERY_FILES != ''
+        run: npx playwright test --project=e2e --workers=4 $GALLERY_FILES
+      - name: Upload gallery results
+        if: always() && env.GALLERY_FILES != ''
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (= v6)
+        with:
+          name: targeted-gallery
+          path: |
+            crm/test-results/
+            crm/playwright-report/
+          retention-days: 7
+          if-no-files-found: warn
+
+  real-journeys:
+    name: Named real browser journeys (real local Supabase + Mailpit)
+    if: inputs.journeys != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      REQUIRE_REAL_STACK: '1'
+      APP_ENV: local
+      LOCAL_FIXTURE_PASSWORD: ci-Synthetic-Only-Password-1
+      MAILPIT_URL: http://127.0.0.1:54324
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3100
+      JOURNEY_FILES: ${{ inputs.journeys }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5)
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crm/package-lock.json
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3 (= v1)
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - run: npm ci
+      - name: Point Auth email links at the Playwright server (port 3100)
+        run: |
+          sed -i 's#^site_url = "http://127.0.0.1:3000"#site_url = "http://127.0.0.1:3100"#' supabase/config.toml
+          grep -q '^site_url = "http://127.0.0.1:3100"' supabase/config.toml
+      - run: supabase start -x realtime,imgproxy,edge-runtime,logflare,vector,supavisor
+      - name: Export local stack connection values
+        run: |
+          supabase status -o env \
+            --override-name api.url=SUPABASE_URL \
+            --override-name auth.anon_key=SUPABASE_PUBLISHABLE_KEY \
+            --override-name auth.service_role_key=SUPABASE_SECRET_KEY \
+            --override-name db.url=TEST_DATABASE_URL \
+            | grep -E '^(SUPABASE_URL|SUPABASE_PUBLISHABLE_KEY|SUPABASE_SECRET_KEY|TEST_DATABASE_URL)=' \
+            | sed 's/"//g' > "$RUNNER_TEMP/stack.env"
+          cat "$RUNNER_TEMP/stack.env" >> "$GITHUB_ENV"
+          . "$RUNNER_TEMP/stack.env"
+          echo "NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY" >> "$GITHUB_ENV"
+          rm "$RUNNER_TEMP/stack.env"
+      - name: Real-stack configuration must be complete
+        run: |
+          for name in SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_SECRET_KEY TEST_DATABASE_URL LOCAL_FIXTURE_PASSWORD NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; do
+            if [ -z "${!name}" ]; then echo "::error title=real-stack config::$name is missing"; exit 1; fi
+          done
+          echo "::add-mask::$SUPABASE_SECRET_KEY"
+          curl -fsS "$MAILPIT_URL/api/v1/messages?limit=1" > /dev/null || { echo "::error title=real-stack config::Mailpit API not reachable"; exit 1; }
+      - run: supabase db reset
+      - name: Seed synthetic fixtures
+        run: DATABASE_URL="$TEST_DATABASE_URL" node scripts/seed-local.mjs
+      - run: npx playwright install --with-deps chromium
+      - name: Production build against the local stack
+        run: npm run build
+      - name: Named real browser journeys
+        run: npx playwright test --config=playwright.real.config.ts --project=real-journey $JOURNEY_FILES
+      - name: Upload journey screenshots, traces and report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (= v6)
+        with:
+          name: targeted-real-journeys
+          path: |
+            crm/test-results/
+            crm/playwright-report/
+          retention-days: 7
+          if-no-files-found: warn
+      - if: always()
+        run: supabase stop --no-backup
