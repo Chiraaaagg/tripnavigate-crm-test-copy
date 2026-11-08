@@ -1,6 +1,7 @@
 import 'server-only';
 import { z } from 'zod';
 import { asRpcClient } from '@/modules/fulfilment/commands';
+import { loadWorkflowSwitchStates } from '@/modules/fulfilment/server/intake';
 import type { StaffContext } from '@/modules/identity/server/session';
 import {
   VisaCommandError,
@@ -11,7 +12,14 @@ import {
   visaQueue,
   visaWorkspace,
 } from '../commands';
-import type { DealVisaHistoryDTO, DealVisaSummaryDTO, VisaHomeCountsDTO, VisaQueueDTO, VisaWorkspaceDTO } from '../contracts';
+import type {
+  DealVisaHistoryDTO,
+  DealVisaSummaryDTO,
+  VisaHomeCountsDTO,
+  VisaLaunchState,
+  VisaQueueLoadDTO,
+  VisaWorkspaceDTO,
+} from '../contracts';
 
 /**
  * Visa and Passport desk reads (contract sections 8 and 9) under the staff
@@ -29,14 +37,33 @@ function isRefusal(error: unknown): boolean {
   return error instanceof VisaCommandError && (error.code === 'not_authorized' || error.code === 'not_found');
 }
 
-/** The Visa queue (Visa people of the entity; the branch Manager read-only); null = not a reader. */
-export async function loadVisaQueue(staff: Staff): Promise<VisaQueueDTO | null> {
+/**
+ * Addendum 1: the desk switch (visa_passport_tasks_enabled) as read, in three
+ * states. Any failed or refused read, or a database that does not report the
+ * switch, is 'unknown', never 'off'.
+ */
+async function visaLaunchState(staff: Staff): Promise<VisaLaunchState> {
   try {
-    return await visaQueue(asRpcClient(staff.supabase));
-  } catch (error) {
-    if (isRefusal(error) || isVisaFunctionMissing(error)) return null;
-    throw new Error('Could not load the Visa and passport tasks. Please retry.');
+    const on = (await loadWorkflowSwitchStates(staff)).visaPassportTasksEnabled as boolean | null | undefined;
+    return on === true ? 'on' : on === false ? 'off' : 'unknown';
+  } catch {
+    return 'unknown';
   }
+}
+
+/**
+ * The Visa queue (Visa people of the entity; the branch Manager read-only)
+ * with the launch state (Addendum 1); null = not a reader.
+ */
+export async function loadVisaQueue(staff: Staff): Promise<VisaQueueLoadDTO | null> {
+  const [launch, queue] = await Promise.all([
+    visaLaunchState(staff),
+    visaQueue(asRpcClient(staff.supabase)).catch((error: unknown) => {
+      if (isRefusal(error) || isVisaFunctionMissing(error)) return null;
+      throw new Error('Could not load the Visa and passport tasks. Please retry.');
+    }),
+  ]);
+  return queue ? { ...queue, launch, waitingCount: null } : null;
 }
 
 /** One task page; null = not found, not visible or a malformed id (indistinguishable). */

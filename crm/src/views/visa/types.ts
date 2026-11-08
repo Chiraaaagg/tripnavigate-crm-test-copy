@@ -16,7 +16,7 @@ import type {
   VisaNotReadyToken as DtoNotReadyToken,
   VisaPaidBy as DtoPaidBy,
   VisaPaymentMode as DtoPaymentMode,
-  VisaQueueDTO,
+  VisaQueueLoadDTO,
   VisaQueueTaskDTO,
   VisaReturnedFeeDTO,
   VisaStepDTO,
@@ -32,7 +32,8 @@ import type {
  * value exists in these shapes; the passport object is the assignee's only.
  */
 
-export type VisaQueueView = VisaQueueDTO;
+/** The queue read plus the honest launch state On / Off / Unknown (Addendum 1). */
+export type VisaQueueView = VisaQueueLoadDTO;
 export type VisaQueueTask = VisaQueueTaskDTO;
 export type VisaTaskStatus = VisaTaskStatusDTO;
 export type VisaOpenStep = NonNullable<VisaTaskStatusDTO['step']>;

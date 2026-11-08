@@ -263,14 +263,19 @@ test.describe('Batch 4 department task pages', () => {
     await expect(page.getByRole('region', { name: 'History', exact: true })).not.toContainText(/₹\s?\d/);
   });
 
-  test('Visa: Work holds the applicant checklist and stage list (G15); Details holds the private notice', async ({ page }) => {
+  test('Visa: Work holds the passengers table and the step bar (G15); Details holds the private notice', async ({ page }) => {
+    // Visa build (contract 11.1): the old per-applicant checklist and stage list ("Progress for Sample Traveller A",
+    // "Record submission", history "Applicant 1: Submitted") are replaced by the Passengers and documents table, the
+    // five-step bar and the new History kinds. The intent (Work holds the work, Details the private notice and the
+    // "Continue the applications" link to Work) is kept.
     await open(page, 'b4-visa-task-details');
     await expect(page.locator('main')).toContainText('Private applicant documents');
     await expect(page.locator('main').getByRole('link', { name: 'Continue the applications' })).toHaveAttribute('href', /\?tab=work$/);
     await open(page, 'b4-visa-task-work');
-    await expect(page.locator('main').getByRole('list', { name: 'Progress for Sample Traveller A' })).toBeVisible();
-    await expect(page.locator('main').getByRole('button', { name: 'Record submission' })).toBeVisible();
+    await expect(page.locator('main').getByRole('region', { name: /Passengers and documents/ }).first()).toBeVisible();
+    await expect(page.locator('main').getByLabel(/^Visa progress/).first()).toBeVisible();
     await open(page, 'b4-visa-task-history');
-    await expect(page.getByRole('list', { name: 'Task history, newest first' })).toContainText('Applicant 1: Submitted');
+    await expect(page.getByRole('list', { name: 'Task history, newest first' })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Task history, newest first' })).not.toContainText(/₹\s?\d/);
   });
 });

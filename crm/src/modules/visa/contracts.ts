@@ -86,6 +86,23 @@ export type {
 } from './dto';
 
 // ---------------------------------------------------------------------------
+// Addendum 1 (9 Nov 2026): launch state of the Visa queue
+// ---------------------------------------------------------------------------
+
+/**
+ * visa_passport_tasks_enabled as read through workflow_settings_get: 'on',
+ * 'off', or 'unknown' when the read failed or did not report it (never 'off').
+ */
+export type VisaLaunchState = 'on' | 'off' | 'unknown';
+
+/** What loadVisaQueue returns: the visa_queue read plus the launch state. */
+export type VisaQueueLoadDTO = import('./dto').VisaQueueDTO & {
+  launch: VisaLaunchState;
+  /** Sold visa/passport services waiting for the launch, when known; null otherwise (no read reports it today). */
+  waitingCount: number | null;
+};
+
+// ---------------------------------------------------------------------------
 // Document catalogue (section 4, frozen; code -> label, in this order)
 // ---------------------------------------------------------------------------
 

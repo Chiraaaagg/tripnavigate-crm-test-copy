@@ -2,8 +2,11 @@ import { Eye, Stamp } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
 import { cn, focusRing } from '@/components/ui/cn';
+import { Notice } from '@/components/ui/notice';
 import { PageHeader } from '@/components/ui/page-header';
+import { VISA_TEXT } from '@/modules/fulfilment/contracts';
 import { Skeleton } from '@/components/ui/skeleton';
 import { InternalTaskLine, QueueEmpty, QueueShowTabs } from '../department/task-frame';
 import type { QueueShow } from '../department/queue-show';
@@ -61,6 +64,17 @@ export function VisaQueuePage({ queue, show }: { queue: VisaQueueView; show: Que
           <InternalTaskLine>View only. The Visa desk takes and works on these tasks.</InternalTaskLine>
         </div>
       ) : null}
+      {queue.launch === 'off' ? (
+        <Notice tone="warning" className="mb-4" title="Not started yet">
+          <p>{VISA_TEXT.notLaunched}</p>
+          {queue.waitingCount !== null ? <p>{plural(queue.waitingCount, 'sold service')} {queue.waitingCount === 1 ? 'is' : 'are'} waiting.</p> : null}
+        </Notice>
+      ) : queue.launch === 'unknown' ? (
+        // Unknown is never shown as "Not started yet" (DA-255: Unknown is not Off).
+        <Notice tone="warning" className="mb-4" title="Desk state could not be read">
+          <p>{VISA_TEXT.launchUnknown}</p>
+        </Notice>
+      ) : null}
       <QueueShowTabs basePath="/app/visa" show={current} canTakeTasks={canTake} counts={counts} label="Visa and passport task filters" />
       <Card>
         <section aria-labelledby="visa-queue-heading">
@@ -70,7 +84,11 @@ export function VisaQueuePage({ queue, show }: { queue: VisaQueueView; show: Que
           </CardHeader>
           {rows.length === 0 ? (
             <div role="status">
-              <QueueEmpty icon={Stamp} anyTasks={all.length > 0} show={current} serviceWords="a visa or passport service" />
+              {queue.launch === 'off' && all.length === 0 ? (
+                <EmptyState icon={Stamp} headingLevel={2} title="No tasks yet" description="Tasks appear once the desk is started." />
+              ) : (
+                <QueueEmpty icon={Stamp} anyTasks={all.length > 0} show={current} serviceWords="a visa or passport service" />
+              )}
             </div>
           ) : (
             <ol className="m-0 flex list-none flex-col divide-y divide-line p-0" aria-label="Visa and passport tasks">

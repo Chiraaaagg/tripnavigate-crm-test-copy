@@ -285,6 +285,8 @@ const states: Record<string, () => ReactNode> = {
   'visa-queue-manager': () => shell(managerViewer, '/app/visa', <VisaQueuePage queue={{ ...QUEUE, isManagerView: true, canTake: false, tasks: QUEUE.tasks.map((t) => ({ ...t, assignedToYou: false, canTake: false, isManagerView: true, assigneeName: t.assigneeName ? 'Synthetic Visa Jodhpur' : null })) }} show="all" />),
   'visa-queue-mixed-roles': () =>
     shell({ ...visaViewer, displayName: 'Synthetic Visa and Manager' }, '/app/visa', <VisaQueuePage queue={{ ...QUEUE, tasks: [...QUEUE.tasks, { ...QUEUE.tasks[1]!, taskId: 'a1000000-0000-4000-8000-000000000005', dealReference: 'SYN-DEL-801', branchName: 'Delhi', canTake: false, isManagerView: true }] }} show="all" />),
+  'visa-queue-off': () => shell(visaViewer, '/app/visa', <VisaQueuePage queue={{ ...QUEUE, launch: 'off', waitingCount: 3, tasks: [] }} show="not_taken" />),
+  'visa-queue-unknown': () => shell(visaViewer, '/app/visa', <VisaQueuePage queue={{ ...QUEUE, launch: 'unknown', waitingCount: null }} show="all" />),
   'visa-queue-empty': () => shell(visaViewer, '/app/visa', <VisaQueuePage queue={{ ...QUEUE, tasks: [] }} show="not_taken" />),
   'visa-queue-loading': () => shell(visaViewer, '/app/visa', <VisaQueueLoading />),
   'visa-queue-error': () => shell(visaViewer, '/app/visa', <VisaQueueError />),
@@ -485,7 +487,7 @@ const states: Record<string, () => ReactNode> = {
 const LEGACY_ALIASES: Record<string, string> = {
   'b11-visa-queue': 'visa-queue',
   'b11-visa-queue-empty': 'visa-queue-empty',
-  'b11-visa-queue-not-launched': 'visa-queue-empty',
+  'b11-visa-queue-not-launched': 'visa-queue-off',
   'b11-visa-queue-loading': 'visa-queue-loading',
   'b11-visa-task-new': 'visa-task-not-taken',
   'b11-visa-task-claim-conflict': 'visa-task-claim-conflict',
@@ -502,8 +504,8 @@ const LEGACY_ALIASES: Record<string, string> = {
   'b11-visa-task-not-visible': 'visa-task-not-found',
   'b4-visa-queue': 'visa-queue',
   'b4-visa-queue-all': 'visa-queue-all',
-  'b4-visa-queue-off': 'visa-queue-empty',
-  'b4-visa-queue-unknown': 'visa-queue-error',
+  'b4-visa-queue-off': 'visa-queue-off',
+  'b4-visa-queue-unknown': 'visa-queue-unknown',
   'b4-visa-task-details': 'visa-task-details',
   'b4-visa-task-work': 'visa-work',
   'b4-visa-task-files': 'visa-task-files',

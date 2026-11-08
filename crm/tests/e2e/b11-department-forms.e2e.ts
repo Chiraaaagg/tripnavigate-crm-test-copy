@@ -111,15 +111,16 @@ test.describe('B1.1 department cost block', () => {
 // names now open the new screens (src/app/preview/[state]/visa-states.tsx aliases). Each test below keeps the old test's
 // intent and states what replaced the old wording. The new screens are covered in depth by tests/e2e/visa-screens.e2e.ts.
 test.describe('B1.1 Visa & Passport desk (now the Visa build screens)', () => {
-  test('queue: tasks with state and owner; an empty queue says so', async ({ page }) => {
+  test('queue: tasks with state and owner; switched off says what waits; an empty queue says so', async ({ page }) => {
     await open(page, 'b11-visa-queue');
     const main = page.locator('main');
     // Was: "Passport · Renewal" link and "Not taken". Now: task links to /app/visa/<id> and the frozen status words (section 8).
     await expect(main.locator('a[href*="/app/visa/"]').first()).toBeVisible();
     await expect(main).toContainText('Not taken');
-    // Was: "The Visa desk is not started yet." (launch states). VL21: the new desk has no launch switch; the alias opens the empty queue.
+    // Kept (lead, contract Addendum 1): the queue still says when task creation is switched off.
     await open(page, 'b11-visa-queue-not-launched');
-    await expect(page.locator('main')).not.toContainText('Not started yet');
+    await expect(page.locator('main')).toContainText('The Visa desk is not started yet.');
+    await expect(page.locator('main')).toContainText('Not started yet');
     await open(page, 'b11-visa-queue-empty');
     await expect(page.locator('main a[href*="/app/visa/"]')).toHaveCount(0);
   });

@@ -197,6 +197,21 @@ describe('loaders', () => {
     await expect(queries.loadVisaWorkspace(staff, 'nope')).resolves.toBeNull();
   });
 
+  it('queue carries the launch state (Addendum 1): a failed switch read is unknown, never off', async () => {
+    const queue = { data: { isManagerView: false, canTake: true, tasks: [] } };
+    const settings = (visa: boolean | undefined) => ({ data: { intakePromptEnabled: true, serviceItemsEnabled: true, visaPassportTasksEnabled: visa, updatedAt: null } });
+    replies({ visa_queue: queue, workflow_settings_get: [settings(true), settings(false), settings(undefined), { error: { code: '42501', message: 'not_authorized' } }, { throws: true }] });
+    for (const launch of ['on', 'off', 'unknown', 'unknown', 'unknown']) {
+      await expect(queries.loadVisaQueue(staff)).resolves.toEqual({ isManagerView: false, canTake: true, tasks: [], launch, waitingCount: null });
+    }
+  });
+
+  it('queue: not a reader is null even when the switch reads; a broken queue read throws', async () => {
+    replies({ visa_queue: [{ data: null }, { throws: true }], workflow_settings_get: { data: { intakePromptEnabled: true, serviceItemsEnabled: true, visaPassportTasksEnabled: true } } });
+    await expect(queries.loadVisaQueue(staff)).resolves.toBeNull();
+    await expect(queries.loadVisaQueue(staff)).rejects.toThrow('Could not load the Visa and passport tasks. Please retry.');
+  });
+
   it('deal reads answer error (not empty) on failure', async () => {
     replies({ deal_visa_history: { throws: true }, deal_visa_summary: { data: null } });
     await expect(queries.loadDealVisaHistory(staff, DEAL)).resolves.toBe('error');

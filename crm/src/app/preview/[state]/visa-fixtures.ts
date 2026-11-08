@@ -212,6 +212,8 @@ export function withApplicants(ws: VisaWorkspace, applicants: VisaApplicant[], s
 export const QUEUE: VisaQueueView = {
   isManagerView: false,
   canTake: true,
+  launch: 'on',
+  waitingCount: null,
   tasks: [
     { taskId: T_VISA, serviceType: 'visa', dealReference: 'SYN-JOD-701', branchName: 'Jodhpur', title: 'France · Tourism', factsLine: 'France · Tourism · Sticker visa · travel 6 Feb 27', travelDate: '2027-02-06', status: { code: 'in_progress', step: 'ready', text: 'Documents and date pending' }, applicantCount: 4, readyCount: 2, appliedCount: 0, decidedCount: 0, closedCount: 0, assigneeName: 'Synthetic Visa Jodhpur', assignedToYou: true, createdAt: '2026-11-02T09:00:00Z', canTake: false, isManagerView: false },
     { taskId: 'a1000000-0000-4000-8000-000000000003', serviceType: 'visa', dealReference: 'SYN-JOD-702', branchName: 'Jodhpur', title: 'United Arab Emirates · Tourism', factsLine: 'United Arab Emirates · Tourism · E-visa · travel 20 Nov 26', travelDate: '2026-11-20', status: { code: 'not_taken', step: null, text: 'Not taken' }, applicantCount: 3, readyCount: 0, appliedCount: 0, decidedCount: 0, closedCount: 0, assigneeName: null, assignedToYou: false, createdAt: '2026-11-03T09:00:00Z', canTake: true, isManagerView: false },
