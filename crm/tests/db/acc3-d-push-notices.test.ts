@@ -20,10 +20,10 @@ afterAll(async () => {
 });
 
 const h = acc3Helpers(() => db);
-const { one, owner, refused } = h;
+const { one, owner, refused, refusedHint } = h;
 const P256 = `B${'A'.repeat(86)}`;
 const AUTH = 'A'.repeat(22);
-const endpoint = (n = rid()) => `https://push.example.test/ep/${n}`;
+const endpoint = (n = rid()) => `https://fcm.googleapis.com/fcm/send/${n}`;
 type Device = { deviceId: string };
 
 const pushOn = async (on = true) => one(SUPER, SQL3.setPush, [on, REASON]);
@@ -80,7 +80,7 @@ describe('8.1 / 8.3 devices', () => {
       expect(added.details).toMatchObject({ deviceId: d1.deviceId });
       expect(text(added)).not.toContain(ep);
       // Bad endpoint (not https).
-      const bad = await h.attempt(ACC, SQL3.pushRegister, ['http://push.example.test/x', P256, AUTH, 'Chrome on Windows', rid()]);
+      const bad = await h.attempt(ACC, SQL3.pushRegister, ['http://fcm.googleapis.com/fcm/send/x', P256, AUTH, 'Chrome on Windows', rid()]);
       expect(bad.ok).toBe(false);
       // Ten devices max.
       for (let i = 0; i < 9; i += 1) await register(ACC);
@@ -111,6 +111,46 @@ describe('8.1 / 8.3 devices', () => {
       }
       await db.exec('rollback to savepoint g');
       expect(failed).toBe(true);
+    });
+  });
+});
+
+describe('Addendum O3: push endpoint allowlist and "Sign out of all devices"', () => {
+  it('only the four push services are accepted; any other host is refused invalid_input (hint endpoint)', async () => {
+    await asOwner(db, async () => {
+      await h.people();
+      await h.noticesOn();
+      await pushOn();
+      for (const ep of ['https://fcm.googleapis.com/fcm/send/o3-a', 'https://updates.push.services.mozilla.com/wpush/v2/o3-b',
+        'https://web.push.apple.com/o3-c', 'https://wns2-par02p.notify.windows.com/w/?token=o3-d']) {
+        expect((await register(ACC, ep)).deviceId, ep).toBeTruthy();
+      }
+      for (const ep of ['https://push.example.test/o3-x', 'https://fcm.googleapis.com.evil.example.test/o3-y', 'https://user@fcm.googleapis.com/o3-z',
+        'https://fcm.googleapis.com:8443/o3-w', 'http://fcm.googleapis.com/fcm/send/o3-v', 'https://127.0.0.1/o3-u']) {
+        await refusedHint(ACC, SQL3.pushRegister, [ep, P256, AUTH, 'Chrome on Windows', rid()], 'invalid_input', /endpoint/, '22023');
+      }
+      expect((await devices()).filter((d) => d.status === 'active')).toHaveLength(4);
+    });
+  });
+
+  it('push_devices_remove_all removes every active device of the caller only (signed_out), one audit row per device, ids only', async () => {
+    await asOwner(db, async () => {
+      await h.people();
+      await h.noticesOn();
+      await pushOn();
+      const mine = [await register(ACC), await register(ACC), await register(ACC)];
+      const theirs = await register(OWNER);
+      const before = await h.lastAuditId();
+      await one(ACC, 'select public.push_devices_remove_all($1) as r', [rid()]);
+      const rows = await devices();
+      for (const d of mine) expect(rows.find((r) => r.id === d.deviceId)).toMatchObject({ status: 'removed', removed_reason: 'signed_out' });
+      expect(rows.find((r) => r.id === theirs.deviceId)!.status).toBe('active');
+      const audits = (await h.auditsSince(before)).filter((a) => a.action === 'notices.push_device_removed');
+      expect(audits).toHaveLength(3);
+      for (const a of audits) expect(text(a.details)).not.toMatch(/https:|fcm\.googleapis/);
+      // Nothing left: a second call removes nothing and still succeeds.
+      await one(ACC, 'select public.push_devices_remove_all($1) as r', [rid()]);
+      expect((await h.auditsSince(before)).filter((a) => a.action === 'notices.push_device_removed')).toHaveLength(3);
     });
   });
 });

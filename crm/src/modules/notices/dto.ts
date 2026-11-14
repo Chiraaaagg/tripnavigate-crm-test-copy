@@ -138,6 +138,9 @@ export type PushRemoveResult = z.output<typeof PushRemoveResultSchema>;
 export const PushRemoveCurrentResultSchema = z.object({ removed: z.number().int().min(0).max(1) });
 export type PushRemoveCurrentResult = z.output<typeof PushRemoveCurrentResultSchema>;
 
+/** push_devices_remove_all ("Sign out of all devices", Addendum O3). */
+export const PushRemoveAllResultSchema = z.object({ removed: z.number().int().min(0) });
+
 /** D4 push_test_send. */
 export const PushTestResultSchema = z.object({ outcome, jobId: uuid, deviceId: uuid });
 export type PushTestResult = z.output<typeof PushTestResultSchema>;

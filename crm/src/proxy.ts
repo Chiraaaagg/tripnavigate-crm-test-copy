@@ -102,7 +102,7 @@ export const config = {
       // Everything except static assets and the self-authenticating
       // /api/integrations/* routes. Prefetches are skipped as the Next.js CSP
       // guide recommends (they render no HTML that needs a nonce).
-      source: '/((?!_next/static|_next/image|favicon.ico|robots.txt|sw.js|manifest.webmanifest|icon.svg|api/integrations/).*)',
+      source: '/((?!_next/static|_next/image|favicon.ico|robots.txt|sw\\.js$|manifest\\.webmanifest$|icon\\.svg$|api/integrations/).*)',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },

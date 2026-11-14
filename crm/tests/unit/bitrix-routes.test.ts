@@ -228,7 +228,7 @@ describe('proxy exemption for /api/integrations/*', () => {
   const source = readFileSync(join(import.meta.dirname, '..', '..', 'src', 'proxy.ts'), 'utf8');
   it('matcher excludes the integration API and the function guard returns early', () => {
     // Accounts phase 3 (8.4): the service worker, manifest and icon are also excluded; api/integrations/ stays last.
-    expect(source).toContain("robots.txt|sw.js|manifest.webmanifest|icon.svg|api/integrations/).*)'");
+    expect(source).toContain("robots.txt|sw\\\\.js$|manifest\\\\.webmanifest$|icon\\\\.svg$|api/integrations/).*)'");
     expect(source).toMatch(/if \(isIntegrationApiPath\(request\.nextUrl\.pathname\)\) return NextResponse\.next\(\);/);
     // Staff UI handling remains.
     expect(source).toContain("request.nextUrl.pathname.startsWith('/app')");

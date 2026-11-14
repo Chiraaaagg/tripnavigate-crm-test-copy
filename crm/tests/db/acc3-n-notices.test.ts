@@ -272,7 +272,7 @@ describe('8.2 push for urgent Release B kinds', () => {
     await asOwner(db, async () => {
       await h.noticesOn();
       await one(SUPER, 'select public.admin_set_push_enabled($1, $2) as r', [true, REASON]);
-      await one(PURCHASE, 'select public.push_device_register($1, $2, $3, $4, $5) as r', [`https://push.example.test/${rid()}`,
+      await one(PURCHASE, 'select public.push_device_register($1, $2, $3, $4, $5) as r', [`https://fcm.googleapis.com/fcm/send/${rid()}`,
         'BOr7synthetic-p256dh-key', 'synthetic-auth-key-0001', 'Chrome on Windows', rid()]);
       const { hotelItem, hotelTask } = await h.committedDeal();
       await h.submittedChange(hotelItem);

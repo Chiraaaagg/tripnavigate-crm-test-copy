@@ -319,3 +319,39 @@ describe('no duplicate after an unclear send (0190)', () => {
     });
   });
 });
+
+describe('lost lease (0195)', () => {
+  it('an expired WhatsApp lease becomes unknown (alert, never re-sent); an expired e-mail lease is claimed again', async () => {
+    await asOwner(db, async () => {
+      await liveBooked();
+      await h.enqueue(DEAL, 'payment_received', 'receipt:o3', { amountPaise: '100', balancePaise: '0' });
+      await h.dueNow();
+      const claimed = await h.msgClaim();
+      expect(claimed).toHaveLength(2);
+      await owner(`update public.customer_messages set lease_until = now() - interval '1 second' where deal_id = $1 and status = 'sending'`, [DEAL]);
+      const again = await h.msgClaim();
+      const email = claimed.find((c) => c.channel === 'email')!;
+      const wa = claimed.find((c) => c.channel === 'whatsapp')!;
+      expect(again.map((c) => c.id)).toEqual([email.id]);
+      expect(await h.messageRow(wa.id)).toMatchObject({ status: 'unknown', last_error_code: 'unknown_outcome' });
+      expect((await h.alerts('customer_message_alerts')).filter((a) => a.message_id === wa.id)).toHaveLength(1);
+      expect((await h.audits('messages.failed')).slice(-1)[0]!.details).toMatchObject({ messageId: wa.id, errorCode: 'unknown_outcome' });
+    });
+  });
+
+  it('release: rows never started go back to queued with the attempt given back; only the same worker, only sending rows', async () => {
+    await asOwner(db, async () => {
+      await liveBooked();
+      await h.enqueue(DEAL, 'refund_paid', 'payout:o3', { amountPaise: '100' });
+      await h.dueNow();
+      const ids = (await h.msgClaim(25, 'worker-a')).map((c) => c.id);
+      const other = await one<{ released: number }>(WORKER, 'select public.customer_message_release($1::uuid[], $2) as r', [ids, 'worker-b']);
+      expect(other.released).toBe(0);
+      const mine = await one<{ released: number }>(WORKER, 'select public.customer_message_release($1::uuid[], $2) as r', [ids, 'worker-a']);
+      expect(mine.released).toBe(2);
+      for (const id of ids) expect(await h.messageRow(id)).toMatchObject({ status: 'queued', attempts: 0 });
+      expect((await h.msgClaim()).map((c) => c.id).sort()).toEqual([...ids].sort());
+      await expectDbError(db, () => h.run(OWNER, 'select public.customer_message_release($1::uuid[], $2) as r', [ids, 'worker-a']), { code: '42501' });
+    });
+  });
+});

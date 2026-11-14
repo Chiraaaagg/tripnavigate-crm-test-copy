@@ -341,7 +341,7 @@ select row_number() over (order by s.work_email) as n, s.user_id from public.sta
 where s.work_email like 'perf.staff.%@example.test' and s.status = 'active';
 insert into public.staff_push_devices (user_id, endpoint, endpoint_hash, p256dh, auth_key, label, status, request_id, created_at, last_used_at,
   removed_at, removed_reason)
-select p.user_id, 'https://push.example.test/perf/' || g, pg_temp.h('https://push.example.test/perf/' || g), 'BPerfSyntheticP256dhKey' || lpad(g::text, 6, '0'), 'perfSyntheticAuth' || lpad(g::text, 6, '0'),
+select p.user_id, 'https://fcm.googleapis.com/fcm/send/perf/' || g, pg_temp.h('https://fcm.googleapis.com/fcm/send/perf/' || g), 'BPerfSyntheticP256dhKey' || lpad(g::text, 6, '0'), 'perfSyntheticAuth' || lpad(g::text, 6, '0'),
        (array['Chrome on Windows', 'Safari on iPhone', 'Edge on Windows', 'Chrome on Android'])[1 + (g % 4)],
        case when (g / (select count(*) from perf3_people)) < 10 then 'active' else 'removed' end, gen_random_uuid(),
        now() - ((g % 90) || ' days')::interval, now() - ((g % 30) || ' days')::interval,
@@ -519,8 +519,8 @@ begin
     (select count(*) from public.rate_contract_lines l join public.rate_contracts r on r.id = l.contract_id where r.note = 'SYN-PERF rate contract'),
     (select count(*) from public.booking_change_requests where ref_no like 'CR-2026-6%'),
     (select count(*) from public.task_reconfirmations where new_reference like 'SYN-RECONF-%'),
-    (select count(*) from public.staff_push_devices where endpoint like 'https://push.example.test/perf/%'),
-    (select count(*) from public.staff_push_devices where endpoint like 'https://push.example.test/perf/%' and status = 'active'),
+    (select count(*) from public.staff_push_devices where endpoint like 'https://fcm.googleapis.com/fcm/send/perf/%'),
+    (select count(*) from public.staff_push_devices where endpoint like 'https://fcm.googleapis.com/fcm/send/perf/%' and status = 'active'),
     (select count(*) from public.deal_write_offs where ref_no like 'WO-2026-5%'),
     (select count(*) from public.tally_export_lines l join public.tally_exports e on e.id = l.export_id where e.format = 'xml'),
     (select count(*) from public.tally_export_left_out),

@@ -11,7 +11,7 @@ import {
   type NoticeLinkKind,
 } from '@/modules/notices/contracts';
 import { noticeHref } from '@/modules/notices/href';
-import { deviceLabel, isIphoneLike, isSafeNoticePath, pushPolicyState, vapidKeyBytes } from '@/modules/notices/push-policy';
+import { deviceLabel, isAllowedPushEndpoint, isIphoneLike, isSafeNoticePath, pushPolicyState, vapidKeyBytes } from '@/modules/notices/push-policy';
 import { buildPushPayload, buildTestPushPayload, dispatchPush, vapidFromEnv, type PushDispatchDeps } from '@/modules/notices/server/push-dispatch';
 import { handlePushRequest } from '@/modules/notices/server/push-route';
 
@@ -136,7 +136,7 @@ describe('8.4 push-policy', () => {
 describe('8.4 sender (stubbed push service)', () => {
   const notice = { ...item('task_new', { dealReference: 'BX-1234', department: 'purchase' }, 'task', 'purchase') };
   const job = (jobId: string, extra: Record<string, unknown> = {}) => ({
-    jobId, endpoint: 'https://push.example.test/ep/1', p256dh: `B${'A'.repeat(86)}`, authKey: 'A'.repeat(22), test: false, urgent: true, notice, ...extra,
+    jobId, endpoint: 'https://fcm.googleapis.com/fcm/send/syn-1', p256dh: `B${'A'.repeat(86)}`, authKey: 'A'.repeat(22), test: false, urgent: true, notice, ...extra,
   });
   function deps(rows: unknown[], statuses: Record<string, number | null | 'ok'>) {
     const done: Array<{ id: string; ok: boolean; status: number | null }> = [];
@@ -147,7 +147,7 @@ describe('8.4 sender (stubbed push service)', () => {
       complete: async (id, _w, ok, status) => void done.push({ id, ok, status }),
       send: async (target, payload, options) => {
         sent.push({ payload, urgency: options.urgency });
-        const s = statuses[target.endpoint === 'https://push.example.test/ep/1' ? 'x' : 'y'];
+        const s = statuses[target.endpoint === 'https://fcm.googleapis.com/fcm/send/syn-1' ? 'x' : 'y'];
         return s === 'ok' ? { ok: true } : { ok: false, statusCode: s ?? null };
       },
     };
@@ -169,12 +169,40 @@ describe('8.4 sender (stubbed push service)', () => {
     expect(done[0]).toEqual({ id: '00000000-0000-4000-8000-00000000000c', ok: false, status: 410 });
     expect(JSON.stringify(r)).not.toContain('push.example.test');
   });
+  it('an endpoint outside the allowlist is never sent to; failed without a retry', async () => {
+    const id = '00000000-0000-4000-8000-00000000000d';
+    const done: Array<{ ok: boolean; status: number | null; code: string | null | undefined }> = [];
+    let sends = 0;
+    const d: PushDispatchDeps = {
+      worker: 'w1',
+      claim: async () => [job(id, { endpoint: 'https://push.example.test/ep/2' })],
+      complete: async (_id, _w, ok, status, code) => void done.push({ ok, status, code }),
+      send: async () => ((sends += 1), { ok: true }),
+    };
+    expect(await dispatchPush(d)).toEqual({ claimed: 1, sent: 0, failed: 1, gone: 0 });
+    expect(sends).toBe(0);
+    expect(done).toEqual([{ ok: false, status: null, code: 'endpoint_not_allowed' }]);
+  });
   it('not configured = skipped', async () => {
     expect(await dispatchPush(null)).toBeNull();
   });
   it('a bad claim answer throws a code', async () => {
     const { d } = deps([{ jobId: 'x' }], {});
     await expect(dispatchPush(d)).rejects.toMatchObject({ code: 'bad_response' });
+  });
+});
+
+describe('Addendum O3 push endpoint allowlist', () => {
+  it('only the browsers\' push services', () => {
+    for (const ok of [
+      'https://fcm.googleapis.com/fcm/send/abc', 'https://updates.push.services.mozilla.com/wpush/v2/abc', 'https://web.push.apple.com/QAbc',
+      'https://wns2-par02p.notify.windows.com/w/?token=abc', 'https://FCM.googleapis.com:443/fcm/send/x',
+    ]) expect(isAllowedPushEndpoint(ok), ok).toBe(true);
+    for (const bad of [
+      'http://fcm.googleapis.com/fcm/send/abc', 'https://push.example.test/ep/1', 'https://fcm.googleapis.com.evil.test/x',
+      'https://evil.test/fcm.googleapis.com', 'https://user@fcm.googleapis.com/x', 'https://fcm.googleapis.com:8443/x',
+      'https://push.services.mozilla.com/x', 'https://evilnotify.windows.com/x', 'https://web.push.apple.com.evil.test/x',
+    ]) expect(isAllowedPushEndpoint(bad), bad).toBe(false);
   });
 });
 

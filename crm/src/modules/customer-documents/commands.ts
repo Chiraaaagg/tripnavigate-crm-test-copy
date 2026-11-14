@@ -105,6 +105,7 @@ const AutoBillsSwitchSchema = z
     changed: z.boolean(),
     autoBillsEnabled: z.boolean(),
     autoBillReleaseEnabled: z.boolean(),
+    autoBillsSince: z.string().nullable(),
     rowVersion: z.number().int().nonnegative(),
     updatedAt: z.string().nullable(),
   })

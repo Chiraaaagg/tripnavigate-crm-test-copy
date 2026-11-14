@@ -15,7 +15,7 @@ import {
   safeNextPath,
 } from '../session-policy';
 import { requireSignedIn } from './session';
-import { removePushDeviceOnSignOut } from '@/modules/notices/server/push-signout';
+import { removeAllPushDevicesOnSignOut, removePushDeviceOnSignOut } from '@/modules/notices/server/push-signout';
 
 const GENERIC_SIGN_IN_ERROR =
   'Email or password is incorrect, or this account is not active. Contact your administrator if you need help.';
@@ -86,8 +86,10 @@ export async function signOutAction(formData: FormData): Promise<void> {
  */
 export async function signOutEverywhereAction(formData: FormData): Promise<void> {
   const { supabase } = await requireSignedIn();
-  // Accounts phase 3 (8.3 D2, risk R10): remove this browser's alert device first. Never throws.
+  // Accounts phase 3 (8.3 D2, risk R10; Addendum O3): signing out everywhere removes every alert
+  // device of this person, not only this browser's. Both calls never throw.
   await removePushDeviceOnSignOut(supabase, formData);
+  await removeAllPushDevicesOnSignOut(supabase);
   const { error } = await supabase.rpc('revoke_my_sessions');
   if (error) {
     throw new Error('Could not sign you out of other devices. Please retry.');

@@ -163,3 +163,33 @@ describe('backlog control (20261205000260)', () => {
     });
   });
 });
+
+describe('only from switch-on (Addendum O3, 20261205000270)', () => {
+  it('sources older than auto_bills_since are never drafted; new ones are; manual drafts still allowed', async () => {
+    await asOwner(db, async () => {
+      await h.people();
+      await h.docsOn();
+      const b = await h.book([PAST_HOTEL_ITEM], { trip: { start: PAST_TRIP.start, end: PAST_TRIP.end } });
+      await h.approveReal(b.versionId);
+      const old = await h.receipt(DEAL, '10000');
+      // One test transaction shares now(): age the earlier sources by a day (owner SQL, triggers off for this statement).
+      await db.exec('set local session_replication_role = replica');
+      await owner(`update public.customer_receipts set verified_at = verified_at - interval '1 day' where id = $1`, [old.id]);
+      await owner(`update public.accounts_booking_reviews set last_approved_at = last_approved_at - interval '1 day' where deal_id = $1`, [DEAL]);
+      await db.exec('set local session_replication_role = origin');
+      const on = await one<{ autoBillsSince: string | null }>(SUPER, SQL3.setAutoBills, [await h.entityId(), true, false, 'Synthetic reason for the switch']);
+      expect(on.autoBillsSince).not.toBeNull();
+      await owner(SQL3.autoRun, [DEAL, 'auto_sweep']);
+      expect((await h.documents()).filter((d) => d.auto_rule !== null)).toHaveLength(0);
+      // Off and On again keeps the first switch-on time.
+      await one(SUPER, SQL3.setAutoBills, [await h.entityId(), false, false, 'Synthetic reason for the switch']);
+      const again = await one<{ autoBillsSince: string | null }>(SUPER, SQL3.setAutoBills, [await h.entityId(), true, false, 'Synthetic reason for the switch']);
+      expect(again.autoBillsSince).toBe(on.autoBillsSince);
+      const fresh = await h.receipt(DEAL, '20000');
+      const auto = (await h.documents()).filter((d) => d.auto_rule !== null);
+      expect(auto.map((d) => [d.kind, d.receipt_id])).toEqual([['advance_invoice', fresh.id]]);
+      const manual = await one<{ outcome: string }>(ACC, SQL3.docDraft, [DEAL, 'advance_invoice', JSON.stringify({ receiptId: old.id }), rid()]);
+      expect(manual.outcome).toBe('created');
+    });
+  });
+});

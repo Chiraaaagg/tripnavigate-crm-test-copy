@@ -423,7 +423,7 @@ describe('accounts phase track B smoke', () => {
         `select details from public.audit_events where action = 'settings.accounts_changed' order by id`);
       // Accounts phase 2 (B, 6.2): the audit function lists all four switch columns on the row's first write.
       // Accounts phase 3 (contract 6.1, 16.6 setup update by Track T): it also lists Track B's six new columns, whose order is not frozen.
-      const PHASE3_COLUMNS = ['auto_bills_enabled', 'auto_bill_release_enabled', 'write_off_enabled', 'write_off_limit_paise', 'tally_xml_enabled',
+      const PHASE3_COLUMNS = ['auto_bills_enabled', 'auto_bills_since', 'auto_bill_release_enabled', 'write_off_enabled', 'write_off_limit_paise', 'tally_xml_enabled',
         'tally_company_name'];
       const audited = settingsAudit.map((a) => a.details.columns);
       expect(audited).toHaveLength(2);
@@ -623,7 +623,7 @@ describe('changed since export: complete source touches', () => {
         ['customer_receipts.mode', 'customer_receipts_a_guard', entry!.id, `update public.customer_receipts set mode = 'upi' where id = $1`, [s.receiptId]],
         ['customer_receipts.reference', 'customer_receipts_a_guard', entry!.id, `update public.customer_receipts set reference = 'UTRCHANGED01', reference_norm = 'UTRCHANGED01' where id = $1`, [s.receiptId]],
         ['customer_receipts.payer_pan', 'customer_receipts_a_guard', entry!.id, `update public.customer_receipts set payer_pan = 'PQRSX6789K' where id = $1`, [s.receiptId]],
-        ['customer_receipts.payer_mobile', 'customer_receipts_a_guard', entry!.id, `update public.customer_receipts set payer_mobile = '9123456780' where id = $1`, [s.receiptId]],
+        ['customer_receipts.payer_mobile', 'customer_receipts_a_guard', entry!.id, `update public.customer_receipts set payer_mobile = '6000456780' where id = $1`, [s.receiptId]],
         ['supplier_payment_requests.paid_on', 'supplier_payment_requests_b_guard', pay.id, 'update public.supplier_payment_requests set paid_on = paid_on - 1 where id = $1', [pay.id]],
         ['supplier_payment_requests.ref_no', 'supplier_payment_requests_b_guard', pay.id, `update public.supplier_payment_requests set ref_no = 'SP-2026-999999' where id = $1`, [pay.id]],
         ['supplier_payment_requests.amount_paise', 'supplier_payment_requests_b_guard', pay.id, 'update public.supplier_payment_requests set amount_paise = amount_paise + 1 where id = $1', [pay.id]],

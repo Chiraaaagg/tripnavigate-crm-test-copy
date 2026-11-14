@@ -361,8 +361,8 @@ test.describe('Accounts Phase 3 preview states', () => {
         close() {}
       }
       w.Notification = FakeNotification;
-      const sub = { endpoint: 'https://push.example.test/acc3-preview', expirationTime: null, getKey: () => new Uint8Array(16).buffer,
-        toJSON: () => ({ endpoint: 'https://push.example.test/acc3-preview', keys: { p256dh: 'BSynthetic', auth: 'c3ludGg' } }), unsubscribe: async () => true };
+      const sub = { endpoint: 'https://fcm.googleapis.com/fcm/send/acc3-preview', expirationTime: null, getKey: () => new Uint8Array(16).buffer,
+        toJSON: () => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/acc3-preview', keys: { p256dh: 'BSynthetic', auth: 'c3ludGg' } }), unsubscribe: async () => true };
       const proto = (globalThis as unknown as { PushManager?: { prototype: Record<string, unknown> } }).PushManager?.prototype;
       if (proto) {
         proto.subscribe = async () => { w.__subscribes += 1; return sub; };

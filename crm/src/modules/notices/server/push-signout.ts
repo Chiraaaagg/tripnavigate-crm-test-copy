@@ -1,6 +1,7 @@
 import 'server-only';
 import { asRpcClient } from '@/modules/fulfilment/commands';
-import { pushDeviceRemoveCurrent } from '../commands';
+import { randomUUID } from 'node:crypto';
+import { pushDeviceRemoveCurrent, pushDevicesRemoveAll } from '../commands';
 import { PUSH_SIGNOUT_FIELD } from '../contracts';
 
 /**
@@ -17,6 +18,19 @@ export async function removePushDeviceOnSignOut(supabase: { rpc: (...args: never
   if (typeof raw !== 'string' || raw.length < 9 || raw.length > 1000 || !/^https:\/\/\S+$/.test(raw)) return;
   try {
     await pushDeviceRemoveCurrent(asRpcClient(supabase), raw);
+  } catch {
+    // Signing out still goes ahead.
+  }
+}
+
+/**
+ * "Sign out of all devices" (Addendum O3): removes every active alert device
+ * of the caller. Call with the signed-in server client BEFORE the session
+ * barrier moves. Never throws.
+ */
+export async function removeAllPushDevicesOnSignOut(supabase: { rpc: (...args: never[]) => unknown }): Promise<void> {
+  try {
+    await pushDevicesRemoveAll(asRpcClient(supabase), randomUUID());
   } catch {
     // Signing out still goes ahead.
   }

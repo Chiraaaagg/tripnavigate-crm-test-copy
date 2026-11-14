@@ -123,7 +123,7 @@ describe('Release A reads (section 14)', () => {
     await asOwner(db, async () => {
       await h.people();
       await one(SUPER, SQL3.setPush, [true, REASON]);
-      const endpoint = 'https://push.example.test/fence/1';
+      const endpoint = 'https://fcm.googleapis.com/fcm/send/fence/1';
       await one(ACC, SQL3.pushRegister, [endpoint, `B${'A'.repeat(86)}`, 'Z'.repeat(22), 'Chrome on Windows', rid()]);
       const actors = ACTORS();
       for (const who of ['A', 'M', 'SO', 'P', 'F', 'V'] as Who[]) {
@@ -143,7 +143,7 @@ describe.skipIf(!trackLanded('41'))('notice, audit, push payload and left-out sc
       const auditStart = await h.lastAuditId();
       await one(SUPER, SQL3.setPush, [true, REASON]);
       await world();
-      await one(PURCHASE, SQL3.pushRegister, ['https://push.example.test/fence/2', `B${'A'.repeat(86)}`, 'A'.repeat(22), 'Chrome on Windows', rid()]);
+      await one(PURCHASE, SQL3.pushRegister, ['https://fcm.googleapis.com/fcm/send/fence/2', `B${'A'.repeat(86)}`, 'A'.repeat(22), 'Chrome on Windows', rid()]);
       await h.dueNow();
       await h.msgClaim();
       const payloads = asItems<{ payload?: unknown; notice?: unknown }>(await one(WORKER, SQL3.pushClaim, ['fence', 50, 60]));

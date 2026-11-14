@@ -526,7 +526,7 @@ describe.skipIf(!url)('Accounts phase 3: real concurrency on local Postgres (ski
       await h.noticesOn();
     });
     for (let i = 0; i < RUNS; i += 1) {
-      const endpoint = `https://push.example.test/race/${runTag}/${i}`;
+      const endpoint = `https://fcm.googleapis.com/fcm/send/race/${runTag}/${i}`;
       const device = await committed(() => h.one<{ deviceId: string }>(ACC, SQL3.pushRegister, [endpoint, `B${'A'.repeat(86)}`, 'A'.repeat(22),
         'Chrome on Windows', rid()]));
       await committed(() => h.one(ACC, SQL3.pushTest, [device.deviceId, rid()]));

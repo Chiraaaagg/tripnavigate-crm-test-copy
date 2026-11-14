@@ -264,7 +264,7 @@ describe.skipIf(!url)('Accounts phase speed (database, contract 12.7)', () => {
       rv = (await inTx<{ rowVersion: number }>(S, 'select public.booking_trip_save($1, $2, $3::jsonb) as r', [v.versionId, rv,
         JSON.stringify({ destination: 'Synthetic City, Rajasthan', scope: 'domestic', start: '2026-12-10', end: '2026-12-13' })])).rowVersion;
       rv = (await inTx<{ rowVersion: number }>(S, 'select public.booking_customer_save($1, $2, $3::jsonb, $4::jsonb, $5, $6) as r', [v.versionId, rv,
-        JSON.stringify({ contactName: 'Synthetic Contact', mobile: '9876500088', email: 'speed.contact@example.test', contactConfirmed: true,
+        JSON.stringify({ contactName: 'Synthetic Contact', mobile: '6000500088', email: 'speed.contact@example.test', contactConfirmed: true,
           bookingFor: 'individual', payerDifferent: false, payerName: null }), JSON.stringify({ billingName: 'Synthetic Billing', addressLine1: '1 Synthetic Road',
           addressLine2: null, city: 'Jodhpur', stateCode: '08', postalCode: '342001', gstin: null }), 0, crypto.randomUUID()])).rowVersion;
       for (const itemId of items) {

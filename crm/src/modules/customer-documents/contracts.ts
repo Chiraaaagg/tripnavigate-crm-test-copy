@@ -282,6 +282,8 @@ export interface AutoBillsSwitchResult {
   changed: boolean;
   autoBillsEnabled: boolean;
   autoBillReleaseEnabled: boolean;
+  /** Addendum O3: first switch-on of automatic drafts (null = never on); earlier sources are never drafted automatically. */
+  autoBillsSince: string | null;
   rowVersion: number;
   updatedAt: string | null;
 }

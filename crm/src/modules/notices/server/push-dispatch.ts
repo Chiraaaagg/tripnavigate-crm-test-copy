@@ -6,7 +6,7 @@ import { asRpcClient } from '@/modules/fulfilment/commands';
 import { PUSH_TEST_BODY, PUSH_TITLE, noticeText, type NoticeItemDTO, type PushPayload } from '../contracts';
 import { PushClaimSchema, type PushClaimRow } from '../dto';
 import { noticeHref } from '../href';
-import { isSafeNoticePath } from '../push-policy';
+import { isAllowedPushEndpoint, isSafeNoticePath } from '../push-policy';
 
 /**
  * Closed-browser alert sender (Accounts phase 3 contract 8.2-8.4, LD19, LD20;
@@ -57,7 +57,8 @@ export type PushSendResult = { ok: true } | { ok: false; statusCode: number | nu
 export interface PushDispatchDeps {
   worker: string;
   claim(worker: string, limit: number, leaseSeconds: number): Promise<unknown>;
-  complete(jobId: string, worker: string, ok: boolean, statusCode: number | null): Promise<void>;
+  /** errorCode: the worker refused to send (failed at once, no retry). */
+  complete(jobId: string, worker: string, ok: boolean, statusCode: number | null, errorCode?: string | null): Promise<void>;
   send(target: PushSubscriptionTarget, payload: string, options: { urgency: 'high' | 'normal'; ttlSeconds: number }): Promise<PushSendResult>;
 }
 
@@ -93,6 +94,16 @@ export async function dispatchPush(deps: PushDispatchDeps | null = productionPus
   const counts: PushDispatchCounts = { claimed: parsed.data.length, sent: 0, failed: 0, gone: 0 };
   for (let i = 0; i < parsed.data.length; i += PARALLEL) {
     await Promise.all(parsed.data.slice(i, i + PARALLEL).map(async (job) => {
+      // Addendum O3: never send to an endpoint outside the push-service allowlist (the database checks too).
+      if (!isAllowedPushEndpoint(job.endpoint)) {
+        try {
+          await deps.complete(job.jobId, deps.worker, false, null, 'endpoint_not_allowed');
+        } catch {
+          // The lease runs out; push_claim refuses the job next time.
+        }
+        counts.failed += 1;
+        return;
+      }
       const result = await sendOne(job, deps);
       try {
         if (result.ok) {
@@ -144,8 +155,10 @@ export function productionPushDeps(): PushDispatchDeps | null {
       if (error) throw Object.assign(new Error('push_claim failed'), { code: error.code ?? 'rpc_error' });
       return data;
     },
-    complete: async (jobId, worker, ok, statusCode) => {
-      const { error } = await rpc.rpc('push_complete', { p_job_id: jobId, p_worker: worker, p_ok: ok, p_status_code: statusCode });
+    complete: async (jobId, worker, ok, statusCode, errorCode = null) => {
+      const { error } = await rpc.rpc('push_complete', {
+        p_job_id: jobId, p_worker: worker, p_ok: ok, p_status_code: statusCode, p_error_code: errorCode,
+      });
       if (error) throw Object.assign(new Error('push_complete failed'), { code: error.code ?? 'rpc_error' });
     },
     send: async (target, payload, options) => {

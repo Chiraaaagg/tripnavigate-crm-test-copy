@@ -84,7 +84,7 @@ describe('6.3.4 / 8.5 basis and the change read', () => {
       expect(c.travellers.renamed).toEqual([expect.objectContaining({ seq: 3, before: 'Synthetic Traveller Three', after: 'Synthetic Renamed Three' })]);
       expect(c.tripChanged?.end).toMatchObject({ before: '2026-12-13', after: '2026-12-14' });
       const text = JSON.stringify(c);
-      for (const v of [SELLING, NEW_SELLING, '20000000', '9876500011', 'contact@example.test', 'Z1000001']) {
+      for (const v of [SELLING, NEW_SELLING, '20000000', '6000500011', 'contact@example.test', 'Z1000001']) {
         expect(containsToken(text, v), `change read leaks ${v}`).toBe(false);
       }
       expect([...allKeys(c)].filter((k) => /sell|price|discount|instal|plan|commercial|margin|billing|contact|passport|identity|amount|paise/i.test(k)))

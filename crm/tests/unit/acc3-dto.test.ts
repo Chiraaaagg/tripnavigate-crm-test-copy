@@ -47,7 +47,7 @@ const MONEY_AND_CONTACT = {
   email: 'pooja@example.test', whatsappMobile: '6000043210', messageText: 'Sentinel text',
 };
 const SELLING = { sellingPaise: '9123457', sellingTotalPaise: '9123457', marginPaise: '100', totalPaise: '9123457', duesPaise: '1', receiptsPaise: '1' };
-const DEVICE_SECRETS = { endpoint: 'https://push.example.test/abc', p256dh: 'BKsynthetic', authKey: 'synthetic-auth', auth_key: 'x' };
+const DEVICE_SECRETS = { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', p256dh: 'BKsynthetic', authKey: 'synthetic-auth', auth_key: 'x' };
 
 describe('R-A1 / R-A3 customer messages', () => {
   it('messages card: masked contact, no params, amounts or addresses', () => {

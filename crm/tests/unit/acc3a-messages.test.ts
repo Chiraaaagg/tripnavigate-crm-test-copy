@@ -71,6 +71,7 @@ describe('templates', () => {
 
 function deps(claimed: unknown[], over: Partial<DispatchDeps> = {}) {
   const completed: Array<[string, boolean, string | null, string | null]> = [];
+  const released: string[][] = [];
   const sentEmail: unknown[] = [];
   const sentWa: unknown[] = [];
   const d: DispatchDeps = {
@@ -81,9 +82,11 @@ function deps(claimed: unknown[], over: Partial<DispatchDeps> = {}) {
     sendWhatsApp: async (m) => { sentWa.push(m); return { ok: true, providerId: 'wa-1' }; },
     readFile: async () => new TextEncoder().encode('%PDF-synthetic'),
     signedUrl: async (_b, _p, seconds) => `https://storage.example.test/sign?ttl=${seconds}`,
+    release: async (ids) => { released.push(ids); },
+    sleep: async () => undefined,
     ...over,
   };
-  return { d, completed, sentEmail, sentWa };
+  return { d, completed, sentEmail, sentWa, released };
 }
 
 const base = {
@@ -220,5 +223,25 @@ describe('no duplicate after an unclear send (backend review)', () => {
     aborted.abort();
     const again = deps(rows);
     expect(await dispatchCustomerMessages(again.d, aborted.signal)).toEqual({ claimed: 3, sent: 0, failed: 0, leftOver: 3 });
+    // Rows never started are given back to the queue at once (customer_message_release).
+    expect(again.released).toEqual([rows.map((r) => r.id)]);
+  });
+});
+
+describe('lost lease (Addendum O3)', () => {
+  it('after a successful send, complete is tried up to 3 times; a sent message counts as sent when one try lands', async () => {
+    let tries = 0;
+    const { d } = deps([{ ...base, id: ID, channel: 'whatsapp', to: '6000012345', replyTo: null }], {
+      complete: async () => { tries += 1; if (tries < 3) throw new Error('database busy'); },
+    });
+    expect(await dispatchCustomerMessages(d)).toEqual({ claimed: 1, sent: 1, failed: 0, leftOver: 0 });
+    expect(tries).toBe(3);
+    let always = 0;
+    const never = deps([{ ...base, id: ID, channel: 'whatsapp', to: '6000012345', replyTo: null }], {
+      complete: async () => { always += 1; throw new Error('database down'); },
+    });
+    expect(await dispatchCustomerMessages(never.d)).toMatchObject({ sent: 0, failed: 1 });
+    expect(always).toBe(3);
+    expect(never.sentWa).toHaveLength(1);
   });
 });

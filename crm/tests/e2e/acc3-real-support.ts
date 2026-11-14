@@ -59,8 +59,13 @@ export const REASON = 'Synthetic: Accounts phase 3 real journey (local stack)';
 export const DONE = 'Synthetic: Accounts phase 3 real journey finished (local stack)';
 export const DOUBLE_PORT = Number(process.env.PROVIDER_DOUBLE_PORT ?? 3297);
 export const DOUBLE_URL = `http://127.0.0.1:${DOUBLE_PORT}`;
-/** Fake push-service host of the stubbed browser subscription (never resolved: the harness routes it to the double). */
-export const PUSH_HOST = 'push.acc3.test';
+/**
+ * Push-service host of the stubbed browser subscription. Addendum O3: endpoints are accepted only on the real push services, so the
+ * stub uses FCM's host; the harness preload routes every fetch to it to the local double — it never reaches Google.
+ */
+export const PUSH_HOST = 'fcm.googleapis.com';
+/** Path prefix of the stubbed subscription endpoints (FCM's own shape). */
+export const PUSH_PATH = '/fcm/send';
 
 /*
  * PROVIDER HARNESS (replaces the earlier ASSUMPTION of RESEND_API_URL / INTERAKT_API_URL / PUSH_SENDER_URL: the
@@ -68,7 +73,7 @@ export const PUSH_HOST = 'push.acc3.test';
  * INTERAKT_ENDPOINT — and web-push posts encrypted bodies to the subscription endpoint). A Node preload (HARNESS_JS,
  * loaded with --import) is put in front of every process that may send:
  *   - fetch to api.resend.com / api.interakt.ai → the local double (/resend, /interakt);
- *   - fetch to the fake push host → the double (/push);
+ *   - fetch to the push host (fcm.googleapis.com, Addendum O3) → the double (/push), never to Google;
  *   - fetch to any other non-loopback host → refused before it leaves (ECONNREFUSED), so nothing reaches the network;
  *   - web-push sendNotification → a plain JSON POST of the payload to the (rerouted) endpoint, so the double can
  *     read {title, body, tag, url}. Payload encryption is web-push's own and is not under test here.
@@ -89,7 +94,7 @@ const target = (u) => {
   if (url.protocol === 'data:' || url.protocol === 'blob:' || url.protocol === 'file:') return u;
   if (url.hostname === 'api.resend.com') return D + '/resend' + url.pathname;
   if (url.hostname === 'api.interakt.ai') return D + '/interakt' + url.pathname;
-  if (url.hostname === 'push.acc3.test') return D + '/push' + url.pathname;
+  if (url.hostname === 'fcm.googleapis.com') return D + '/push' + url.pathname; // Addendum O3: the allowed push host, never reaching Google
   return LOOP.has(url.hostname) ? u : null;
 };
 if (realFetch) {

@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { asRpcClient } from '@/modules/fulfilment/commands';
+import { isAllowedPushEndpoint } from '../push-policy';
 import { requireStaff } from '@/modules/identity/server/session';
 import {
   PushCommandError,
@@ -91,6 +92,8 @@ export async function registerPushDeviceAction(input: RegisterPushDeviceInput): 
   const authKey = keySchema.safeParse(input?.authKey);
   const label = labelSchema.safeParse(input?.label);
   if (!endpoint.success || !p256dh.success || !authKey.success || !label.success) return invalid;
+  // Addendum O3: the browsers' own push services only (the database refuses others too).
+  if (!isAllowedPushEndpoint(endpoint.data)) return invalid;
   try {
     const data = await pushDeviceRegister(asRpcClient(staff.supabase), {
       endpoint: endpoint.data, p256dh: p256dh.data, authKey: authKey.data, label: label.data, requestId: requestIdOf(input.requestId),

@@ -28,6 +28,7 @@ import {
   PushDevicesListSchema,
   PushRegisterResultSchema,
   type PushRegisterResult,
+  PushRemoveAllResultSchema,
   PushRemoveCurrentResultSchema,
   type PushRemoveCurrentResult,
   PushRemoveResultSchema,
@@ -242,6 +243,12 @@ export async function pushDevicesList(client: RpcClient, endpointHash: string | 
   const fn = 'push_devices_list';
   const data = await invokePush(client, fn, { p_endpoint_hash: endpointHash });
   return data === null ? null : parsePush(fn, PushDevicesListSchema, data);
+}
+
+/** "Sign out of all devices" (Addendum O3): removes every active device of the caller. */
+export async function pushDevicesRemoveAll(client: RpcClient, requestId: string): Promise<PushRemoveCurrentResult> {
+  const fn = 'push_devices_remove_all';
+  return parsePush(fn, PushRemoveAllResultSchema, await invokePush(client, fn, { p_request_id: requestId }));
 }
 
 /** D4: one test alert to one of the caller's devices (at most 3 per 10 minutes: not_ready). */

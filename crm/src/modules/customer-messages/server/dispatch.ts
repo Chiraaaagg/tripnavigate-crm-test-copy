@@ -29,6 +29,8 @@ export const DISPATCH_LIMIT = 5;
 export const DISPATCH_LEASE_SECONDS = 120;
 /** Never start a send with less than this left on the lease (provider timeout + margin). */
 export const DISPATCH_SEND_RESERVE_MS = 25_000;
+/** customer_message_complete is tried up to 3 times (short backoff) so a sent message is recorded as sent. */
+export const COMPLETE_BACKOFF_MS: readonly number[] = Object.freeze([250, 1000]);
 /** LD7: a WhatsApp file link is valid for 30 minutes. */
 export const FILE_LINK_SECONDS = 30 * 60;
 
@@ -57,6 +59,9 @@ export interface DispatchDeps {
   worker: string;
   claim(worker: string, limit: number, leaseSeconds: number): Promise<unknown>;
   complete(id: string, worker: string, ok: boolean, providerId: string | null, errorCode: SendErrorCode | null): Promise<void>;
+  /** Gives back rows this worker claimed but never started (customer_message_release). */
+  release(ids: string[], worker: string): Promise<void>;
+  sleep?(ms: number): Promise<void>;
   sendEmail(message: CustomerEmailMessage): Promise<CustomerEmailResult>;
   sendWhatsApp(message: WhatsAppTemplateMessage): Promise<WhatsAppSendResult>;
   readFile(bucket: string, objectPath: string): Promise<Uint8Array | null>;
@@ -112,10 +117,12 @@ export async function dispatchCustomerMessages(
   if (!parsed.success) throw Object.assign(new Error('customer_message_claim gave an unexpected answer'), { code: 'bad_response' });
   const counts: DispatchCounts = { claimed: parsed.data.length, sent: 0, failed: 0, leftOver: 0 };
   const leaseEnds = claimedAt + DISPATCH_LEASE_SECONDS * 1000;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const notStarted: string[] = [];
   for (const m of parsed.data) {
     // Never send a row whose lease may run out before the provider answers.
     if (signal?.aborted || now() > leaseEnds - DISPATCH_SEND_RESERVE_MS) {
-      counts.leftOver += 1;
+      notStarted.push(m.id);
       continue;
     }
     let result: { ok: true; providerId: string | null } | { ok: false; reason: SendErrorCode };
@@ -125,17 +132,28 @@ export async function dispatchCustomerMessages(
       // The request may have left: never retried automatically.
       result = { ok: false, reason: 'unknown_outcome' };
     }
-    try {
-      if (result.ok) {
-        await deps.complete(m.id, deps.worker, true, result.providerId, null);
-        counts.sent += 1;
-      } else {
-        await deps.complete(m.id, deps.worker, false, null, result.reason);
-        counts.failed += 1;
+    // Record the outcome; retried so a sent message is not left 'sending' (a WhatsApp
+    // row whose lease runs out becomes 'unknown', never sent again by itself).
+    let recorded = false;
+    for (let attempt = 0; attempt <= COMPLETE_BACKOFF_MS.length && !recorded; attempt += 1) {
+      if (attempt > 0) await sleep(COMPLETE_BACKOFF_MS[attempt - 1]!);
+      try {
+        await deps.complete(m.id, deps.worker, result.ok, result.ok ? result.providerId : null, result.ok ? null : result.reason);
+        recorded = true;
+      } catch {
+        recorded = false;
       }
+    }
+    if (result.ok && recorded) counts.sent += 1;
+    else counts.failed += 1;
+  }
+  counts.leftOver = notStarted.length;
+  if (notStarted.length > 0) {
+    try {
+      await deps.release(notStarted, deps.worker);
     } catch {
-      // The lease runs out and the message is claimed again; nothing is lost.
-      counts.failed += 1;
+      // Their lease runs out and they are claimed again (e-mail) or marked unknown (WhatsApp, never started:
+      // staff see it and may Send again).
     }
   }
   return counts;
@@ -150,6 +168,10 @@ export function productionDispatchDeps(): DispatchDeps {
       const { data, error } = await rpc.rpc('customer_message_claim', { p_worker: worker, p_limit: limit, p_lease_seconds: leaseSeconds });
       if (error) throw Object.assign(new Error('customer_message_claim failed'), { code: error.code ?? 'rpc_error' });
       return data;
+    },
+    release: async (ids, worker) => {
+      const { error } = await rpc.rpc('customer_message_release', { p_ids: ids, p_worker: worker });
+      if (error) throw Object.assign(new Error('customer_message_release failed'), { code: error.code ?? 'rpc_error' });
     },
     complete: async (id, worker, ok, providerId, errorCode) => {
       const { error } = await rpc.rpc('customer_message_complete', {

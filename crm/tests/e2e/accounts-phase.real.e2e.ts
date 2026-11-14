@@ -39,7 +39,7 @@ const SELLING = '45678913';
 const stampDigits = String(Date.now()).slice(-4);
 // Per-run PAN: the cash cap counts a payer's cash receipts across runs on the same stack.
 const PAN = `QWERT${stampDigits}Z`;
-const MOBILE = '9123456780';
+const MOBILE = '6000456780';
 const stamp = Date.now();
 let secrets: Record<UserKey, string>;
 const outbound: string[] = [];
@@ -82,7 +82,7 @@ async function booking(dealId: string, items: Array<[string, unknown]>, idProofs
   rv = (await asUser<{ rowVersion: number }>(S, 'select public.booking_trip_save($1, $2, $3::jsonb) as r', [opened.versionId, rv,
     JSON.stringify({ destination: 'Synthetic City, Rajasthan', scope: 'domestic', start: '2026-12-10', end: '2026-12-13' })])).rowVersion;
   rv = (await asUser<{ rowVersion: number }>(S, 'select public.booking_customer_save($1, $2, $3::jsonb, $4::jsonb, $5, $6) as r', [opened.versionId, rv,
-    JSON.stringify({ contactName: 'Synthetic Contact', mobile: '9876500077', email: 'e2e.acc.contact@example.test', contactConfirmed: true, bookingFor: 'individual',
+    JSON.stringify({ contactName: 'Synthetic Contact', mobile: '6000500077', email: 'e2e.acc.contact@example.test', contactConfirmed: true, bookingFor: 'individual',
       payerDifferent: false, payerName: null }), JSON.stringify({ billingName: 'Synthetic Billing', addressLine1: '1 Synthetic Road', addressLine2: null,
       city: 'Jodhpur', stateCode: '08', postalCode: '342001', gstin: null }), 0, randomUUID()])).rowVersion;
   for (const itemId of itemIds) {

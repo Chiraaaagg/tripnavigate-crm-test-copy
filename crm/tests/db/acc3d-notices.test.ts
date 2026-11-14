@@ -23,7 +23,7 @@ const h = acc3Helpers(() => db);
 const { one, owner } = h;
 const P256 = `B${'A'.repeat(86)}`;
 const AUTH = 'A'.repeat(22);
-const ep = () => `https://push.example.test/ep/${rid()}`;
+const ep = () => `https://fcm.googleapis.com/fcm/send/syn-${rid()}`;
 
 describe('track D resolutions', () => {
   it('43 is resolved when a re-send of the failed message is sent', async () => {
@@ -125,6 +125,48 @@ describe('track D worker paths', () => {
       await one(PURCHASE, SQL3.pushRemove, [pd.deviceId, rid()]);
       const after = await owner<{ status: string }>('select status from public.staff_push_jobs where device_id = $1', [pd.deviceId]);
       expect(after.every((j) => j.status === 'dropped')).toBe(true);
+    });
+  });
+
+  it('Addendum O3: register refuses non push-service endpoints; claim fails such a job; sign out of all devices removes every device', async () => {
+    await asOwner(db, async () => {
+      await h.noticesOn();
+      await h.people();
+      await one(SUPER, SQL3.setPush, [true, REASON]);
+      for (const bad of ['https://push.example.test/ep/1', 'https://fcm.googleapis.com.evil.test/x', 'https://user@fcm.googleapis.com/x']) {
+        const r = await h.attempt(ACC, SQL3.pushRegister, [bad, P256, AUTH, 'Chrome on Windows', rid()]);
+        expect(r.ok, bad).toBe(false);
+      }
+      const d1 = await one<{ deviceId: string }>(ACC, SQL3.pushRegister, [ep(), P256, AUTH, 'Chrome on Windows', rid()]);
+      await one(ACC, SQL3.pushRegister, ['https://updates.push.services.mozilla.com/wpush/v2/syn', P256, AUTH, 'Firefox on Linux', rid()]);
+      // A device row with a foreign endpoint (written before the allowlist) is never sent to.
+      await resetActor(db);
+      await owner(`insert into public.staff_push_devices (user_id, endpoint, endpoint_hash, p256dh, auth_key, label, request_id)
+                   values ($1, 'https://push.example.test/old', repeat('b', 64), $2, $3, 'Old device', gen_random_uuid())`,
+        [U.accountsJodhpur, P256, AUTH]);
+      const [old] = await owner<{ id: string }>(`select id from public.staff_push_devices where endpoint = 'https://push.example.test/old'`);
+      await one(ACC, SQL3.pushTest, [old!.id, rid()]);
+      const claimed = asItems<{ jobId: string }>(await one(WORKER, SQL3.pushClaim, ['d-o3', 10, 60]));
+      expect(claimed).toEqual([]);
+      const [j] = await owner<{ status: string; last_error_code: string }>(
+        'select status, last_error_code from public.staff_push_jobs where device_id = $1', [old!.id]);
+      expect(j).toEqual({ status: 'failed', last_error_code: 'endpoint_not_allowed' });
+      // Worker-side refusal: failed at once, no retry.
+      await one(ACC, SQL3.pushTest, [d1.deviceId, rid()]);
+      const [c] = asItems<{ jobId: string }>(await one(WORKER, SQL3.pushClaim, ['d-o3', 10, 60]));
+      expect((await one<{ outcome: string }>(WORKER, 'select public.push_complete($1, $2, false, null, $3) as r', [c!.jobId, 'd-o3', 'endpoint_not_allowed'])).outcome)
+        .toBe('failed');
+      // Sign out of all devices.
+      const r = await one<{ removed: number }>(ACC, 'select public.push_devices_remove_all($1) as r', [rid()]);
+      expect(r.removed).toBe(3);
+      const left = await owner<{ n: number }>(`select count(*)::int as n from public.staff_push_devices where user_id = $1 and status = 'active'`, [U.accountsJodhpur]);
+      expect(left[0]!.n).toBe(0);
+      const removed = await owner<{ reason: string }>(`select removed_reason as reason from public.staff_push_devices where user_id = $1`, [U.accountsJodhpur]);
+      expect(removed.every((x) => x.reason === 'signed_out')).toBe(true);
+      const audits = await h.audits('notices.push_device_removed');
+      expect(audits.filter((a) => (a.details as { reason?: string }).reason === 'signed_out').length).toBeGreaterThanOrEqual(3);
+      expect(JSON.stringify(audits)).not.toContain('fcm.googleapis.com');
+      expect(await h.canExecute('anon', 'public.push_devices_remove_all(uuid)')).toBe(false);
     });
   });
 

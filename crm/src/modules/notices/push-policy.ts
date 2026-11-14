@@ -85,6 +85,23 @@ export function deviceLabel(userAgent: string, maxTouchPoints = 0): string {
   return `${browser} on ${system}`;
 }
 
+const PUSH_HOSTS = new Set(['fcm.googleapis.com', 'web.push.apple.com']);
+const PUSH_HOST_SUFFIXES = ['.push.services.mozilla.com', '.notify.windows.com'];
+
+/**
+ * The browsers' own push services only (Addendum O3; mirror of
+ * authz.push_endpoint_allowed): https, default port, no user part, host
+ * fcm.googleapis.com, web.push.apple.com, *.push.services.mozilla.com or
+ * *.notify.windows.com.
+ */
+export function isAllowedPushEndpoint(endpoint: string): boolean {
+  const m = /^https:\/\/([A-Za-z0-9.-]+)(:443)?(\/\S*)?$/.exec(endpoint);
+  if (!m || endpoint.length > 1000) return false;
+  const host = m[1]!.toLowerCase();
+  if (PUSH_HOSTS.has(host)) return true;
+  return PUSH_HOST_SUFFIXES.some((s) => host.endsWith(s) && /^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(host.slice(0, -s.length)));
+}
+
 /** True for a same-origin path the service worker may open (no scheme, no //host, no backslash). */
 export function isSafeNoticePath(path: string): boolean {
   return /^\/(?![/\\])[^\s\\]*$/.test(path) && path.length <= 500;

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import {
-  HOTEL, PUSH_HOST, USERS, type UserKey, allowedOutbound, approvedDeal, asUser, configured, doubleRequests, leaks, needHarness, openAlertSettings,
+  HOTEL, PUSH_HOST, PUSH_PATH, USERS, type UserKey, allowedOutbound, approvedDeal, asUser, configured, doubleRequests, leaks, needHarness, openAlertSettings,
   prepareUsers, q, restoreSwitches3, saveSwitches3, serviceWorkers, session, stamp, startDoubles, stopDoubles, stubPush, switchesOn3, tickUntil,
 } from './acc3-real-support';
 
@@ -31,7 +31,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   // Leave no active device behind (10-device cap per person; removal is audited and final).
   for (const d of await q<{ id: string; user_id: string }>(`select id, user_id from public.staff_push_devices where endpoint like $1 and status = 'active'`,
-    [`https://${PUSH_HOST}/acc3-%`])) {
+    [`https://${PUSH_HOST}${PUSH_PATH}/acc3-%`])) {
     await asUser(d.user_id, 'select public.push_device_remove($1, $2) as r', [d.id, randomUUID()]).catch(() => undefined);
   }
   await restoreSwitches3();
@@ -44,7 +44,7 @@ const pushBodies = (endpoint: string): PushBody[] => doubleRequests('push').filt
 
 test('5. alerts: opt in on a test browser → urgent notice → push sent to the stub within 30 s → click opens the right page; removed device gets nothing', async ({ browser }) => {
   needHarness();
-  const endpoint = `https://${PUSH_HOST}/acc3-${stamp}`;
+  const endpoint = `https://${PUSH_HOST}${PUSH_PATH}/acc3-${stamp}`;
   const so = await session(browser, 'sales', secrets);
   await stubPush(so.ctx, endpoint);
   // Before opt-in: no service worker at all (Phase 2 rule now "no service worker before opt-in").
