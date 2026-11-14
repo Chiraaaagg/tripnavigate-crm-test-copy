@@ -93,13 +93,13 @@ isOneToOne: false
                   ]
                 },"accounts_settings": {
                   Row: {
-                    "auto_bill_release_enabled": boolean,"auto_bills_enabled": boolean,"created_at": string,"customer_documents_enabled": boolean,"exception_owner_user_id": string | null,"legal_entity_id": string,"refunds_enabled": boolean,"row_version": number,"tally_company_name": string | null,"tally_export_enabled": boolean,"tally_xml_enabled": boolean,"updated_at": string,"updated_by": string | null,"write_off_enabled": boolean,"write_off_limit_paise": number
+                    "auto_bill_release_enabled": boolean,"auto_bills_enabled": boolean,"auto_bills_since": string | null,"created_at": string,"customer_documents_enabled": boolean,"exception_owner_user_id": string | null,"legal_entity_id": string,"refunds_enabled": boolean,"row_version": number,"tally_company_name": string | null,"tally_export_enabled": boolean,"tally_xml_enabled": boolean,"updated_at": string,"updated_by": string | null,"write_off_enabled": boolean,"write_off_limit_paise": number
                   }
                   Insert: {
-                    "auto_bill_release_enabled"?: boolean,"auto_bills_enabled"?: boolean,"created_at"?: string,"customer_documents_enabled"?: boolean,"exception_owner_user_id"?: string | null,"legal_entity_id": string,"refunds_enabled"?: boolean,"row_version"?: number,"tally_company_name"?: string | null,"tally_export_enabled"?: boolean,"tally_xml_enabled"?: boolean,"updated_at"?: string,"updated_by"?: string | null,"write_off_enabled"?: boolean,"write_off_limit_paise"?: number
+                    "auto_bill_release_enabled"?: boolean,"auto_bills_enabled"?: boolean,"auto_bills_since"?: string | null,"created_at"?: string,"customer_documents_enabled"?: boolean,"exception_owner_user_id"?: string | null,"legal_entity_id": string,"refunds_enabled"?: boolean,"row_version"?: number,"tally_company_name"?: string | null,"tally_export_enabled"?: boolean,"tally_xml_enabled"?: boolean,"updated_at"?: string,"updated_by"?: string | null,"write_off_enabled"?: boolean,"write_off_limit_paise"?: number
                   }
                   Update: {
-                    "auto_bill_release_enabled"?: boolean,"auto_bills_enabled"?: boolean,"created_at"?: string,"customer_documents_enabled"?: boolean,"exception_owner_user_id"?: string | null,"legal_entity_id"?: string,"refunds_enabled"?: boolean,"row_version"?: number,"tally_company_name"?: string | null,"tally_export_enabled"?: boolean,"tally_xml_enabled"?: boolean,"updated_at"?: string,"updated_by"?: string | null,"write_off_enabled"?: boolean,"write_off_limit_paise"?: number
+                    "auto_bill_release_enabled"?: boolean,"auto_bills_enabled"?: boolean,"auto_bills_since"?: string | null,"created_at"?: string,"customer_documents_enabled"?: boolean,"exception_owner_user_id"?: string | null,"legal_entity_id"?: string,"refunds_enabled"?: boolean,"row_version"?: number,"tally_company_name"?: string | null,"tally_export_enabled"?: boolean,"tally_xml_enabled"?: boolean,"updated_at"?: string,"updated_by"?: string | null,"write_off_enabled"?: boolean,"write_off_limit_paise"?: number
                   }
                   Relationships: [
                     {
@@ -7312,6 +7312,9 @@ isOneToOne: false
 "customer_message_pilot_set":
 { Args: { "p_deal_id": string,"p_entity": string,"p_in": boolean,"p_reason": string }; Returns: Json
                            },
+"customer_message_release":
+{ Args: { "p_ids": (string)[],"p_worker": string }; Returns: Json
+                           },
 "customer_message_resend":
 { Args: { "p_message_id": string,"p_request_id": string }; Returns: Json
                            },
@@ -7958,7 +7961,7 @@ isOneToOne: false
 { Args: { "p_lease_seconds": number,"p_limit": number,"p_worker": string }; Returns: Json
                            },
 "push_complete":
-{ Args: { "p_job_id": string,"p_ok": boolean,"p_status_code": number,"p_worker": string }; Returns: Json
+{ Args: { "p_error_code"?: string,"p_job_id": string,"p_ok": boolean,"p_status_code": number,"p_worker": string }; Returns: Json
                            },
 "push_device_register":
 { Args: { "p_auth_key": string,"p_endpoint": string,"p_label": string,"p_p256dh": string,"p_request_id": string }; Returns: Json
@@ -7971,6 +7974,9 @@ isOneToOne: false
                            },
 "push_devices_list":
 { Args: { "p_endpoint_hash"?: string }; Returns: Json
+                           },
+"push_devices_remove_all":
+{ Args: { "p_request_id": string }; Returns: Json
                            },
 "push_test_send":
 { Args: { "p_device_id": string,"p_request_id": string }; Returns: Json
