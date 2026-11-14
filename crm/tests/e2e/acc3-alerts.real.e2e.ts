@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import {
-  HOTEL, PUSH_HOST, PUSH_PATH, USERS, type UserKey, allowedOutbound, approvedDeal, asUser, configured, doubleRequests, leaks, needHarness, openAlertSettings,
+  HOTEL, PUSH_HOST, PUSH_PATH, USERS, type UserKey, allowedOutbound, approvedDeal, asUser, configured, doubleRequests, leaks, HARNESS_SKIP, providerHarness, openAlertSettings,
   prepareUsers, q, restoreSwitches3, saveSwitches3, serviceWorkers, session, stamp, startDoubles, stopDoubles, stubPush, switchesOn3, tickUntil,
 } from './acc3-real-support';
 
@@ -43,7 +43,7 @@ const pushBodies = (endpoint: string): PushBody[] => doubleRequests('push').filt
   .map((r) => { try { return JSON.parse(r.body) as PushBody; } catch { return {}; } });
 
 test('5. alerts: opt in on a test browser → urgent notice → push sent to the stub within 30 s → click opens the right page; removed device gets nothing', async ({ browser }) => {
-  needHarness();
+  test.skip(!providerHarness, HARNESS_SKIP);
   const endpoint = `https://${PUSH_HOST}${PUSH_PATH}/acc3-${stamp}`;
   const so = await session(browser, 'sales', secrets);
   await stubPush(so.ctx, endpoint);

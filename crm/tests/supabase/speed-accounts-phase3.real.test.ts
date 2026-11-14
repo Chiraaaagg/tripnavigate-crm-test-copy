@@ -5,6 +5,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ACC2_FIXTURE_USERS as U2, type Actor, FIXTURE_USERS as U, assertDatabaseUrlNotOperational, claimsFor } from '../helpers/db';
 
 /**
+ * OPT-IN: runs only with ACCOUNTS_SPEED=1 (and TEST_DATABASE_URL), e.g.
+ *   ACCOUNTS_SPEED=1 npx vitest run --project supabase tests/supabase/speed-accounts-phase3.real.test.ts
+ * It is a local measurement on the volume seeds below, not a CI check
+ * (accounts-phase3 contract 16.5): without the opt-in the suite is skipped.
+ *
  * Accounts Phase 3 speed tests, database part (contract
  * accounts-phase3-2026-11-12 section 16.5 = plan §9), Track T. Written from
  * the contract, not from the tracks' code. Needs the REAL local stack seeded
@@ -35,6 +40,8 @@ import { ACC2_FIXTURE_USERS as U2, type Actor, FIXTURE_USERS as U, assertDatabas
  */
 
 const url = process.env.TEST_DATABASE_URL?.trim() ?? '';
+/** Opt-in only (see the header): CI and the ordinary real-stack run skip this suite. */
+const speed = process.env.ACCOUNTS_SPEED === '1' && url !== '';
 const RUNS = Number(process.env.SPEED_RUNS ?? 30);
 type Row = { measure: string; medianMs: number; p95Ms: number; targetMs: number; targetOn: 'p95' | 'median'; pass: boolean; plan?: string };
 const results: Row[] = [];
@@ -59,6 +66,21 @@ async function asActor<T>(actor: Actor, fn: () => Promise<T>): Promise<T> {
     return await fn();
   } finally {
     await c.query('rollback');
+  }
+}
+/** Like asActor, but commits (setup that later steps must see). */
+async function asActorCommit<T>(actor: Actor, fn: () => Promise<T>): Promise<T> {
+  await c.query('begin');
+  try {
+    await c.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claimsFor(actor))]);
+    await c.query(actor.role === 'service_role' ? 'set local role service_role' : 'set local role authenticated');
+    const r = await fn();
+    await c.query('reset role');
+    await c.query('commit');
+    return r;
+  } catch (e) {
+    await c.query('rollback');
+    throw e;
   }
 }
 /** One statement as `userId` inside the caller's open transaction (role back to the owner afterwards). */
@@ -141,7 +163,7 @@ async function activatePhase2People(): Promise<void> {
 }
 
 beforeAll(async () => {
-  if (!url) return;
+  if (!speed) return;
   await assertDatabaseUrlNotOperational(url);
   c = new pg.Client({ connectionString: url });
   await c.connect();
@@ -164,7 +186,7 @@ afterAll(async () => {
   await c?.end();
 });
 
-describe.skipIf(!url)('Accounts phase 3 speed (database, contract 16.5)', () => {
+describe.skipIf(!speed)('Accounts phase 3 speed (database, contract 16.5)', () => {
   it('seeded volume present', () => {
     expect(seeded, 'run scripts/perf/accounts-volume.sql, accounts2-volume.sql and accounts3-volume.sql on this local stack first').toBe(true);
   });
@@ -316,6 +338,11 @@ describe.skipIf(!url)('Accounts phase 3 speed (database, contract 16.5)', () => 
       await accountsSwitches(true);
       return FILE_ARGS;
     }, 10_000, 'p95', 10);
+    // One committed file first (a fresh stack has nothing exported yet): the timed runs below then re-include
+    // the same entries ("include again"), each rolled back, and the matching steps read this file's lines.
+    await accountsSwitches(true);
+    await asActorCommit(ACC, () => c.query(
+      'select public.accounts_tally_file_create($1, $2::date, $3::date, $4::text[], $5::uuid[], false, null, gen_random_uuid()) as r', FILE_ARGS));
     await measure('Tally file create, about 1,000 entries (C3)', ACC,
       'select public.accounts_tally_file_create($1, $2::date, $3::date, $4::text[], $5::uuid[], true, $6, gen_random_uuid()) as r', async () => {
         await accountsSwitches(true);

@@ -2,7 +2,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import {
   FLIGHT, HOTEL, ROUTES, SELLING, USERS, type UserKey, VISA, allLiveOff, allowedOutbound, approveBooking, asService, asUser, bookingWithTrip, configured,
-  dayFromToday, departmentFile, documentsOf, doubleRequests, failNext, freshDeal, leaks, liveOff, liveOn, messagesDueNow, messagesOf, messagesOn, needHarness,
+  dayFromToday, departmentFile, documentsOf, doubleRequests, failNext, freshDeal, leaks, liveOff, liveOn, messagesDueNow, messagesOf, messagesOn, HARNESS_SKIP, providerHarness,
   noServiceWorker, prepareUsers, purchaseFile, q, restoreSwitches3, saveSwitches3, session, setPrefs, sha, putObject, stamp, startDoubles, stopDoubles,
   supplierConfirmedHotel, switchesOn3, ticketBatch, tickUntil, timerTick, verifiedCash,
 } from './acc3-real-support';
@@ -110,7 +110,7 @@ test('1. bills by themselves: released without a click, held with the reason, re
 });
 
 test('2. messages: nine types on a pilot Deal, Hindi, STOP, failure and "Send again", test Deal sends nothing', async ({ browser }) => {
-  needHarness();
+  test.skip(!providerHarness, HARNESS_SKIP);
   await switchesOn3({ autoBills: false });
   const ref = `ACC3MS-${stamp}`;
   const deal = await freshDeal(ref);

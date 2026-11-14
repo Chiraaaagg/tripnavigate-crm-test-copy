@@ -527,3 +527,15 @@ begin
     (select count(*) from public.customer_documents where auto_rule = 'inv_on_approval' and status = 'draft');
 end $$;
 commit;
+
+-- 9. Tally ledger names (the speed run's Tally file needs every mapping row named, as Accounts does in
+--    Settings > Tally mapping). Fills only blank ledgers of the SYN-PERF Deals' entity with synthetic names.
+begin;
+set local session_replication_role = replica;
+update public.tally_ledger_mappings m
+set debit_ledger = coalesce(nullif(m.debit_ledger, ''), 'SYN ' || m.row_kind || ' Dr'),
+    credit_ledger = coalesce(nullif(m.credit_ledger, ''), 'SYN ' || m.row_kind || ' Cr'),
+    voucher_type = coalesce(nullif(m.voucher_type, ''), 'Journal')
+where m.legal_entity_id in (select distinct d.legal_entity_id from public.deals d where d.reference like 'SYN-PERF-%')
+  and (coalesce(m.debit_ledger, '') = '' or coalesce(m.credit_ledger, '') = '' or coalesce(m.voucher_type, '') = '');
+commit;

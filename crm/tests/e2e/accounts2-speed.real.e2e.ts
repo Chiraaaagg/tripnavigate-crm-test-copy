@@ -8,6 +8,11 @@ import {
 } from './acc2-real-support';
 
 /**
+ * OPT-IN: runs only with ACCOUNTS_SPEED=1, e.g.
+ *   ACCOUNTS_SPEED=1 npx playwright test --config=playwright.real.config.ts tests/e2e/accounts2-speed.real.e2e.ts
+ * It is a local measurement on the volume seeds, not a CI check; without the
+ * opt-in every test here is skipped.
+ *
  * Accounts Phase 2 speed tests, page part (contract 12.5 = plan C13), Track F.
  * Production build on the disposable local stack seeded with
  * scripts/perf/accounts-volume.sql and scripts/perf/accounts2-volume.sql,
@@ -26,7 +31,9 @@ import {
  */
 
 test.describe.configure({ mode: 'default' });
-test.skip(!configured, 'needs the real local stack seeded with scripts/perf/accounts-volume.sql and accounts2-volume.sql');
+// OPT-IN local measurement (not a CI check): runs only with ACCOUNTS_SPEED=1 on a stack seeded with the volume files.
+test.skip(!configured || process.env.ACCOUNTS_SPEED !== '1',
+  'opt-in speed measurement: set ACCOUNTS_SPEED=1 on the real local stack seeded with scripts/perf/accounts-volume.sql and accounts2-volume.sql');
 test.setTimeout(60 * 60_000);
 
 const RUNS = Number(process.env.SPEED_RUNS ?? 30);

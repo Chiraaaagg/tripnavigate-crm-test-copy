@@ -212,27 +212,42 @@ jobs:
         if: always()
         run: >
           npx vitest run --project supabase
+          --exclude 'tests/supabase/speed-accounts-phase*.real.test.ts'
           --reporter=default --reporter=json --outputFile.json=test-results/vitest-supabase.json
       - name: Annotate real-stack results
         if: always()
         run: node scripts/ci/annotate-test-results.mjs "supabase (real Auth/Data API)" test-results/vitest-supabase.json
-      - name: Required real suites (intake, Phase 5A finance, B1 journey, B1.1 Won-only, booking form) ran (not skipped) and passed
+      - name: Accounts speed tests on the disposable stack with full synthetic volumes
+        env:
+          ACCOUNTS_SPEED: '1'
+        run: |
+          for file in accounts-volume accounts2-volume accounts3-volume; do
+            psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f "scripts/perf/$file.sql"
+          done
+          npx vitest run --project supabase tests/supabase/speed-accounts-phase \
+            --reporter=default --reporter=json --outputFile.json=test-results/vitest-supabase-accounts-speed.json
+      - name: Required real suites ran (not skipped) and passed
         if: always()
         run: |
           node --input-type=module -e '
             import { readFileSync } from "node:fs";
-            const report = JSON.parse(readFileSync("test-results/vitest-supabase.json", "utf8"));
-            const want = ["tests/supabase/intake.real.test.ts", "tests/supabase/intake-routes.real.test.ts", "tests/supabase/intake-receiver.real.test.ts", "tests/supabase/finance-concurrency.real.test.ts", "tests/supabase/b1-journey.real.test.ts", "tests/supabase/b11-won-only.real.test.ts", "tests/supabase/booking-form.real.test.ts"];
+            const reports = {
+              "vitest-supabase": ["intake", "intake-routes", "intake-receiver", "finance-concurrency", "b1-journey", "b11-won-only", "booking-form", "booking", "booking-flow"],
+              "vitest-supabase-accounts-speed": ["speed-accounts-phase1", "speed-accounts-phase2", "speed-accounts-phase3"],
+            };
             let failed = false;
-            for (const file of want) {
-              const suite = report.testResults.find((r) => r.name.endsWith(file));
-              const tests = suite?.assertionResults ?? [];
-              const passed = tests.filter((t) => t.status === "passed").length;
-              if (!suite || tests.length === 0 || passed !== tests.length) {
-                console.log(`::error title=phase-2 intake::${file}: ${passed}/${tests.length} passed (missing, skipped or failed)`);
-                failed = true;
-              } else {
-                console.log(`::notice title=phase-2 intake::${file}: ${passed}/${tests.length} passed`);
+            for (const [name, files] of Object.entries(reports)) {
+              const report = JSON.parse(readFileSync(`test-results/${name}.json`, "utf8"));
+              for (const file of files) {
+                const suite = report.testResults.find((r) => r.name.endsWith(`/tests/supabase/${file}.real.test.ts`));
+                const tests = suite?.assertionResults ?? [];
+                const passed = tests.filter((t) => t.status === "passed").length;
+                if (tests.length === 0 || passed !== tests.length) {
+                  console.log(`::error title=Required real suite::${file}: ${passed}/${tests.length} passed (missing, skipped or failed)`);
+                  failed = true;
+                } else {
+                  console.log(`::notice title=Required real suite::${file}: ${passed}/${tests.length} passed`);
+                }
               }
             }
             process.exit(failed ? 1 : 0);

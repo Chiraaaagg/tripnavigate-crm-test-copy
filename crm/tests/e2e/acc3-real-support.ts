@@ -80,7 +80,9 @@ export const PUSH_PATH = '/fcm/send';
  * timer-tick.mjs children get it from timerTick(). The production server (next start) is started by Playwright
  * BEFORE any test file loads, so it gets the same preload and dummy keys only from the calling shell:
  *   source acc3-harness-env.sh   (the lines of harnessShellEnv(); sets ACC3_PROVIDER_HARNESS=1)
- * Steps that need the server itself to send or to know the VAPID key call needHarness() and fail with that hint.
+ * Steps that need the server itself to send or to know the VAPID key start with test.skip(!providerHarness, HARNESS_SKIP):
+ * without the preload (CI has none) they are skipped with that reason, never failed and never sent to a real provider.
+ * needHarness() is the hard form (fails with the hint) for local runs that must not skip.
  * Keys are dummies; the VAPID pair is derived from a fixed synthetic seed (local test doubles only).
  */
 export const HARNESS_JS = String.raw`
@@ -143,6 +145,9 @@ export function harnessEnv(): Record<string, string> {
 export const harnessShellEnv = () => Object.entries(harnessEnv()).map(([k, v]) => `export ${k}='${v}'`).join('\n');
 /** True when the calling shell (and so the production server) runs behind the harness. */
 export const providerHarness = process.env.ACC3_PROVIDER_HARNESS === '1';
+/** Skip reason for steps that need the provider harness preload in the production server. */
+export const HARNESS_SKIP = 'needs the provider harness preload in the production server (source acc3-harness-env.sh before the run; '
+  + 'local only, absent in CI): skipped so nothing can reach a real provider';
 export const needHarness = () => expect(providerHarness,
   'the production server must run behind the provider harness: source acc3-harness-env.sh before the run (acc3-real-support.ts)').toBe(true);
 export const DOUBLE_ENV: Record<string, string> = harnessEnv();

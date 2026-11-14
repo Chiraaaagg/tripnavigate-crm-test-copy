@@ -5,6 +5,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, FIXTURE_USERS as U, assertDatabaseUrlNotOperational, claimsFor } from '../helpers/db';
 
 /**
+ * OPT-IN: runs only with ACCOUNTS_SPEED=1 (and TEST_DATABASE_URL), e.g.
+ *   ACCOUNTS_SPEED=1 npx vitest run --project supabase tests/supabase/speed-accounts-phase2.real.test.ts
+ * It is a local measurement on the volume seeds below, not a CI check
+ * (accounts-phase3 contract 16.5): without the opt-in the suite is skipped.
+ *
  * Accounts Phase 2 speed tests, database part (contract 12.5 = plan C13),
  * Track F. Needs the REAL local stack seeded with scripts/seed-local.mjs,
  * scripts/perf/accounts-volume.sql and then scripts/perf/accounts2-volume.sql
@@ -29,6 +34,8 @@ import { type Actor, FIXTURE_USERS as U, assertDatabaseUrlNotOperational, claims
  */
 
 const url = process.env.TEST_DATABASE_URL?.trim() ?? '';
+/** Opt-in only (see the header): CI and the ordinary real-stack run skip this suite. */
+const speed = process.env.ACCOUNTS_SPEED === '1' && url !== '';
 const RUNS = Number(process.env.SPEED_RUNS ?? 30);
 type Row = { measure: string; medianMs: number; p95Ms: number; targetMs: number; targetOn: 'p95' | 'median'; pass: boolean; plan?: string };
 const results: Row[] = [];
@@ -124,7 +131,7 @@ async function switchesOnInRun(): Promise<void> {
 }
 
 beforeAll(async () => {
-  if (!url) return;
+  if (!speed) return;
   await assertDatabaseUrlNotOperational(url);
   c = new pg.Client({ connectionString: url });
   await c.connect();
@@ -145,7 +152,7 @@ afterAll(async () => {
   await c?.end();
 });
 
-describe.skipIf(!url)('Accounts phase 2 speed (database, contract 12.5)', () => {
+describe.skipIf(!speed)('Accounts phase 2 speed (database, contract 12.5)', () => {
   it('seeded volume present', () => {
     expect(seeded, 'run scripts/perf/accounts-volume.sql and scripts/perf/accounts2-volume.sql on this local stack first').toBe(true);
   });
