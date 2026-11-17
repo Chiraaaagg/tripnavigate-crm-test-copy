@@ -135,7 +135,8 @@ export function RecordHeader({
             </div>
           ) : null}
         </div>
-        {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+        {/* Beside the title the actions take at most half the row, so long words in them (a take box's help line at 200% zoom) wrap instead of pushing the page sideways. Short actions do not change. */}
+        {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2 sm:max-w-[50%]">{actions}</div> : null}
       </div>
       {next && (next.text || next.button) ? (
         <div

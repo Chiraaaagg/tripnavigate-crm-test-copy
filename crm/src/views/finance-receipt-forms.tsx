@@ -26,7 +26,7 @@ import {
   type ReceiptMode,
   type ReceiptView,
 } from '@/modules/finance/contracts';
-import { BlockedReason, blockText, EVIDENCE_KIND_LABEL, formatInr, isZero, maskedDestination, paiseToRupeesField } from './finance-common';
+import { BlockedReason, blockText, EVIDENCE_KIND_LABEL, formatInr, isZero, maskedDestination, paiseToRupeesField, verifyButtonId } from './finance-common';
 import {
   ACCEPT,
   Field,
@@ -578,9 +578,6 @@ function HiddenIds({ dealId, receiptId, requestId }: { dealId: string; receiptId
     </>
   );
 }
-
-/** id of a receipt's Verify button, so the page header's "Next:" can jump to it. */
-export const verifyButtonId = (receiptId: string) => `verify-${receiptId}`;
 
 /** A row-sized submit button with an id (SubmitButton has none); same pending behaviour. */
 function RowSubmit({ id, pendingLabel, describedBy, variant, children }: { id?: string; pendingLabel: string; describedBy?: string; variant?: 'secondary'; children: ReactNode }) {

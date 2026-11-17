@@ -47,6 +47,7 @@ import {
   ReceiptStatusPill,
   REVIEW_STATUS_LABEL,
   ReviewPill,
+  verifyButtonId,
 } from './finance-common';
 import {
   ApproveReviewForm,
@@ -57,7 +58,7 @@ import {
   ReturnReviewForm,
   VerifyBillingForm,
 } from './finance-forms';
-import { ReceiptRowAction, RecordReceiptDrawer, verifyButtonId } from './finance-receipt-forms';
+import { ReceiptRowAction, RecordReceiptDrawer } from './finance-receipt-forms';
 import { KeepTabInAddress } from './finance-tab-address';
 import { SettingsSectionHeading } from './settings/settings-frame';
 

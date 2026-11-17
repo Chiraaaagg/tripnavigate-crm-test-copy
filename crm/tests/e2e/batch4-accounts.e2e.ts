@@ -51,7 +51,8 @@ test.describe('To check (DA-274, R4)', () => {
     await expect(chips.getByRole('link', { name: 'All', exact: true })).toHaveAttribute('href', '/app/accounts?filter=all');
     // Nothing the old filter row offered is lost: the fourth chip shows, the fifth is under More.
     await expect(chips.getByRole('link', { name: 'Returned to Sales' })).toHaveAttribute('href', '/app/accounts?filter=returned');
-    await page.getByRole('main').getByText('More', { exact: true }).click();
+    // The summary reads "More filters" (the word "filters" is for screen readers only).
+    await page.getByRole('main').getByText('More filters', { exact: true }).click();
     await expect(page.getByRole('main').getByRole('link', { name: 'Cheques awaiting clearance' })).toHaveAttribute('href', '/app/accounts?filter=cheques_pending');
     await expect(page.getByRole('table')).toContainText('3 deals · Booking reviews');
     // The rule that the figures are never added up stays one click away.

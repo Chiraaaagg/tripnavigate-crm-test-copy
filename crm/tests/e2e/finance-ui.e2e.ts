@@ -446,7 +446,8 @@ test.describe('R4 To check and the Accounts view of a Deal', () => {
     // Every ?filter= value stays reachable (four chips, the rest under More).
     const chips = main.getByRole('navigation', { name: 'To check filters' });
     await expect(chips.getByRole('link', { name: /^All/ })).toHaveAttribute('aria-current', 'page');
-    await main.getByText('More', { exact: true }).click();
+    // The summary reads "More filters" (the word "filters" is for screen readers only).
+    await main.getByText('More filters', { exact: true }).click();
     await expect(main.getByRole('link', { name: /Cheques awaiting clearance/ })).toHaveAttribute('href', '/app/accounts?filter=cheques_pending');
     // One row button, named with its deal, opening the tab of the next step.
     const table = main.getByRole('table');
@@ -462,7 +463,10 @@ test.describe('R4 To check and the Accounts view of a Deal', () => {
     await expect(verify).toBeVisible();
     await expect(verify).toHaveAttribute('aria-disabled', 'true');
     await expect(verify).toHaveAccessibleDescription('You recorded this receipt. Another Accounts person must do this step.');
-    await expect(row.getByText('You recorded this receipt. Another Accounts person must do this step.')).toBeVisible();
+    // The reason is shown in words next to the button (the row's folded "More actions" repeats it for Reject).
+    const reasonId = await verify.getAttribute('aria-describedby');
+    await expect(row.locator(`[id="${reasonId}"]`)).toBeVisible();
+    await expect(row.locator(`[id="${reasonId}"]`)).toContainText('You recorded this receipt. Another Accounts person must do this step.');
     await expect(page.getByRole('form', { name: 'Verify R-2026-27-000001' })).toHaveCount(0);
     // Clicking the disabled button does nothing.
     await verify.click();

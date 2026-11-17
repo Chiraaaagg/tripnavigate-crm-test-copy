@@ -188,7 +188,11 @@ test.describe('accessibility (axe, WCAG 2.2 A/AA rules)', () => {
   for (const path of [...publicPages, ...galleryStates.map((s) => `/preview/${s}`)]) {
     test(`no detectable violations on ${path}`, async ({ page }) => {
       await page.goto(path);
-      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+      // A state with a drawer open on load (for example finance-destinations-add-error) makes the rest of the
+      // page aria-hidden, so the h1 is then counted in the markup (the R2 deal-page pattern).
+      const dialog = page.getByRole('dialog');
+      await expect(page.getByRole('heading', { level: 1 }).or(dialog).first()).toBeVisible();
+      if ((await dialog.count()) > 0) await expect(page.locator('h1')).toHaveCount(1);
       await expandAllDetails(page);
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])

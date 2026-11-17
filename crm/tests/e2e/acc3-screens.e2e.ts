@@ -410,7 +410,8 @@ test.describe('Accounts Phase 3 preview states', () => {
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText(/Invoice draft of Deal SYN-JOD-117 \(Jodhpur\) for ₹/);
     const preview = dialog.getByRole('link', { name: 'Read the preview of this Invoice draft on the Deal page' });
-    await expect(preview).toHaveAttribute('href', /^\/app\/accounts\/deals\/a0002283-0000-4000-8000-000000002283\?tab=documents#draft-[0-9a-f-]{36}$/);
+    // The fixture row: Deal a0002101-… (acc2-docs-fixtures DEAL_ID), draft document a0002283-….
+    await expect(preview).toHaveAttribute('href', '/app/accounts/deals/a0002101-0000-4000-8000-000000002101?tab=documents#draft-a0002283-0000-4000-8000-000000002283');
     expect(await axe(page)).toEqual([]);
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).toHaveCount(0);

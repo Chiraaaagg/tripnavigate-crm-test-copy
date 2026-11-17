@@ -350,6 +350,12 @@ export function EvidenceList({
  * list in settings/contracts.ts (money, review, receipts, documents) stays as
  * it is for the old contract tests; this list is what the page shows now.
  */
+/**
+ * id of a receipt's Verify button, so the page header's "Next:" can jump to it.
+ * Here, not in the client form file: the server-rendered deal page calls it.
+ */
+export const verifyButtonId = (receiptId: string) => `verify-${receiptId}`;
+
 export const ACCOUNTS_DEAL_PAGE_TABS = ['receipts', 'dues', 'documents', 'refunds', 'review'] as const;
 export type AccountsDealPageTab = (typeof ACCOUNTS_DEAL_PAGE_TABS)[number];
 
