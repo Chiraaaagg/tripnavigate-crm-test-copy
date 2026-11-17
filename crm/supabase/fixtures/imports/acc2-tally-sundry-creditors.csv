@@ -1,0 +1,5 @@
+﻿GUID,Ledger Name,Under,Services,GSTIN/UIN,PAN/IT No,State Name,Address,Mobile No,E-Mail,Bank Name,IFSC Code,A/c No
+tst-guid-0001,Test Lake Hotels Pvt Ltd,Sundry Creditors,hotel,08AAAAA0001A1Z1,AAAAA0001A,Rajasthan,"1 Test Ghat Road, Udaipur",6000010001,res@test-lake.example.test,Test Bank,TEST0000001,100000000001
+tst-guid-0002,Test Fort Transport,Sundry Creditors,transfer,08AAAAA0011A1Z1,AAAAA0011A,Rajasthan,11 Test Fort Road,6000010011,,Test Bank,TEST0000011,100000000011
+tst-guid-0003,Test Airline Consolidator,Sundry Creditors,flight,07AAAAA0012A1Z2,AAAAA0012A,Delhi,12 Test Airport Road,,,,,
+tst-guid-0004,Test Excursions,Sundry Creditors,activity,,AAAAA0013A,Goa,,6000010013,,,,

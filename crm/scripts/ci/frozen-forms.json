@@ -1,0 +1,124 @@
+{
+  "$comment": [
+    "Frozen-forms guard (UX redesign build plan 4.3). The owner-approved forms (Book now, Purchase, Flight and Visa work forms), the shared parts and stylesheets they import, and this guard itself do not change, except the named exceptions of each slice.",
+    "Paths are relative to crm/. '**' matches any depth, '*' matches within one folder. 'notFrozen' carves files out of a frozen folder for every slice.",
+    "'importedByForms' is the import closure of the frozen form files inside src/components plus the two stylesheets (tests/unit/check-frozen-forms.test.ts recomputes it and fails when a form starts importing a part that is not listed). View and module files the forms import are not frozen: the redesign must edit them; the visual baseline of the forms (tests/e2e/frozen-forms-visual.e2e.ts) catches indirect changes.",
+    "'currentSlice' is the slice under way; the guard checks it when no --slice is given. Per slice, 'allow' lists frozen files the slice may add or edit, 'deletes' lists frozen files the slice may only delete (gone from the working tree; once the slice is on main the file is missing at the base too and the entry is history).",
+    "Checked by scripts/ci/check-frozen-forms.mjs (CI, pull requests: base origin/main; the run prints the current slice's exceptions). The guard script and its unit test are frozen. Once this file exists at the base it may change in exactly two ways: 'currentSlice' may be set, and new slice entries may be added; every other key, and every slice entry that exists at the base, must stay as it is."
+  ],
+  "currentSlice": "R2",
+  "frozen": [
+    "src/views/booking-form/**",
+    "src/views/b11/**",
+    "src/views/booking-forms.tsx",
+    "src/views/booking-views.tsx",
+    "src/views/booking-fields.ts",
+    "src/views/intake-*.tsx",
+    "src/views/purchase/work-tab.tsx",
+    "src/views/purchase/work-forms.tsx",
+    "src/views/purchase/what-sales-booked.tsx",
+    "src/views/purchase/email-drawer.tsx",
+    "src/views/purchase/go-ahead.tsx",
+    "src/views/purchase/booking-change-banner.tsx",
+    "src/views/flight/**",
+    "src/views/visa/**",
+    "src/views/customer-messages/book-now-card.tsx",
+    "src/components/ConfirmDialog.tsx",
+    "src/components/hand-form.tsx",
+    "src/components/ui/dialog.tsx",
+    "src/components/ui/drawer.tsx",
+    "src/components/ui/field.tsx",
+    "src/components/ui/input.tsx",
+    "src/components/ui/money-input.tsx",
+    "src/components/ui/select.tsx",
+    "src/components/ui/textarea.tsx",
+    "src/components/ui/choice.tsx",
+    "src/components/ui/stepper.tsx",
+    "src/components/ui/button.tsx",
+    "src/components/ui/tokens.css"
+  ],
+  "importedByForms": [
+    "src/components/FormMessage.tsx",
+    "src/components/StatusPill.tsx",
+    "src/components/SubmitButton.tsx",
+    "src/components/ui/airport-combobox.tsx",
+    "src/components/ui/badge.tsx",
+    "src/components/ui/card.tsx",
+    "src/components/ui/chip-check.tsx",
+    "src/components/ui/cn.ts",
+    "src/components/ui/dropdown-menu.tsx",
+    "src/components/ui/empty-state.tsx",
+    "src/components/ui/error-summary.tsx",
+    "src/components/ui/fieldset.tsx",
+    "src/components/ui/filter-chips.tsx",
+    "src/components/ui/list-pager.tsx",
+    "src/components/ui/notice.tsx",
+    "src/components/ui/number-stepper.tsx",
+    "src/components/ui/page-header.tsx",
+    "src/components/ui/progress-checklist.tsx",
+    "src/components/ui/record-tabs.tsx",
+    "src/components/ui/save-status.tsx",
+    "src/components/ui/search-combobox.tsx",
+    "src/components/ui/segmented-control.tsx",
+    "src/components/ui/skeleton.tsx",
+    "src/components/ui/stat-card.tsx",
+    "src/components/ui/suggest-multiselect.tsx",
+    "src/components/ui/summary-list.tsx",
+    "src/components/ui/table.tsx",
+    "src/components/ui/tabs.tsx",
+    "src/components/ui/timeline.tsx",
+    "src/components/ui/traveller-chips.tsx",
+    "src/app/globals.css",
+    "src/app/app.css"
+  ],
+  "guard": [
+    "scripts/ci/frozen-forms.json",
+    "scripts/ci/check-frozen-forms.mjs",
+    "scripts/ci/check-frozen-forms.d.mts",
+    "tests/unit/check-frozen-forms.test.ts"
+  ],
+  "notFrozen": [
+    "src/views/flight/queue.tsx",
+    "src/views/flight/manager-fares.tsx",
+    "src/views/flight/deal-flight-card.tsx",
+    "src/views/visa/queue.tsx",
+    "src/views/visa/deal-visa-card.tsx"
+  ],
+  "slices": {
+    "R0": {
+      "note": "D2: delete the dead October Book now step screen (BookStepScreen only in book-screen.tsx; one comment in globals.css). Additive edits: tabs.tsx (count 'unknown', variant 'pill'; default unchanged), app.css (style sources by folder, CQ-3; generated CSS unchanged). The guard itself is new in R0.",
+      "allow": [
+        "src/views/b11/book-screen.tsx",
+        "src/components/ui/tabs.tsx",
+        "src/app/app.css",
+        "src/app/globals.css",
+        "scripts/ci/frozen-forms.json",
+        "scripts/ci/check-frozen-forms.mjs",
+        "scripts/ci/check-frozen-forms.d.mts",
+        "tests/unit/check-frozen-forms.test.ts"
+      ],
+      "deletes": [
+        "src/views/b11/book-steps.tsx",
+        "src/views/b11/book-services.tsx",
+        "src/views/b11/step-sections-nav.tsx",
+        "src/views/b11/step-footer.tsx"
+      ]
+    },
+    "R1": {
+      "note": "Menu and Settings. D12 / owner Q2: the Book now card no longer names the message language (the language box is hidden, it posts language=en through customer-messages/language-fields.tsx, which is not frozen). Only the language words in the card line and the now-unused saved-language state are removed. No shared frozen part changed. Guard test (fixture only, no rule changed): the throwaway repository also creates every slice's allow files (the guard refuses an allow entry that does not exist), and the \"after R0 is on main\" base sets currentSlice R0 (it copied the real currentSlice, R1 from this slice on).",
+      "allow": [
+        "src/views/customer-messages/book-now-card.tsx",
+        "tests/unit/check-frozen-forms.test.ts"
+      ],
+      "deletes": []
+    },
+    "R2": {
+      "note": "Sales. O1 (owner, 16 November 2026): the Book now sticky \"Review and submit\" scrolls to the submit card's own button and moves focus to it (booking-form-screen.tsx only; no field, step, label or rule changed). Additive shared-part edit: record-tabs.tsx gains an optional variant prop passed to Tabs (left out, the underline default applies as before). The claim form of b11/book-claims.tsx is not exported or changed (the Deal Money dialog shows the existing panel).",
+      "allow": [
+        "src/views/booking-form/booking-form-screen.tsx",
+        "src/components/ui/record-tabs.tsx"
+      ],
+      "deletes": []
+    }
+  }
+}
