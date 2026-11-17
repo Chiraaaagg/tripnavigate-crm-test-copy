@@ -208,10 +208,12 @@ test.describe('Visa build preview states', () => {
     await open(page, 'visa-work');
     const pencil = page.locator('main').getByRole('button', { name: /^Edit/ }).first();
     test.skip((await pencil.count()) === 0, 'No Edit button in visa-work.');
+    // O14 (R3): with another row action, Edit is one menu; its first item is "Edit details".
+    // Read this before Enter: the open menu hides the page (pencil included) from role queries.
+    const isMenu = (await pencil.getAttribute('aria-haspopup')) === 'menu';
     await pencil.focus();
     await page.keyboard.press('Enter');
-    // O14 (R3): with another row action, Edit is one menu; its first item is "Edit details".
-    if ((await pencil.getAttribute('aria-haspopup')) === 'menu') {
+    if (isMenu) {
       await expect(page.getByRole('menuitem').first()).toHaveText('Edit details');
       await page.keyboard.press('Enter');
     }

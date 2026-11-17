@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -97,6 +97,20 @@ function everyPerson(): Array<{ name: string; viewer: ShellViewer }> {
 
 const PEOPLE = everyPerson();
 
+/**
+ * True when the address segments lead to a page.tsx. A route group folder such as "(list)" or
+ * "(queue)" does not add to the address, so it may sit at any level (R3: /app/purchase/(queue)/payments).
+ */
+function hasPage(dir: string, segments: string[]): boolean {
+  if (!existsSync(dir)) return false;
+  const groups = readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && /^\(.+\)$/.test(e.name))
+    .map((e) => join(dir, e.name));
+  const [first, ...rest] = segments;
+  if (first === undefined) return existsSync(join(dir, 'page.tsx')) || groups.some((g) => hasPage(g, []));
+  return hasPage(join(dir, first), rest) || groups.some((g) => hasPage(g, segments));
+}
+
 describe('sectionsFor: the one list of sections a person may see', () => {
   it(`offers each of ${PEOPLE.length} role combinations exactly the addresses the menu offered before R1 (no new link, none lost)`, () => {
     const wrong: string[] = [];
@@ -111,9 +125,7 @@ describe('sectionsFor: the one list of sections a person may see', () => {
   it('every link and every Accounts section tab is an existing page', () => {
     const all = new Set(PEOPLE.flatMap((p) => reachableAddresses(p.viewer)));
     for (const href of all) {
-      const page = join(app, href.replace(/^\/app/, 'app'), 'page.tsx');
-      const grouped = join(app, href.replace(/^\/app/, 'app'), '(list)', 'page.tsx');
-      expect(existsSync(page) || existsSync(grouped), `${href} has a page`).toBe(true);
+      expect(hasPage(app, href.replace(/^\//, '').split('/')), `${href} has a page`).toBe(true);
     }
   });
 

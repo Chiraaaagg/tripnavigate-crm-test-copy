@@ -204,7 +204,8 @@ test.describe('Batch 4 department lists: Not taken · Mine · All', () => {
     await expect(main).toContainText('Desk state could not be read');
     await expect(main).not.toContainText('Not started yet');
     await expect(main).not.toContainText('Not launched yet');
-    await expect(main.getByRole('link', { name: /Visa · United Arab Emirates/ })).toBeVisible();
+    // R3: the row button ("Review and take Visa · …") names the same task; check the task's own name link.
+    await expect(main.getByRole('link', { name: /^Visa · United Arab Emirates/ })).toBeVisible();
   });
 });
 

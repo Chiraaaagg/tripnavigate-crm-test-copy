@@ -158,11 +158,13 @@ test.describe('B1 Purchase: service type and facts per type', () => {
     await open(page, 'purchase-queue-mixed');
     const main = page.locator('main');
     const table = page.getByRole('table', { name: '3 tasks' });
-    await expect(table.locator('th').first()).toHaveText('Service');
+    // R3 queue pattern: the first column is "What" (type pill above the title); "Stay" became "Dates".
+    await expect(table.locator('th').first()).toHaveText('What');
     await expect(table).toContainText('Transfer or cab');
     await expect(table).toContainText('Activity');
     await expect(table).toContainText('Airport to jetty, both ways');
-    await expect(table).toContainText('Not a hotel');
+    // A transfer row never shows hotel facts (nights, rooms); it used to say "Not a hotel" in the Stay column.
+    await expect(table.getByRole('row').filter({ hasText: 'Airport to jetty, both ways' })).not.toContainText(/\bnights?\b|\brooms?\b/);
     await expect(main).not.toContainText(/Selling/i);
     await expect(main).not.toContainText('₹1,84,000');
   });

@@ -464,7 +464,8 @@ test.describe('real stack browser journey (T15)', () => {
       const row = purchase.getByRole('row').filter({ hasText: dealRef });
       // DA-271 status word.
       await expect(row).toContainText('Waiting to be taken');
-      await row.getByRole('link', { name: new RegExp(JOURNEY_HOTEL.replace(/[()]/g, '\\$&')) }).click();
+      // R3: the row also has an "Open to take …" button with the same address; open the task by its name link.
+      await row.getByRole('link', { name: new RegExp(`^${JOURNEY_HOTEL.replace(/[()]/g, '\\$&')}`) }).click();
       await expect(purchase).toHaveURL(new RegExp(`/app/purchase/${taskId}$`));
       await expect(purchase.getByRole('heading', { level: 1 })).toContainText(JOURNEY_HOTEL);
       await shot(purchase, 'purchase-task-open');

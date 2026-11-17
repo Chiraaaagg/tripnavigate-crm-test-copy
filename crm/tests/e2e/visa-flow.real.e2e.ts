@@ -354,8 +354,10 @@ const paxRow = (page: Page, name: string) => page.getByRole('region', { name: /P
 /** O14 (R3): a row's Edit is one button, or one menu whose first item is "Edit details" when the row has other actions. */
 async function editRow(page: Page, row: Locator) {
   const edit = row.getByRole('button', { name: /^Edit/ });
+  // Read this before the click: the open menu hides the page (this button included) from role queries.
+  const isMenu = (await edit.getAttribute('aria-haspopup')) === 'menu';
   await edit.click();
-  if ((await edit.getAttribute('aria-haspopup')) === 'menu') await page.getByRole('menuitem', { name: 'Edit details' }).click();
+  if (isMenu) await page.getByRole('menuitem', { name: 'Edit details' }).click();
 }
 /** The Appointment table row of a traveller (by name). */
 const apptRow = (page: Page, name: string) => page.getByRole('region', { name: /^Appointment/ }).first().getByRole('row').filter({ hasText: name }).first();
@@ -458,10 +460,12 @@ test.describe('Visa and Passport desk: real end-to-end flow (Visa build)', () =>
         // Traveller 1: keyboard path through the row edit (pencil -> first field ... Save -> focus back on the pencil).
         const row1 = paxRow(page, 'Synthetic Visa One');
         const pencil = row1.getByRole('button', { name: /^Edit/ });
+        // O14 (R3): with other row actions, Edit is one menu; Enter on its first item, "Edit details", opens the row.
+        // Read this before Enter: the open menu hides the page (pencil included) from role queries.
+        const isMenu = (await pencil.getAttribute('aria-haspopup')) === 'menu';
         await pencil.focus();
         await page.keyboard.press('Enter');
-        // O14 (R3): with other row actions, Edit is one menu; Enter on its first item, "Edit details", opens the row.
-        if ((await pencil.getAttribute('aria-haspopup')) === 'menu') await page.keyboard.press('Enter');
+        if (isMenu) await page.keyboard.press('Enter');
         const firstFocused = await page.evaluate(() => ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? ''));
         check('8 · keyboard · row edit focuses its first field', firstFocused, 'focus moved into the row');
         await row1.getByLabel(/Passport (no|number)/i).fill(DESK_PASSPORT);

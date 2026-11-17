@@ -542,7 +542,8 @@ test.describe('Purchase department: real end-to-end flow (Purchase build)', () =
         await shot(page, 'purchase-queue-not-taken');
         await noLeakOnPage(page, 'queue');
         await a11yBothWidths(page, 'Purchase queue', { shotName: 'purchase-queue' });
-        await row.getByRole('link', { name: new RegExp(HOTEL_NAME) }).click();
+        // R3: the row also has an "Open to take …" button with the same address; open the task by its name link.
+        await row.getByRole('link', { name: new RegExp(`^${HOTEL_NAME}`) }).click();
         await expect(page).toHaveURL(new RegExp(`/app/purchase/${seeded.taskId}`));
         await page.getByRole('button', { name: 'Take this task' }).click();
         await expect(page.getByText(/The task is yours|Taken by: you/i).first()).toBeVisible();

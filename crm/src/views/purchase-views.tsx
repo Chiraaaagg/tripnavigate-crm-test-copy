@@ -173,6 +173,12 @@ export function purchaseSecondFact(t: PurchaseTaskSummary, flags: Flags): string
 
 /** Queue "Next step": words in the task page's own terms, and one row button when the viewer can act. */
 export function purchaseRowNext(t: PurchaseTaskSummary, flags: Flags, canTakeTasks: boolean): RowNext {
+  const next = purchaseRowNextFor(t, flags, canTakeTasks);
+  // A viewer who cannot take tasks (the branch Manager) only follows progress: words, never a row button.
+  return canTakeTasks ? next : { text: next.text };
+}
+
+function purchaseRowNextFor(t: PurchaseTaskSummary, flags: Flags, canTakeTasks: boolean): RowNext {
   const href = `/app/purchase/${t.taskId}`;
   if (t.status === 'supplier_confirmed') return { text: 'Nothing waiting' };
   if (!t.assignedToYou && !t.assigneeName) {

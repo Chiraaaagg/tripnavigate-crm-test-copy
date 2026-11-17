@@ -683,6 +683,20 @@ test.describe('Deal page: production style policy', () => {
                 /^\s*((transition-duration|animation-name|--radix-collapsible-content-(height|width))\s*:[^;]*;\s*)*$/.test(el.getAttribute('style') ?? '')
               ),
           )
+          // R2: a modal dialog open on first load (the payment report, Radix Dialog). Radix sets through the CSSOM:
+          // pointer-events: none on the body (DismissableLayer), outline/opacity/position/pointer-events on the two
+          // focus guards (FocusGuards), and pointer-events: auto on the overlay and the dialog. They are not in the
+          // server HTML either. Only those values on those nodes, and only while such a dialog is open, are let through.
+          .filter((el) => {
+            const openDialog = '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]';
+            if (!document.querySelector(openDialog)) return true;
+            const style = el.getAttribute('style') ?? '';
+            const only = (props: string) => new RegExp(`^\\s*((${props})\\s*:[^;]*;\\s*)*$`).test(style);
+            if (el === document.body) return !only('pointer-events');
+            if (el.matches('[data-radix-focus-guard]')) return !only('outline|opacity|position|pointer-events');
+            if (el.matches(openDialog) || el.nextElementSibling?.matches(openDialog)) return !only('pointer-events');
+            return true;
+          })
           .map((el) => el.outerHTML.slice(0, 120)),
       );
       expect(live, state).toEqual([]);

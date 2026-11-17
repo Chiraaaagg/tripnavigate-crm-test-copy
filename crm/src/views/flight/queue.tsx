@@ -126,7 +126,13 @@ export function flightQueueModel(
 }
 
 /** The row's "Next step", from the queue facts (the workspace's "Next:" line says the same in more detail). */
-export function flightRowNext(g: FlightQueueGroup): RowNext {
+export function flightRowNext(g: FlightQueueGroup, canTakeTasks = true): RowNext {
+  const next = flightRowNextFor(g);
+  // A viewer who cannot take tasks (the branch Manager) only follows progress: words, never a row button.
+  return canTakeTasks ? next : { text: next.text };
+}
+
+function flightRowNextFor(g: FlightQueueGroup): RowNext {
   if (g.status.code === 'done') return { text: 'Nothing waiting' };
   if (!g.assignedToYou && !g.assigneeName) {
     return g.canTake
@@ -219,7 +225,7 @@ export function FlightQueuePage({
             </TableHeader>
             <TableBody>
               {m.rows.map((g) => (
-                <FlightRow key={g.dealId} g={g} />
+                <FlightRow key={g.dealId} g={g} canTakeTasks={canTakeTasks} />
               ))}
             </TableBody>
           </Table>
@@ -229,10 +235,10 @@ export function FlightQueuePage({
   );
 }
 
-function FlightRow({ g }: { g: FlightQueueGroup }) {
+function FlightRow({ g, canTakeTasks }: { g: FlightQueueGroup; canTakeTasks: boolean }) {
   const { from, to } = flightDates(g);
   const onlyScreenshots = g.flights.length > 0 && g.flights.every((f) => f.entryMode === 'screenshot');
-  const next = flightRowNext(g);
+  const next = flightRowNext(g, canTakeTasks);
   // One status badge; the other facts as plain words beside it (design plan 1.2), not more stacked badges.
   const second = chipsOf(g.chips).map((c) => c.text).join(' · ');
   return (
