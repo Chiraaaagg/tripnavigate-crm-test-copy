@@ -56,7 +56,7 @@ export function TallyPage({
   fileOn: boolean;
   /** "Make Tally file", "Files made" and "Upload Tally vouchers" (views/tally-file/sections.tsx), shown on the Tally file method. */
   fileSections?: ReactNode;
-  /** The Tally files made earlier (views/tally-file/files.tsx), shown in a fold while the Tally file method is off; absent when there are none. */
+  /** While the Tally file method is off: the files made earlier and the voucher upload (views/tally-file/sections.tsx TallyEarlierFiles), in a fold. */
   earlierFiles?: ReactNode;
   exportAction: DecisionAction;
   exportInitialState?: DeskResult | null;
@@ -111,7 +111,7 @@ export function TallyPage({
           </>
         ) : null}
         {!on.file && earlierFiles ? (
-          <Fold summary="Earlier Tally files" meta="Tally file is switched off">
+          <Fold summary="Earlier Tally files and voucher upload" meta="Tally file is switched off">
             {earlierFiles}
           </Fold>
         ) : null}

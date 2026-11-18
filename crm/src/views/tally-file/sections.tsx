@@ -67,6 +67,23 @@ export function TallyFileSections({
   );
 }
 
+/**
+ * Tally file switched off (R4 review): the files made earlier stay listed, and "Upload Tally vouchers"
+ * stays too, so files that are still unmatched can be matched (the daily check keeps counting them).
+ */
+export function TallyEarlierFiles({ files, entityId, stageMatch, initialMatch = null }: { files: TallyFileHeader[] | 'error'; entityId: string; stageMatch: DecisionAction; initialMatch?: DeskResult | null }) {
+  return (
+    <div className="flex flex-col gap-5">
+      {files === 'error' || files.length > 0 ? <TallyFilesList files={files} /> : null}
+      <Card>
+        <CardBody>
+          <TallyMatchUpload entityId={entityId} action={stageMatch} initialState={initialMatch} />
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
 /** Accounts › Tally for someone who is not Accounts (contract 14: Tally is Accounts only). */
 export function TallyFileNoAccess() {
   return (

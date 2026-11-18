@@ -34,6 +34,7 @@ import {
   FIN_FIELD,
   type FinanceAction,
   type FinanceActions,
+  type FinanceFormState,
   FinanceResult,
   RequestId,
   UnavailableButton,
@@ -259,6 +260,7 @@ export function RecordReceiptForm({
   destinationOptions = [],
   destinationOptionsUnavailable = false,
   fromClaim = null,
+  form,
 }: {
   detail: AccountsDealDetail;
   action: FinanceAction;
@@ -271,8 +273,15 @@ export function RecordReceiptForm({
   destinationOptions?: DestinationOption[];
   /** True when the company-accounts read was refused, so the empty list means "unknown", not "none approved". */
   destinationOptionsUnavailable?: boolean;
+  /**
+   * The form state from a parent that outlives this form (the receipt drawer unmounts its content when it
+   * closes). Keeps the request id and the restored values across close and reopen, so a resubmit after an
+   * unknown outcome replays instead of recording a second receipt.
+   */
+  form?: FinanceFormState;
 }) {
-  const f = useFinanceForm(action);
+  const own = useFinanceForm(action);
+  const f = form ?? own;
   const firstAllowed = RECEIPT_MODES.find((m) => detail.modesAllowed[m]) ?? 'bank_transfer';
   const [mode, setMode] = useState<ReceiptMode>(correcting?.mode ?? fromClaim?.mode ?? ((f.v(FIN_FIELD.mode) || firstAllowed) as ReceiptMode));
   const current: ReceiptMode = RECEIPT_MODES.includes(mode) ? mode : firstAllowed;
@@ -951,6 +960,9 @@ export function RecordReceiptDrawer({
   defaultOpen?: boolean;
 }) {
   const anyAllowed = Object.values(detail.modesAllowed).some(Boolean);
+  // Above the drawer, as for the cash forms: closing the drawer unmounts its content, and the request id
+  // (kept after an unknown outcome) and the restored values must survive that.
+  const form = useFinanceForm(action);
   return (
     <Drawer defaultOpen={defaultOpen}>
       <DrawerTrigger asChild>
@@ -975,7 +987,7 @@ export function RecordReceiptDrawer({
               </p>
             </div>
           ) : null}
-          <RecordReceiptForm detail={detail} action={action} destinationOptions={destinationOptions} destinationOptionsUnavailable={destinationOptionsUnavailable} />
+          <RecordReceiptForm detail={detail} action={action} form={form} destinationOptions={destinationOptions} destinationOptionsUnavailable={destinationOptionsUnavailable} />
         </DrawerBody>
       </DrawerContent>
     </Drawer>

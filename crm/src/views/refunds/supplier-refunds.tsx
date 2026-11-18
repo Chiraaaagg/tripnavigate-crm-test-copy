@@ -63,7 +63,7 @@ export function SupplierRefundsList({
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-semibold wrap-anywhere text-ink">{title}</span>
               {showDeal && l.dealReference ? (
-                <Link href={`/app/accounts/deals/${l.dealId}?tab=money`} className="text-sm font-semibold text-brand-strong underline-offset-4 hover:underline">
+                <Link href={`/app/accounts/deals/${l.dealId}?tab=refunds#refunds-supplier`} className="text-sm font-semibold text-brand-strong underline-offset-4 hover:underline">
                   {l.dealReference}
                   {l.branchName ? ` · ${l.branchName}` : ''}
                 </Link>

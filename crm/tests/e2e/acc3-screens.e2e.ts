@@ -399,6 +399,15 @@ test.describe('Accounts Phase 3 preview states', () => {
     }
   });
 
+  // R4 review P3-1: with the Tally file switched off, unmatched files can still be matched from the earlier-files fold.
+  test('Tally file off: the earlier-files fold keeps the voucher upload', async ({ page }) => {
+    test.skip(!STATES.includes('acc3-tally-method-csv-only'), 'needs the acc3-tally-method-csv-only state');
+    expect(await open(page, 'acc3-tally-method-csv-only')).toBe(true);
+    await waitForHydration(page);
+    await page.getByRole('main').getByText('Earlier Tally files and voucher upload').click();
+    await expect(page.getByRole('form', { name: 'Upload Tally vouchers' })).toBeVisible();
+  });
+
   // R4 integration: Release on a Customer documents row never posts blind. It opens a confirm that names the draft,
   // the Deal and the amount and links to the draft's preview on the Deal page; Cancel releases nothing.
   test('Release on a document row opens a confirm naming the draft and Deal, with a link to its preview', async ({ page }) => {

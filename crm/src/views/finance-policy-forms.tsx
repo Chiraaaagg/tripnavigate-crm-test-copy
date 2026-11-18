@@ -208,6 +208,9 @@ export function useFinanceForm(action: FinanceAction, initial?: FinanceActionSta
   return { state, formAction, requestId: requestIds.id, formKey: `${requestIds.id}-${state.seq}`, v, err };
 }
 
+/** What useFinanceForm returns, for a form whose state is held by a parent. */
+export type FinanceFormState = ReturnType<typeof useFinanceForm>;
+
 export function RequestId({ id }: { id: string }) {
   return <input type="hidden" name={FIN_FIELD.requestId} value={id} />;
 }

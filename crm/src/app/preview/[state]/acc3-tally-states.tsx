@@ -5,11 +5,11 @@ import { StaffShell, type ShellViewer } from '@/views/StaffShell';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import type { TallyMethod } from '@/views/accounts-desk/r4-address';
 import { TallyPage, type TallyCsvView } from '@/views/accounts-desk/tally';
-import { TallyFileLoading, TallyFilesList, TallyLeftOutView } from '@/views/tally-file/files';
+import { TallyFileLoading, TallyLeftOutView } from '@/views/tally-file/files';
 import { TALLY_FILE_REFUSAL } from '@/views/tally-file/labels';
 import { TallyMatchBatchView } from '@/views/tally-file/match-batch';
 import { TallyPartyNameField } from '@/views/tally-file/party-name';
-import { TallyFileNoAccess, TallyFileSections, type TallyFileActions, type TallyFileModel } from '@/views/tally-file/sections';
+import { TallyEarlierFiles, TallyFileNoAccess, TallyFileSections, type TallyFileActions, type TallyFileModel } from '@/views/tally-file/sections';
 import { INBOX, INBOX_ACCOUNTS, TALLY_VIEW } from './acc-fixtures';
 import { accExportOk, accNoticeNoop } from './acc-preview-actions';
 import { BRANCHES, ENTITIES, FILES, LEFT_OUT_PAGE, MATCH_BATCH, MATCH_PAGE, TALLY_PREVIEW, TALLY_PREVIEW_EMPTY } from './acc3-tally-fixtures';
@@ -95,7 +95,7 @@ function tallyPage(on: { file: boolean; csv: boolean }, method: TallyMethod | nu
       method={method}
       fileOn={on.file}
       fileSections={method === 'file' ? <TallyFileSections model={MODEL} actions={ACTIONS} /> : undefined}
-      earlierFiles={on.file ? undefined : <TallyFilesList files={FILES} />}
+      earlierFiles={on.file ? undefined : <TallyEarlierFiles files={FILES} entityId={MODEL.entities[0]?.id ?? ''} stageMatch={ACTIONS.stageMatch} />}
       exportAction={act(accExportOk)}
     />,
   );

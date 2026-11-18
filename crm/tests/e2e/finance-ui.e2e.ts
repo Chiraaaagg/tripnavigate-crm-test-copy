@@ -412,6 +412,27 @@ test.describe('Phase 5A retry identity and review states', () => {
     await expect(form.locator('input[name="requestId"]')).toHaveValue(before);
   });
 
+  // R4 review P2-2: the drawer unmounts its content when it closes; the form state lives above it, so a
+  // resubmit after reopening still replays the same request (no second cash or bank receipt).
+  test('closing and reopening the receipt drawer after an unknown outcome posts the same requestId', async ({ page }) => {
+    await open(page, 'finance-deal-unknown-outcome--receipts');
+    let record = await recordDrawer(page);
+    const before = await record.getByRole('form', { name: 'Record a receipt' }).locator('input[name="requestId"]').inputValue();
+    await record.getByLabel('Amount received (₹)').fill('500');
+    await record.getByRole('button', { name: 'Record bank transfer receipt' }).click();
+    await expect(record.getByRole('alert')).toContainText('We could not confirm this was saved.');
+    await page.keyboard.press('Escape');
+    await expect(record).toBeHidden();
+    record = await recordDrawer(page);
+    const form = record.getByRole('form', { name: 'Record a receipt' });
+    await expect(form.locator('input[name="requestId"]')).toHaveValue(before);
+    await expect(record.getByLabel('Amount received (₹)')).toHaveValue('500');
+    const posted = page.waitForRequest((r) => r.method() === 'POST' && (r.postData() ?? '').includes(before));
+    await record.getByRole('button', { name: 'Record bank transfer receipt' }).click();
+    await posted;
+    await expect(record.getByRole('alert')).toContainText('We could not confirm this was saved.');
+  });
+
   test('an approved review never shows an earlier return reason as current', async ({ page }) => {
     await open(page, 'finance-deal-approved-after-return--review');
     const booking = page.getByRole('region', { name: 'Booking and review' });

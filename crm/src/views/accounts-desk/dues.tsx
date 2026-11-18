@@ -109,8 +109,8 @@ export function DuesPageView({
         </p>
       ) : null}
       <form action={DUES_PATH} method="get" className="mb-5 flex flex-wrap items-end gap-3" aria-label="Find dues">
-        {/* The default (Overdue plus Due today) is not carried: a search by Deal reference covers every status. */}
-        {(defaulted ? [] : (filter.status ?? [])).map((s) => (
+        {/* The statuses shown are carried, the default (Overdue plus Due today) too, as the chip links do; "Every status" widens a search. */}
+        {(filter.status ?? []).map((s) => (
           <input key={s} type="hidden" name="status" value={s} />
         ))}
         {filter.reported ? <input type="hidden" name="reported" value="yes" /> : null}

@@ -132,6 +132,7 @@ export function RecordsWorkspace(p: RecordsWorkspaceProps) {
               linkOptions={p.linkOptions}
               loadLinkTargets={p.loadLinkTargets}
               previewOpen={p.previewOpen}
+              branches={p.branches}
             />
           </>
         )}

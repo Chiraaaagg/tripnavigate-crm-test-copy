@@ -29,8 +29,11 @@ export function RecordsTable({
   linkOptions,
   loadLinkTargets,
   previewOpen,
+  branches,
 }: {
   first: RecordsPage;
+  /** The page's branch choices: a cash record links to Branch cash on its own branch. */
+  branches?: ReadonlyArray<{ id: string; name: string }>;
   /** null = view only (branch Manager). */
   actions: DeskRowActions | null;
   loadMore: LoadMoreAction;
@@ -125,7 +128,7 @@ export function RecordsTable({
                 </TableCell>
                 <TableCell label="Record" className="align-top sm:min-w-44">
                   <div className="flex flex-col items-start gap-2">
-                    <ReferenceCell row={row} />
+                    <ReferenceCell row={row} branches={branches} />
                     {/* Actions sit next to the reference so they never scroll out of view (review item 7). */}
                     {showActions ? (
                       <RowActions

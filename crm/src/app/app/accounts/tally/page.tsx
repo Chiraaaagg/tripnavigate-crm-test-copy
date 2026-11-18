@@ -8,8 +8,7 @@ import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import { TALLY_PATH } from '@/views/accounts-desk/address';
 import { tallyMethodFrom } from '@/views/accounts-desk/r4-address';
 import { TallyNoAccess, TallyPage } from '@/views/accounts-desk/tally';
-import { TallyFilesList } from '@/views/tally-file/files';
-import { TallyFileSections } from '@/views/tally-file/sections';
+import { TallyEarlierFiles, TallyFileSections } from '@/views/tally-file/sections';
 import type { TallyFileHeader } from '@/views/tally-file/types';
 import { accountsSectionViewer } from '../section-viewer';
 
@@ -59,7 +58,7 @@ export default async function TallyRoute({ searchParams }: { searchParams: Promi
           />
         ) : undefined
       }
-      earlierFiles={!fileOn && xmlFiles.length > 0 ? <TallyFilesList files={xmlFiles} /> : undefined}
+      earlierFiles={!fileOn ? <TallyEarlierFiles files={xmlFiles} entityId={fileEntities[0]?.id ?? ''} stageMatch={act(stageTallyMatchAction)} /> : undefined}
       view={{
         exportEnabled: enabled.length > 0,
         entities: enabled.map((e) => ({ id: e.entityId, name: e.name })),

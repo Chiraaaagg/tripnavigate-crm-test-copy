@@ -16,8 +16,10 @@ import type { RecordRow } from './types';
  * Accounts open the record (the Accounts deal screen, or the list with the
  * record in view); a branch Manager opens the Deal's dues card; 'none' (or a
  * kind this viewer cannot open) has no link and the reference shows as text.
+ * A cash record opens Branch cash on its own branch (`?branch=`) when the page
+ * could tell the branch id from the row's branch name; else the bare address.
  */
-export function recordHref(link: RecordRow['link']): string | null {
+export function recordHref(link: RecordRow['link'], branchId?: string | null): string | null {
   const id = link.id ? encodeURIComponent(link.id) : null;
   switch (link.kind) {
     case 'accounts_deal':
@@ -33,7 +35,7 @@ export function recordHref(link: RecordRow['link']): string | null {
     case 'expense':
       return '/app/accounts/expenses';
     case 'cash':
-      return '/app/accounts/cash';
+      return branchId ? `/app/accounts/cash?branch=${encodeURIComponent(branchId)}` : '/app/accounts/cash';
     case 'flight_deal':
     case 'visa_task':
     case 'purchase_task':
@@ -92,8 +94,19 @@ export function DateCell({ row }: { row: RecordRow }) {
   return <span className="whitespace-nowrap tabular-nums">{dayText(row.recordDate)}</span>;
 }
 
-export function ReferenceCell({ row }: { row: RecordRow }) {
-  const href = recordHref(row.link);
+/**
+ * The id of the row's branch from the page's branch choices, by name (the records read carries the branch
+ * name only). null when the name is missing or not exactly one choice has it.
+ */
+export function rowBranchId(row: Pick<RecordRow, 'branchName' | 'collectingBranchName'>, branches: ReadonlyArray<{ id: string; name: string }>): string | null {
+  const name = row.branchName ?? row.collectingBranchName;
+  if (!name) return null;
+  const found = branches.filter((b) => b.name === name);
+  return found.length === 1 ? found[0]!.id : null;
+}
+
+export function ReferenceCell({ row, branches = [] }: { row: RecordRow; branches?: ReadonlyArray<{ id: string; name: string }> }) {
+  const href = recordHref(row.link, row.link.kind === 'cash' ? rowBranchId(row, branches) : null);
   return (
     <span className="flex min-w-0 flex-col">
       <span className="text-xs font-semibold tracking-label text-quiet uppercase">{KIND_LABEL[row.kind]}</span>
