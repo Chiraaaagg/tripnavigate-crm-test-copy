@@ -525,7 +525,9 @@ jobs:
   # runner (same system, browser and fonts on both sides).
   frozen-forms-visual:
     name: Frozen forms pictures (pull request against its base, zero tolerance)
-    if: github.event_name == 'pull_request'
+    # Also on a manual run, compared against main (owner, 18 November 2026:
+    # the public test copy runs no pull requests).
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
@@ -558,7 +560,11 @@ jobs:
             echo "::warning title=frozen forms pictures::skipped: $test_file still runs on macOS only; apply the CI patch (build-notes/ci-fix.md) to run it here"
             echo "present=false" >> "$GITHUB_OUTPUT"
           else
-            base_sha="$(git -C head rev-parse HEAD^1)"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              base_sha=main
+            else
+              base_sha="$(git -C head rev-parse HEAD^1)"
+            fi
             echo "present=true" >> "$GITHUB_OUTPUT"
             echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
             echo "BASE_SHA=$base_sha" >> "$GITHUB_ENV"
