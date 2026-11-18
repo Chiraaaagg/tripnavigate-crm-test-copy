@@ -32,6 +32,19 @@ function card(html: string, text: string): string {
   return cards[0]!;
 }
 const count = (html: string, text: string) => html.split(text).length - 1;
+/**
+ * A blocked decision button (R3 review P3-6): focusable but inert, so aria-disabled="true" on a plain
+ * type="button" (never a submit) that sits in no form. Returns the button's markup.
+ */
+function inertButton(html: string, label: string): string {
+  const match = html.match(new RegExp(`<button(?=[^>]*aria-disabled="true")[^>]*>(?:(?!</button>).)*?${label}(?:(?!</button>).)*</button>`));
+  expect(match, `${label} is an aria-disabled button`).not.toBeNull();
+  const button = match![0];
+  expect(button).toMatch(/^<button type="button"/);
+  const before = html.slice(0, match!.index);
+  expect(count(before, '<form') - count(before, '</form>'), `${label} sits in no form`).toBe(0);
+  return button;
+}
 
 const payment = (over: Partial<AccountsSupplierPaymentRow> = {}): AccountsSupplierPaymentRow => ({
   department: 'purchase',
@@ -203,7 +216,7 @@ describe('Supplier payments: approval rows', () => {
 
   it('own request: both buttons shown disabled with the reason; nothing posts', () => {
     const row = card(paymentsPage([payment({ canDecide: false })]), 'SP-2026-000941');
-    expect(row).toMatch(/<button[^>]*disabled=""[^>]*>.*?Approve payment/);
+    inertButton(row, 'Approve payment');
     expect(row).toContain('Nobody approves their own request.');
     expect(row).not.toContain('<form');
   });
@@ -280,7 +293,7 @@ describe('Hotel go-ahead: approval rows', () => {
     expect(ok).toContain(`name="goAheadRequestId" value="${uuid(1)}"`);
     expect(ok).toContain('name="rowVersion" value="1"');
     const blocked = card(page([goAhead({ bookingReviewStatus: 'pending' })]), 'SYN-R4-003');
-    expect(blocked).toMatch(/<button[^>]*disabled=""[^>]*>.*?Give go-ahead/);
+    inertButton(blocked, 'Give go-ahead');
     expect(blocked).toContain('Return with reason');
   });
 

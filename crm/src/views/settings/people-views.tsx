@@ -276,7 +276,7 @@ type BitrixAccess = {
 function StaffRow({ s, bitrix, security, verificationMethods }: { s: StaffLine; bitrix: BitrixAccess; security?: StaffSecurityInfo; verificationMethods: VerificationMethodOption[] }) {
   const badge = STATUS_BADGE[s.status];
   return (
-    <li className="m-0 flex flex-col gap-3 px-4.5 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-5" data-slot="staff-row" data-search={`${s.displayName} ${s.email}`.toLowerCase()}>
+    <li className="m-0 flex flex-col gap-3 px-4.5 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-5 [&[hidden]]:hidden" data-slot="staff-row" data-search={`${s.displayName} ${s.email}`.toLowerCase()}>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p className="m-0 font-semibold text-ink">
           {s.displayName}

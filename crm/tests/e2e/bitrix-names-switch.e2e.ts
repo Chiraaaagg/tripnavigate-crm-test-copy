@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page, test } from '@playwright/test';
+import { waitForHydration } from './hydration';
 
 /**
  * DEC-55 (plan.md §12c): the "Bitrix names" switch card on the Bitrix sync
@@ -35,7 +36,15 @@ test.describe('Bitrix names card: accessibility', () => {
       ]) {
         await page.setViewportSize(size);
         await open(page, state);
-        await expect(card(page)).toBeVisible();
+        await waitForHydration(page);
+        // R1 (C7): the review and refused states open the one confirm dialog on load. It is modal, so the
+        // card is aria-hidden and counted in the markup instead; axe then checks the page with the dialog.
+        const dialog = page.getByRole('alertdialog');
+        await expect(card(page).or(dialog).first()).toBeVisible();
+        if ((await dialog.count()) > 0) {
+          await expect(dialog).toBeVisible();
+          await expect(page.locator('section[aria-labelledby]').filter({ has: page.locator('h2, h3', { hasText: /^Bitrix names$/ }) })).toHaveCount(1);
+        }
         expect(await axe(page), `${state} at ${size.width}`).toEqual([]);
         const { scrollWidth, clientWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
         expect(scrollWidth, `${state} at ${size.width}`).toBeLessThanOrEqual(clientWidth);

@@ -9,7 +9,9 @@ import { Input } from '@/components/ui/input';
  * filters the rows in the browser. Names and work e-mails never go into the
  * address (and so never into access logs). Each row carries its own search
  * text in `data-search` (name and e-mail, lower case); rows that do not match
- * are hidden, and a polite status line says how many are shown. Without
+ * are hidden (the `hidden` attribute; the row's own display class yields to
+ * it, see people-views.tsx StaffRow, because the app has no CSS reset that
+ * would), and a polite status line says how many are shown. Without
  * script the box does nothing and every row stays visible.
  */
 export function StaffSearch({ total, children }: { total: number; children: ReactNode }) {
