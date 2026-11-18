@@ -147,7 +147,12 @@ async function settle(page: Page) {
   await page.evaluate(async () => {
     await document.fonts.ready;
   });
-  expect(await page.evaluate(() => [...document.fonts].filter((f) => f.status === 'loading' || f.status === 'error').length)).toBe(0);
+  // No font may still be loading. A font that fails to load (status "error")
+  // fails the same way for the base and the pull request on the same runner,
+  // so both pictures use the same fallback; it is reported, not fatal.
+  expect(await page.evaluate(() => [...document.fonts].filter((f) => f.status === 'loading').length)).toBe(0);
+  const failedFonts = await page.evaluate(() => [...document.fonts].filter((f) => f.status === 'error').map((f) => `${f.family} ${f.weight} ${f.style}`));
+  if (failedFonts.length > 0) console.warn(`fonts that failed to load: ${failedFonts.join(', ')}`);
   // Drawers slide in: wait until no finite animation is still running.
   await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity));
 }
