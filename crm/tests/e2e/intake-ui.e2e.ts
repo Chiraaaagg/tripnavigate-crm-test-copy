@@ -104,8 +104,10 @@ test.describe('Imported deals: provenance wording', () => {
 
   test('fresh deal: stage name, Bitrix facts on demand, Bitrix owns stage and salesperson, no edit control', async ({ page }) => {
     await open(page, 'intake-deal-sales');
-    const header = page.locator('[data-slot="page-header"]');
-    await expect(header).toContainText('Quote sent');
+    // UX redesign R2: the Deal record header folds the Bitrix stage under its own Details.
+    const header = page.locator('[data-slot="deal-header"]');
+    await header.locator('#deal-system-details > summary').click();
+    await expect(header.locator('#deal-system-details')).toContainText('Quote sent');
     const overview = page.getByRole('region', { name: 'Overview' });
     await overview.locator('summary').click();
     await expect(overview).toContainText('Quote sent');
@@ -121,7 +123,9 @@ test.describe('Imported deals: provenance wording', () => {
 
   test('unmapped stage shows the fallback, with the raw id in Details', async ({ page }) => {
     await open(page, 'intake-deal-sales-raw-stage');
-    await expect(page.locator('[data-slot="page-header"]')).toContainText('Stage not recognised (code in Details)');
+    const header = page.locator('[data-slot="deal-header"]');
+    await header.locator('#deal-system-details > summary').click();
+    await expect(header.locator('#deal-system-details')).toContainText('Stage not recognised (code in Details)');
     const overview = page.getByRole('region', { name: 'Overview' });
     await overview.locator('summary').click();
     await expect(overview).toContainText('Bitrix code: C1:UC_SYN42.');

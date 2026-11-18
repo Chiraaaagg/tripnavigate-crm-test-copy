@@ -1,3 +1,4 @@
+import { maxPaiseForDigits, rupeesToPaise as readRupees } from '@/lib/money';
 import {
   ACCOUNTS_REVIEW_STATUS_LABEL,
   BOOK_SECTION_LABEL,
@@ -292,13 +293,17 @@ export function paiseToRupeesText(paise: string | null | undefined): string {
   return frac === '00' ? whole : `${whole}.${frac}`;
 }
 
-/** Client-side mirror for running totals only (the server decides): "12,500.5" → 1250050; "" → 0; bad → null. */
+const MIRROR_MAX_PAISE = maxPaiseForDigits(13);
+
+/**
+ * Client-side mirror for running totals only (the server decides), by the one
+ * money rule (src/lib/money.ts): "12,500.5" → 1250050; "" → 0; bad (a ₹ sign
+ * included) → null.
+ */
 export function rupeesTextToPaise(text: string): number | null {
-  const v = text.replace(/[,\s₹]/g, '');
-  if (v === '') return 0;
-  const m = /^(\d{1,13})(?:\.(\d{1,2}))?$/.exec(v);
-  if (!m) return null;
-  return Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0'));
+  const paise = readRupees(text, { max: MIRROR_MAX_PAISE });
+  if (paise === null) return 0;
+  return paise === undefined ? null : Number(paise);
 }
 
 const DATE = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });

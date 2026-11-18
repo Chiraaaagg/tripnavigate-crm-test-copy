@@ -140,7 +140,8 @@ test.describe('Deals list: content, links and status words', () => {
     await open(page, 'deals-mixed');
     const table = page.getByRole('table');
     // SL-12 / design plan 1.2: the whole name is the target; the reference is read with it, so it still finds the Deal.
-    await expect(table.getByRole('link', { name: 'Synthetic honeymoon, Andaman (6 nights), BX-900420', exact: true })).toHaveAttribute('href', '/app/deals/m1');
+    // The reference is screen-reader-only text; Chromium puts a space before it in the name, so it is matched with \W+.
+    await expect(table.getByRole('link', { name: /^Synthetic honeymoon, Andaman \(6 nights\)\W+BX-900420$/ })).toHaveAttribute('href', '/app/deals/m1');
     const first = table.getByRole('row').nth(1);
     await expect(first.getByRole('link')).toHaveCount(1);
     await expect(first.getByRole('cell').first()).toHaveText('BX-900420');

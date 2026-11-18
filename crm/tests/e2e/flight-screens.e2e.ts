@@ -157,4 +157,19 @@ test.describe('Flight build preview states', () => {
       expect(await page.getByRole('button', { name: /^(Alternate|Fill missing details|\+ Add sector|Save sectors)$/ }).count(), state).toBe(0);
     }
   });
+
+  test('one money rule (D4): a fare typed as "₹100" is refused, the typed text stays, and the refusal names the box', async ({ page }) => {
+    test.skip(!STATES.includes('flight-ws-popup-within'), 'No flight-ws-popup-within preview state.');
+    await open(page, 'flight-ws-popup-within');
+    await page.getByRole('checkbox', { name: /^Select .* for Confirm tickets$/ }).first().check();
+    await page.locator('main').getByRole('button', { name: /^Confirm tickets/ }).first().click();
+    const popup = page.getByRole('dialog');
+    await expect(popup).toBeVisible();
+    const basic = popup.getByLabel('Basic amount', { exact: true }).first();
+    await basic.fill('₹100');
+    await popup.getByRole('button', { name: 'Confirm tickets', exact: true }).click();
+    await expect(popup.getByRole('alert')).toContainText(/Basic amount: a whole rupee amount \(paise allowed\), not negative\./);
+    await expect(basic).toHaveValue('₹100');
+    await expect(basic).toHaveAttribute('aria-invalid', 'true');
+  });
 });

@@ -127,7 +127,9 @@ test.describe('Deal page: accessibility and reflow', () => {
       await page.setViewportSize({ width: 1440, height: 900 });
       await open(page, state);
       expect(await axe(page)).toEqual([]);
-      expect(await page.getByRole('heading', { level: 1 }).count()).toBe(1);
+      // A modal dialog open on load (R2: the payment report) hides the page (aria-modal), so the page's own h1 is counted in the markup then.
+      const dialogOpen = (await page.getByRole('dialog').or(page.getByRole('alertdialog')).count()) > 0;
+      expect(await (dialogOpen ? page.locator('h1') : page.getByRole('heading', { level: 1 })).count()).toBe(1);
       // 390: the phone layout. 320 x 800: WCAG 1.4.10 reflow width. 640 x 400: a 1280 x 800
       // window at 200% browser zoom (same CSS pixel viewport). 768: tablet, where the fact cards
       // go two per row. 1024 and 1280: small laptops, either side of the two-column switch (xl).
@@ -209,7 +211,7 @@ test.describe('Deal page: header (P-HEADER)', () => {
     await expect(header).toContainText('Owner: You');
     await expect(header.getByRole('link', { name: 'BXL-700311' })).toHaveAttribute('href', '/app/leads/c6000000-0000-4000-8000-000000000001');
     await expect(header).toContainText('From lead BXL-700311');
-    // The system facts (stage, live updates) are folded under Details (R2).
+    // The Bitrix stage is folded under Details (R2); the live-update status stays outside the fold.
     await header.locator('#deal-system-details > summary').click();
     // Not colour alone (WCAG 1.4.1): the link is underlined.
     expect(await header.getByRole('link', { name: 'BXL-700311' }).evaluate((a) => getComputedStyle(a).textDecorationLine)).toBe('underline');
@@ -668,9 +670,33 @@ test.describe('Deal page: production style policy', () => {
       // development overlay: their style attributes are set in the browser after loading, they are
       // not in the server HTML checked above, and the CSP violation listener in this test stays
       // empty with them present.
+      // R1: a menu group open on first load (Radix Collapsible, ui/collapsible.tsx) gets its measuring values
+      // (transition-duration, animation-name, --radix-collapsible-content-*) from script through the CSSOM,
+      // which the policy allows; they are not in the server HTML either. Only those values are let through.
       const live = await page.evaluate(() =>
         [...document.querySelectorAll('[style]')]
           .filter((el) => !el.closest('next-route-announcer, nextjs-portal, [data-nextjs-dev-overlay]'))
+          .filter(
+            (el) =>
+              !(
+                el.matches('[data-slot="collapsible"] > [data-state]') &&
+                /^\s*((transition-duration|animation-name|--radix-collapsible-content-(height|width))\s*:[^;]*;\s*)*$/.test(el.getAttribute('style') ?? '')
+              ),
+          )
+          // R2: a modal dialog open on first load (the payment report, Radix Dialog). Radix sets through the CSSOM:
+          // pointer-events: none on the body (DismissableLayer), outline/opacity/position/pointer-events on the two
+          // focus guards (FocusGuards), and pointer-events: auto on the overlay and the dialog. They are not in the
+          // server HTML either. Only those values on those nodes, and only while such a dialog is open, are let through.
+          .filter((el) => {
+            const openDialog = '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]';
+            if (!document.querySelector(openDialog)) return true;
+            const style = el.getAttribute('style') ?? '';
+            const only = (props: string) => new RegExp(`^\\s*((${props})\\s*:[^;]*;\\s*)*$`).test(style);
+            if (el === document.body) return !only('pointer-events');
+            if (el.matches('[data-radix-focus-guard]')) return !only('outline|opacity|position|pointer-events');
+            if (el.matches(openDialog) || el.nextElementSibling?.matches(openDialog)) return !only('pointer-events');
+            return true;
+          })
           .map((el) => el.outerHTML.slice(0, 120)),
       );
       expect(live, state).toEqual([]);

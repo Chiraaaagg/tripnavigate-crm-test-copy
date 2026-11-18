@@ -5,6 +5,8 @@
  * the server module can share or replace them.
  */
 
+import { maxPaiseForDigits, rupeesToPaise as readRupees } from '@/lib/money';
+
 const MONTHS: Record<string, number> = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 
 function iso(y: number, m: number, d: number): string | null {
@@ -87,13 +89,17 @@ export function ticketRangeText(numbers: string[]): string {
   return `${list[0]} – ${list[list.length - 1]}`;
 }
 
-/** Rupees text → whole paise string ("16,800.50" → "1680050"); null when invalid or negative. */
+const FARE_MAX_PAISE = maxPaiseForDigits(9);
+
+/**
+ * Rupees text → whole paise string ("16,800.50" → "1680050"), by the one money
+ * rule (src/lib/money.ts). An empty box is ₹0 here; null when not an amount
+ * ("₹100", "-5", "1.001") or above ₹999,999,999.99.
+ */
 export function rupeesToPaise(input: string): string | null {
-  const s = input.replace(/[,\s₹]/g, '');
-  if (s === '') return '0';
-  const m = /^(\d{1,9})(?:\.(\d{1,2}))?$/.exec(s);
-  if (!m) return null;
-  return (BigInt(m[1]!) * 100n + BigInt((m[2] ?? '').padEnd(2, '0'))).toString();
+  const paise = readRupees(input, { max: FARE_MAX_PAISE });
+  if (paise === null) return '0';
+  return paise ?? null;
 }
 
 export function paiseToRupeesText(paise: string | null | undefined): string {

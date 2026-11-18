@@ -516,20 +516,19 @@ test.describe('Fix round (Echo-B M2, L1, L2, L5; Echo-A M1, L6)', () => {
 });
 
 test.describe('Bitrix trip details switch (owner answer 3)', () => {
-  test('Off in words with an icon; change needs a reason, then a review, then confirm', async ({ page }) => {
+  test('Off in words with an icon; Change opens one confirm dialog with an optional reason (R1, D9)', async ({ page }) => {
     await open(page, 'vn-trip-details-off');
     await pillsHaveIconAndWord(page);
     const card = main(page).locator('section').filter({ hasText: 'Bitrix trip details' });
     await expect(card).toContainText('Read trip details from Bitrix (destination, adults, children, infants).');
     await expect(card.locator('[data-slot="status-badge"]')).toContainText('Off');
     await card.getByRole('button', { name: 'Change Bitrix trip details setting' }).click();
-    await card.getByRole('button', { name: 'Review change' }).click();
-    await expect(card).toContainText('Type a reason of');
-    await card.getByLabel('Why are you changing it?').fill('Owner approved trip details on 24 Oct.');
-    await card.getByRole('button', { name: 'Review change' }).click();
-    await expect(card.getByRole('heading', { name: 'Step 2 of 2: check and confirm' })).toBeFocused();
-    await expect(card).toContainText('Turn Bitrix trip details on?');
-    await card.getByRole('button', { name: 'Turn Bitrix trip details on' }).click();
+    const dialog = page.getByRole('alertdialog', { name: 'Turn Bitrix trip details on?' });
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await expect(dialog.getByLabel('Why are you changing it?')).toHaveAccessibleDescription(/Leave it empty, or write 10 to 500 characters/);
+    await dialog.getByLabel('Why are you changing it?').fill('Owner approved trip details on 24 Oct.');
+    await dialog.getByRole('button', { name: 'Turn Bitrix trip details on' }).click();
+    await expect(dialog).toHaveCount(0);
     await expect(card.locator('[data-slot="trip-details-result"]')).toContainText('The reason is recorded');
   });
 

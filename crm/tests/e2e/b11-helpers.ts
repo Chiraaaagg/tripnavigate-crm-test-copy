@@ -46,8 +46,8 @@ export function accessibilitySuite(title: string, states: string[]) {
         await page.setViewportSize({ width: 1440, height: 900 });
         await open(page, state);
         expect(await axe(page), state).toEqual([]);
-        // A modal dialog hides the page (aria-modal), so its own title is the heading then.
-        if ((await page.getByRole('dialog').count()) === 0) expect(await page.getByRole('heading', { level: 1 }).count(), `${state}: h1 count`).toBe(1);
+        // A modal dialog or alert dialog (R1: the Bitrix confirm) hides the page (aria-modal), so its own title is the heading then.
+        if ((await page.getByRole('dialog').or(page.getByRole('alertdialog')).count()) === 0) expect(await page.getByRole('heading', { level: 1 }).count(), `${state}: h1 count`).toBe(1);
         else expect(await page.locator('h1').count(), `${state}: h1 in the page`).toBe(1);
         await page.setViewportSize({ width: 390, height: 844 });
         await open(page, state);

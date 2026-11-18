@@ -215,4 +215,17 @@ test.describe('Visa build preview states', () => {
     await page.keyboard.press('Enter');
     await expect(page.locator('main').getByRole('button', { name: /^Edit/ }).first()).toBeFocused();
   });
+
+  test('one money rule (D4): a government fee typed as "₹100" is refused, the typed text stays, and the refusal names the fee', async ({ page }) => {
+    test.skip(!has('visa-popup-apply'), 'No visa-popup-apply state.');
+    await open(page, 'visa-popup-apply');
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    const fee = dialog.getByLabel(/Government fee/i).first();
+    await fee.fill('₹100');
+    await dialog.getByRole('button', { name: 'Save as applied' }).click();
+    await expect(dialog).toContainText('Type the government fee in rupees, more than ₹0.');
+    await expect(fee).toHaveValue('₹100');
+    await expect(fee).toHaveAttribute('aria-invalid', 'true');
+  });
 });

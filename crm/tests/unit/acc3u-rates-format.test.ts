@@ -33,7 +33,9 @@ describe('money and dates', () => {
   });
   it('reads rupee text as whole paise', () => {
     expect(rupeesToPaise('4500')).toBe('450000');
-    expect(rupeesToPaise('₹ 4,500.5')).toBe('450050');
+    expect(rupeesToPaise(' 4,500.5 ')).toBe('450050');
+    // One money rule (D4): a typed rupee sign is refused.
+    expect(rupeesToPaise('₹ 4,500.5')).toBeUndefined();
     expect(rupeesToPaise('')).toBeNull();
     expect(rupeesToPaise('4500.555')).toBeUndefined();
     expect(rupeesToPaise('-1')).toBeUndefined();

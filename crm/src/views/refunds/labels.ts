@@ -1,5 +1,6 @@
 import type { StatusTone } from '@/components/ui/badge';
 import type { PayoutMode, RefundKind, RefundOutcome, RefundStatus, SupplierRefundMode, SupplierRefundSource } from './types';
+import { maxPaiseForDigits, rupeesToPaise as readRupees } from '@/lib/money';
 
 /*
  * Words for the refund screens (contract 7, screens 11.3–11.5). Every status
@@ -71,12 +72,12 @@ export const SOURCE_WORD: Record<SupplierRefundSource, string> = {
   reconfirmation: 'Lower rate after a booking change',
 };
 
-/** "₹1,234.56" typed by staff → paise string, or null (more than 2 decimals, negative, not a number). */
+const REFUND_MAX_PAISE = maxPaiseForDigits(15);
+
+/** "1,234.56" typed by staff → paise, or null (empty, "₹" sign, more than 2 decimals, negative, not a number; src/lib/money.ts). */
 export function rupeesToPaise(raw: string): bigint | null {
-  const v = raw.replace(/[,\s₹]/g, '');
-  const m = /^(\d{1,15})(?:\.(\d{1,2}))?$/.exec(v);
-  if (!m) return null;
-  return BigInt(m[1]!) * 100n + BigInt((m[2] ?? '').padEnd(2, '0') || '0');
+  const paise = readRupees(raw, { max: REFUND_MAX_PAISE });
+  return typeof paise === 'string' ? BigInt(paise) : null;
 }
 
 /** Paise string → plain rupees for a form's default value ("1500.50"). */

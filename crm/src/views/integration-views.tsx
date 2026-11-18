@@ -233,7 +233,13 @@ function ConnectionPanel({
       {/* The technical checklist and facts sit behind "Details"; open on first load while something is wrong. */}
       <details open={health.tone !== 'ok'} data-slot="bitrix-details">
         <summary>Details</summary>
-        {health.detail ? <p>{health.detail}</p> : null}
+        {/* S-25: the technical cause (it can name a raw error code) stays under its own closed fold for the CRM team. */}
+        {health.detail ? (
+          <details>
+            <summary>Details for the CRM team</summary>
+            <p className="mb-0">{health.detail}</p>
+          </details>
+        ) : null}
         <HealthChecklist status={status} now={now} />
         <dl className="facts mt-1">
           <dt>Environment</dt>

@@ -48,15 +48,16 @@ const target = { taskId: TASK, applicationId: APP, expectedRowVersion: '3', requ
 describe('rupees and paise', () => {
   it.each([
     ['6500', '650000'],
-    ['₹6,500', '650000'],
-    [' 6 500.5 ', '650050'],
+    ['6,500', '650000'],
+    [' 6,500.5 ', '650050'],
     ['6500.05', '650005'],
     ['0.01', '1'],
     ['1,00,000', '10000000'],
     ['007', '700'],
   ])('%s -> %s paise', (input, paise) => expect(rupeesToPaise(input)).toBe(paise));
 
-  it.each(['', '0', '0.00', '-5', '6.505', 'abc', '1e3', '12.', '1234567890123456'])('refuses %j', (input) => {
+  // One money rule (D4): a rupee sign, spaces inside and odd commas are refused too.
+  it.each(['', '0', '0.00', '-5', '6.505', 'abc', '1e3', '12.', '1234567890123456', '₹6,500', ' 6 500.5 ', '1,2,3'])('refuses %j', (input) => {
     expect(rupeesToPaise(input)).toBeNull();
   });
 
@@ -199,7 +200,7 @@ describe('apply form (C5)', () => {
     [visaApplicantField(i, 'expectedRowVersion')]: '4',
     [visaApplicantField(i, 'reference')]: `SYN-REF-${i}`,
     [visaApplicantField(i, 'appliedOn')]: '2026-11-07',
-    [visaApplicantField(i, 'governmentFee')]: '₹6,500',
+    [visaApplicantField(i, 'governmentFee')]: '6,500',
     [visaApplicantField(i, 'serviceFee')]: '',
     ...over,
   });

@@ -1,3 +1,4 @@
+import { maxPaiseForDigits, rupeesToPaise as readRupees } from '@/lib/money';
 import { BLOCKED_WORD, blockedWord } from './labels';
 import type { ChangeKind, ChangeRequestView, DealChangeRequestsView, ReconfirmationLineView } from './types';
 
@@ -74,13 +75,13 @@ export function itemNosText(nos: readonly number[]): string {
   return `Services ${sorted.slice(0, -1).join(', ')} and ${sorted[sorted.length - 1]}`;
 }
 
-/** Rupee text ("12,500.50", "₹ 1200") → whole paise, or null when not a plain amount. Display aid only. */
+/** Display aid only, so no cap of its own in practice (the server form caps at 15 rupee digits). */
+const HINT_MAX_PAISE = maxPaiseForDigits(30);
+
+/** Rupee text ("12,500.50", "1200") → whole paise, or null when empty or not a plain amount ("₹ 1200"; src/lib/money.ts). Display aid only. */
 export function rupeeTextToPaise(text: string | null | undefined): bigint | null {
-  if (text == null) return null;
-  const clean = text.replace(/[₹,\s]/g, '');
-  if (!/^\d+(\.\d{1,2})?$/.test(clean)) return null;
-  const [whole, frac = ''] = clean.split('.');
-  return BigInt(whole!) * 100n + BigInt(frac.padEnd(2, '0'));
+  const paise = readRupees(text, { max: HINT_MAX_PAISE });
+  return typeof paise === 'string' ? BigInt(paise) : null;
 }
 
 /**

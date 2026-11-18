@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { maxPaiseForDigits, rupeesToPaise as readRupees } from '@/lib/money';
 import type {
   HandoverMethodValue,
   JurisdictionValue,
@@ -29,20 +30,17 @@ import { VISA_DOCUMENT_CATALOGUE, VISA_FIELD, VISA_LIMITS, type VisaCatalogueCod
 // Money
 // ---------------------------------------------------------------------------
 
+/** At most 15 paise digits (₹9,999,999,999,999.99). */
+const VISA_MAX_PAISE = maxPaiseForDigits(13);
+
 /**
- * "₹6,500", "6500.5", " 6 500.50 " -> "650050" (whole paise, > 0, at most 15
- * digits). Commas, spaces and the rupee sign are removed; more than two
- * decimals, a minus sign or zero are null. No floating point anywhere.
+ * "6,500", "6500.5", " 6,500.50 " -> "650050" (whole paise, > 0), by the one
+ * money rule (src/lib/money.ts): no ₹ sign, no spaces inside, at most two
+ * decimals. Empty, zero, a minus sign or anything else is null.
  */
 export function rupeesToPaise(input: string | null | undefined): string | null {
-  const value = (input ?? '').replace(/[,\s₹]/g, '');
-  if (value === '' || value.length > 20) return null;
-  const m = /^(\d+)(?:\.(\d{1,2}))?$/.exec(value);
-  if (!m) return null;
-  const whole = m[1]!.replace(/^0+(?=\d)/, '');
-  const fraction = (m[2] ?? '').padEnd(2, '0');
-  const paise = `${whole}${fraction}`.replace(/^0+/, '');
-  return /^[1-9][0-9]{0,14}$/.test(paise) ? paise : null;
+  const paise = readRupees(input, { max: VISA_MAX_PAISE });
+  return typeof paise === 'string' && paise !== '0' ? paise : null;
 }
 
 /** "650050" -> "6,500.50"; "650000" -> "6,500" (Indian grouping). */

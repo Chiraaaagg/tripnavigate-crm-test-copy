@@ -32,13 +32,14 @@ describe('rupees to paise (exact BigInt)', () => {
     ['0.5', '50'],
     ['0.05', '5'],
     ['1,23,456.78', '12345678'],
-    ['₹ 49,999', '4999900'],
+    [' 49,999 ', '4999900'],
     ['10000000', '1000000000'],
     ['9999999999999999.99', '999999999999999999'],
   ])('%s -> %s', (input, expected) => {
     expect(rupeesToPaise(input)).toBe(expected);
   });
-  it.each(['1.234', '-1', '1e3', 'abc', '1.', '.5', '12345678901234567'])('rejects %s', (input) => {
+  // One money rule (D4): a rupee sign, spaces inside and odd commas are refused.
+  it.each(['1.234', '-1', '1e3', 'abc', '1.', '.5', '12345678901234567', '₹ 49,999', '49 999', '1,2,3'])('rejects %s', (input) => {
     expect(rupeesToPaise(input)).toBeUndefined();
   });
   it('treats empty as null and round-trips', () => {
@@ -93,6 +94,13 @@ describe('receipt form', () => {
         },
       },
     });
+  });
+
+  it('one money rule (D4): a typed rupee sign is refused on the amount, with the field named', () => {
+    for (const typed of ['₹25,000', '2,5,000', '25000.001']) {
+      const parsed = parseReceiptForm(form({ ...BANK, [F.amountRupees]: typed }), TODAY);
+      expect(parsed, typed).toEqual({ ok: false, fieldErrors: { [F.amountRupees]: 'Enter the amount in rupees, with at most two decimals.' } });
+    }
   });
 
   it('requires an approved company account for bank transfer and UPI, never for cash or cheque', () => {

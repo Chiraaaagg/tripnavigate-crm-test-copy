@@ -67,7 +67,9 @@ describe('book-fields', () => {
     expect(paiseToRupeesText('5')).toBe('0.05');
     expect(paiseToRupeesText(null)).toBe('');
     expect(rupeesTextToPaise('12,500.5')).toBe(1250050);
-    expect(rupeesTextToPaise('₹ 1,20,000')).toBe(12000000);
+    expect(rupeesTextToPaise(' 1,20,000 ')).toBe(12000000);
+    // One money rule (D4): the mirror refuses what the server refuses (a rupee sign, inner spaces, odd commas).
+    for (const bad of ['₹ 1,20,000', '₹', '12 500', '1,2,3']) expect(rupeesTextToPaise(bad), bad).toBeNull();
     expect(rupeesTextToPaise('')).toBe(0);
     expect(rupeesTextToPaise('12.345')).toBeNull();
     expect(inr('12000000')).toBe('₹1,20,000.00');

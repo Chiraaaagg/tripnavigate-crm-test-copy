@@ -1,4 +1,5 @@
 import * as z from 'zod/mini';
+import { maxPaiseForDigits, rupeesToPaise as readRupees } from '@/lib/money';
 import {
   type ActivityServiceFacts,
   B11_FACT_LIMITS,
@@ -210,15 +211,12 @@ function text(formData: FormData, name: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
-/** "1,23,456.5" → "12345650"; "" → null; invalid → undefined. */
+// At most 15 rupee digits: far beyond any booking, and well inside bigint.
+const FORM_MAX_PAISE = maxPaiseForDigits(15);
+
+/** "1,23,456.5" → "12345650"; "" → null; invalid → undefined (the one money rule, src/lib/money.ts). */
 export function rupeesToPaise(raw: string | undefined): string | null | undefined {
-  const value = (raw ?? '').replace(/[,\s]/g, '').replace(/^₹/, '');
-  if (value === '') return null;
-  // At most 15 rupee digits: far beyond any booking, and well inside bigint.
-  const match = /^(\d{1,15})(?:\.(\d{1,2}))?$/.exec(value);
-  if (!match) return undefined;
-  const paise = BigInt(match[1]!) * 100n + BigInt((match[2] ?? '').padEnd(2, '0') || '0');
-  return paise.toString();
+  return readRupees(raw, { max: FORM_MAX_PAISE });
 }
 
 /** Integer paise string → rupee input value ("12345650" → "123456.50"), for prefilling forms. */

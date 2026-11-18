@@ -36,7 +36,7 @@ test.describe('B1.2 switches', () => {
     await expect(page.locator('main')).toContainText('Changes here affect every branch. Live changes need the owner’s APPROVE first. Every change is recorded with the person and the time.');
   });
 
-  test('switching the copy on: one confirm dialog that says what changes and that open stops close; the reason may be left empty (D9)', async ({ page }) => {
+  test('switching the copy on: one confirm dialog that says what changes and that open stops close; the reason may be left empty (owner, 18 Nov)', async ({ page }) => {
     await open(page, 'b12-admin-switches');
     const row = page.locator('[data-slot="setting-row"][data-key="bitrix_id_proof_copy"]');
     const change = row.getByRole('button', { name: 'Change Copy ID proofs to the Bitrix deal' });
@@ -46,7 +46,8 @@ test.describe('B1.2 switches', () => {
     await expect(dialog).toContainText('This is the only setting that writes to Bitrix.');
     await expect(dialog).toContainText('Switching on also closes 2 open automatic stops with your reason.');
     await expect(dialog).toContainText('Changing this in the live CRM needs the owner’s APPROVE first. Write it in the reason.');
-    await expect(dialog.getByLabel('Why are you changing it?')).toHaveAccessibleDescription(/You may leave it empty/);
+    // Owner decision, 18 Nov: the reason is optional here too ("No reason given" when left empty).
+    await expect(dialog.getByLabel('Why are you changing it?')).toHaveAccessibleDescription(/Leave it empty, or write 10 to 500 characters/);
     // Escape cancels and puts focus back on Change.
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);

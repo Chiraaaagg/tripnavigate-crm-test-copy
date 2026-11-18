@@ -73,7 +73,13 @@ test.describe('B1 Home: What needs you (the My work counts)', () => {
       'Confirmed deals needing a booking (your deals)',
     ]);
     await expect(rowCounts(page)).toHaveText(['3', '1', '2', '4']);
-    await expect(needs(page).getByRole('link')).toHaveText(['Open 3 drafts', 'Fix 1 booking', 'Complete 2 drafts', 'Start 4 bookings']);
+    // Visible words named for the count, then the screen-reader-only row label (text content reads both).
+    await expect(needs(page).getByRole('link')).toHaveText([
+      'Open 3 drafts: Booking drafts you can continue',
+      'Fix 1 booking: Returned by Accounts (your deals)',
+      'Complete 2 drafts: Booking drafts missing details (your deals)',
+      'Start 4 bookings: Confirmed deals needing a booking (your deals)',
+    ]);
     for (const href of await needs(page).getByRole('link').evaluateAll((links) => links.map((a) => a.getAttribute('href')))) {
       expect(href).toBe('/app/deals');
     }

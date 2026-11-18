@@ -84,11 +84,11 @@ describe('section 4 document catalogue', () => {
 });
 
 describe('section 10 forms helpers', () => {
-  it('rupees text -> whole paise > 0 (strips , spaces and ₹)', () => {
-    expect(rupeesToPaise('₹6,500')).toBe('650000');
-    expect(rupeesToPaise(' 6 500.50 ')).toBe('650050');
+  it('rupees text -> whole paise > 0 (one money rule: commas grouping only, no ₹, no inner spaces)', () => {
+    expect(rupeesToPaise('6,500')).toBe('650000');
+    expect(rupeesToPaise(' 6,500.50 ')).toBe('650050');
     expect(rupeesToPaise('6500.5')).toBe('650050');
-    for (const bad of ['0', '0.00', '-5', '6500.505', 'abc', '', null]) expect(rupeesToPaise(bad as string | null)).toBeNull();
+    for (const bad of ['0', '0.00', '-5', '6500.505', 'abc', '', null, '₹6,500', ' 6 500.50 ']) expect(rupeesToPaise(bad as string | null)).toBeNull();
   });
   it('passport number: upper case, spaces and dashes removed, 6..15 letters or digits', () => {
     expect(normalizePassportNumber(' p-77 66 554 ')).toBe('P7766554');

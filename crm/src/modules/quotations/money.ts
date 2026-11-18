@@ -1,3 +1,4 @@
+import { maxPaiseForDigits, rupeesToPaise as readRupees } from '@/lib/money';
 import type { ServiceType } from '@/modules/fulfilment/contracts';
 import {
   type ChargeKind,
@@ -32,34 +33,28 @@ export function signedPaise(value: string | null | undefined): bigint | null {
   return BigInt(value);
 }
 
-function cleanRupees(raw: string): string {
-  return raw.replace(/[,\s]/g, '').replace(/^₹/, '');
-}
+/** At most 13 rupee digits (the one money rule is src/lib/money.ts). */
+const QUOTE_MAX_PAISE = maxPaiseForDigits(13);
 
 /**
  * A customer-visible amount typed in rupees (selling prices, quoted totals,
- * instalments): whole rupees only. "12,500" / "₹12500" / "12500.00" →
- * "1250000"; "" → null; anything else (paise, letters, negative, more than
+ * instalments): whole rupees only. "12,500" / "12500.00" → "1250000";
+ * "" → null; anything else (paise, a ₹ sign, letters, negative, more than
  * 13 rupee digits) → undefined. Never rounds.
  */
 export function parseWholeRupees(raw: string | null | undefined): PaiseString | null | undefined {
-  const value = cleanRupees(raw ?? '');
-  if (value === '') return null;
-  const match = /^(\d{1,13})(?:\.(0{1,2}))?$/.exec(value);
-  if (!match) return undefined;
-  return (BigInt(match[1]!) * 100n).toString();
+  const value = readRupees(raw, { max: QUOTE_MAX_PAISE });
+  if (typeof value !== 'string') return value;
+  return BigInt(value) % 100n === 0n ? value : undefined;
 }
 
 /**
  * An internal cost estimate typed in rupees: paise allowed. "12,500.5" →
- * "1250050"; "" → null; invalid → undefined. Never rounds (a third decimal is refused).
+ * "1250050"; "" → null; invalid (a ₹ sign included) → undefined. Never rounds
+ * (a third decimal is refused).
  */
 export function parseRupeesWithPaise(raw: string | null | undefined): PaiseString | null | undefined {
-  const value = cleanRupees(raw ?? '');
-  if (value === '') return null;
-  const match = /^(\d{1,13})(?:\.(\d{1,2}))?$/.exec(value);
-  if (!match) return undefined;
-  return (BigInt(match[1]!) * 100n + BigInt((match[2] ?? '').padEnd(2, '0') || '0')).toString();
+  return readRupees(raw, { max: QUOTE_MAX_PAISE });
 }
 
 /** Paise → rupee input text ("1250050" → "12500.50"; "1250000" → "12500"). */

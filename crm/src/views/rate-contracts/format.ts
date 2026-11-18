@@ -1,4 +1,5 @@
 import type { RateContractFilter, RateContractStatus, RateLookupNight, RateLookupPrice } from './types';
+import { maxPaiseForDigits, rupeesToPaise as readRupees } from '@/lib/money';
 
 /*
  * Pure helpers for the rate contract screens (unit-tested in
@@ -20,13 +21,11 @@ export function inr(paise: string | null | undefined): string {
   return `${negative ? '-' : ''}₹${grouped}.${(v % 100n).toString().padStart(2, '0')}`;
 }
 
-/** "1,234.5" / "₹ 1234.50" -> "123450"; '' -> null; not a rupee amount -> undefined. */
+const RATE_MAX_PAISE = maxPaiseForDigits(12);
+
+/** "1,234.5" / "1234.50" -> "123450"; '' -> null; not a rupee amount ("₹1234") -> undefined (src/lib/money.ts). */
 export function rupeesToPaise(raw: string | null | undefined): string | null | undefined {
-  const value = (raw ?? '').trim().replace(/^₹\s*/, '').replace(/[,\s]/g, '');
-  if (value === '') return null;
-  const m = /^(\d{1,12})(?:\.(\d{1,2}))?$/.exec(value);
-  if (!m) return undefined;
-  return (BigInt(m[1]!) * 100n + BigInt((m[2] ?? '').padEnd(2, '0'))).toString();
+  return readRupees(raw, { max: RATE_MAX_PAISE });
 }
 
 /** "123450" -> "1234.50" (the value a rupee input starts with). */

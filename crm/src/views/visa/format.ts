@@ -1,4 +1,5 @@
 import { formatPaise } from '@/modules/deals/dto';
+import { maxPaiseForDigits, rupeesToPaise as readRupees } from '@/lib/money';
 
 /*
  * Display and input helpers for the Visa screens. Pure and server-safe.
@@ -50,17 +51,16 @@ export function sumPaise(values: Array<string | null | undefined>): string {
   return total.toString();
 }
 
+const VISA_BOX_MAX_PAISE = maxPaiseForDigits(13);
+
 /**
- * Rupees text → whole paise ("6,300" → "630000", "₹ 1,250.50" → "125050").
- * Strips commas, spaces and ₹; at most two decimals; more than zero.
- * Returns null when the text is not a valid amount.
+ * Rupees text → whole paise ("6,300" → "630000", "1,250.50" → "125050"), by
+ * the one money rule (src/lib/money.ts): no ₹ sign, no spaces inside, at most
+ * two decimals; more than zero. Returns null when the text is not a valid amount.
  */
 export function rupeesToPaise(text: string): string | null {
-  const t = text.replace(/[,\s₹]/g, '');
-  const m = /^(\d{1,13})(?:\.(\d{1,2}))?$/.exec(t);
-  if (!m) return null;
-  const paise = BigInt(m[1]!) * 100n + BigInt((m[2] ?? '').padEnd(2, '0') || '0');
-  return paise > 0n ? paise.toString() : null;
+  const paise = readRupees(text, { max: VISA_BOX_MAX_PAISE });
+  return typeof paise === 'string' && paise !== '0' ? paise : null;
 }
 
 /** Paise → rupees text for an input ("630000" → "6300", "125050" → "1250.50"). */

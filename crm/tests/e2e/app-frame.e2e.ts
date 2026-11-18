@@ -435,6 +435,10 @@ test.describe('R1 menu: preview states at 768 and 900 px height', () => {
         await openMenu(page, `person=${person}&counts=known`);
         expect(await axe(page)).toEqual([]);
         await noHorizontalScroll(page);
+        // Outside production the root layout shows the environment banner above the frame, so the sticky
+        // menu column starts lower until the page scrolls. Scroll to the end: the column then sits at the
+        // top of the window, as it always does in production (no banner).
+        await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
         await expect(accountSummary(page)).toBeInViewport({ ratio: 1 });
         if (person !== 'manager') await expect(settingsLink(page)).toBeInViewport({ ratio: 1 });
         // Record the list's own height (design plan 1.1 height table, re-measured here).
@@ -516,21 +520,22 @@ test.describe('R1 menu: folds, current page and counts', () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await openMenu(page, 'person=accounts&counts=known&path=/app');
     const accounts = mainNav(page).getByRole('button', { name: /^Accounts/ });
-    // To check = 3 + 1, Money out = 4 + 2 (zeros show nothing).
-    await expect(mainNav(page).getByRole('link', { name: 'To check, 4 waiting' })).toBeVisible();
-    await expect(mainNav(page).getByRole('link', { name: 'Money out, 6 waiting' })).toBeVisible();
+    // To check = 3 + 1, Money out = 4 + 2 (zeros show nothing). The ", 4 waiting" is screen-reader-only text;
+    // Chromium puts a space before it in the name, so names are matched with \W+.
+    await expect(mainNav(page).getByRole('link', { name: /^To check\W+4 waiting$/ })).toBeVisible();
+    await expect(mainNav(page).getByRole('link', { name: /^Money out\W+6 waiting$/ })).toBeVisible();
     await expect(mainNav(page).getByRole('link', { name: 'Cash and bank', exact: true })).toBeVisible();
     // Money out opens its first tab with something waiting.
     await expect(mainNav(page).getByRole('link', { name: /^Money out/ })).toHaveAttribute('href', '/app/accounts/supplier-payments');
     await accounts.click();
-    await expect(accounts).toHaveAccessibleName('Accounts, 10 waiting');
+    await expect(accounts).toHaveAccessibleName(/^Accounts\W+10 waiting$/);
   });
 
   test('a count that is not known shows a dash read out as "count not known", never 0', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await openMenu(page, 'person=accounts&counts=unknown');
-    await expect(mainNav(page).getByRole('link', { name: 'To check, count not known' })).toBeVisible();
-    await expect(mainNav(page).getByRole('link', { name: 'Money out, count not known' })).toBeVisible();
+    await expect(mainNav(page).getByRole('link', { name: /^To check\W+count not known$/ })).toBeVisible();
+    await expect(mainNav(page).getByRole('link', { name: /^Money out\W+count not known$/ })).toBeVisible();
     await expect(mainNav(page).locator('[data-count="unknown"]').first()).toHaveText('–, count not known');
     await expect(mainNav(page)).not.toContainText(/\b0\b/);
     expect(await axe(page)).toEqual([]);
@@ -541,7 +546,7 @@ test.describe('R1 menu: folds, current page and counts', () => {
     await openMenu(page, 'person=purchase&counts=known');
     await expect(mainNav(page).getByRole('group', { name: 'Accounts' })).toHaveCount(0);
     await expect(mainNav(page).getByRole('link')).toHaveText(['Home', 'Deals', /^Purchase tasks/, 'Payment requests', 'Suppliers', 'Rate contracts']);
-    await expect(mainNav(page).getByRole('link', { name: 'Purchase tasks, 3 not taken yet' })).toHaveAttribute('aria-current', 'page');
+    await expect(mainNav(page).getByRole('link', { name: /^Purchase tasks\W+3 not taken yet$/ })).toHaveAttribute('aria-current', 'page');
   });
 
   test('Accounts list page: the section tab strip marks the page; record pages have none', async ({ page }) => {

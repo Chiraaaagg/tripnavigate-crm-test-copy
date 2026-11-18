@@ -77,8 +77,11 @@ test.describe('Phase 5A previews: accessibility and the disclaimer on desktop an
     test(`axe clean, one h1, disclaimer: ${state}`, async ({ page }) => {
       await open(page, state);
       expect(await axe(page)).toEqual([]);
-      expect(await page.getByRole('heading', { level: 1 }).count()).toBe(1);
-      await expect(page.getByRole('main').getByText(DISCLAIMER)).toBeVisible();
+      // R1: a refused policy change opens its dialog again; the modal dialog hides the page (aria-modal),
+      // so the page's own h1 and the disclaimer are found in the markup then.
+      const dialogOpen = (await page.getByRole('dialog').count()) > 0;
+      expect(await (dialogOpen ? page.locator('h1') : page.getByRole('heading', { level: 1 })).count()).toBe(1);
+      await expect((dialogOpen ? page.locator('main') : page.getByRole('main')).getByText(DISCLAIMER)).toBeVisible();
     });
     test(`390 px, no sideways scroll: ${state}`, async ({ page }) => {
       await page.setViewportSize({ width: 390, height: 844 });

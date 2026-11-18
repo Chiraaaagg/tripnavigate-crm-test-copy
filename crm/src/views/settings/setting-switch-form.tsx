@@ -226,9 +226,9 @@ function VisaSwitchOn({
   const blocked = counting || !visa || !visa.canConfirm || noPreview;
 
   const check = (event: { preventDefault: () => void }) => {
-    if (reasonRule !== 'required') return;
     const length = reason.replace(/\s+/g, ' ').trim().length;
-    if (length >= REASON_LIMITS.min && length <= REASON_LIMITS.max) {
+    // An optional reason may be empty; a typed one needs 10 to 500 characters (the database rule).
+    if ((reasonRule === 'optional' && length === 0) || (length >= REASON_LIMITS.min && length <= REASON_LIMITS.max)) {
       setCheckError(null);
       return;
     }

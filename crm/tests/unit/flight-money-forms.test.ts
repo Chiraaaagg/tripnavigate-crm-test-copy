@@ -3,8 +3,9 @@ import * as money from '@/modules/flight/money-forms';
 
 /**
  * Flight build, contract D3 and section 10 (crm/src/modules/flight/
- * money-forms.ts): rupees text -> paise with fareNum (strip ",", spaces and
- * "₹"; whole paise only; negatives invalid), and the live per-person /
+ * money-forms.ts): rupees text -> paise with fareNum (the one money rule,
+ * src/lib/money.ts: comma grouping, trimmed ends, no "₹"; whole paise only;
+ * negatives invalid), and the live per-person /
  * amount arithmetic that mirrors the database formula:
  *   total per person = basic + K + YQ + YR + other + markup - discount
  *   supplier per person = basic + K + YQ + YR + other; amount = per person × count.
@@ -22,8 +23,8 @@ const paise = (r: unknown): string | null => {
 describe('fareNum', () => {
   it.each([
     ['5,000', '500000'],
-    ['₹5,000.50', '500050'],
-    [' 1 234.5 ', '123450'],
+    ['5,000.50', '500050'],
+    [' 1,234.5 ', '123450'],
     ['0', '0'],
     ['12,34,567.89', '123456789'],
   ])('%j -> %s paise', (input, expected) => {
@@ -31,6 +32,14 @@ describe('fareNum', () => {
   });
   it.each(['-1', '-0.01', '1.005', 'abc', '₹', '1e3'])('rejects %j', (input) => {
     expect(paise(money.fareNum(input))).toBeNull();
+  });
+  // One money rule (D4): a rupee sign, spaces inside and odd commas are refused (undefined), not read.
+  it.each(['₹5,000.50', '₹ 6000', ' 1 234.5 ', '6 000', '1,2,3', '₹'])('refuses %j as not an amount', (input) => {
+    expect(money.fareNum(input)).toBeUndefined();
+  });
+  it('an empty box is null', () => {
+    expect(money.fareNum('')).toBeNull();
+    expect(money.fareNum('   ')).toBeNull();
   });
 });
 

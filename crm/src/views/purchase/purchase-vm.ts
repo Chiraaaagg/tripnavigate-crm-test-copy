@@ -1,6 +1,11 @@
 import { formatPaise } from '@/modules/deals/dto';
 import { stayNights } from '@/modules/fulfilment/booking-form-model';
 import type { PurchaseTaskView } from '@/modules/fulfilment/contracts';
+import { maxPaiseForDigits, rupeesToPaise as readRupees } from '@/lib/money';
+
+/** Typed amounts: at most 10 rupee digits; a per-night rate at most 9 (the one rule is src/lib/money.ts). */
+const AMOUNT_MAX_PAISE = maxPaiseForDigits(10);
+const PER_NIGHT_MAX_PAISE = maxPaiseForDigits(9);
 
 /*
  * Purchase screens (Purchase build, 2 Nov 2026): pure view-model helpers.
@@ -147,9 +152,9 @@ export function lowestPaise(amounts: string[]): string | null {
  * positive amount.
  */
 export function wholeStayFromPerNight(perNightRupees: string, rooms: number, nights: number): string | null {
-  const m = /^\s*(\d{1,9})(?:\.(\d{1,2}))?\s*$/.exec(perNightRupees.replace(/,/g, ''));
-  if (!m || rooms < 1 || nights < 1) return null;
-  const paise = BigInt(m[1]!) * 100n + BigInt((m[2] ?? '').padEnd(2, '0') || '0');
+  const typed = readRupees(perNightRupees, { max: PER_NIGHT_MAX_PAISE });
+  if (typeof typed !== 'string' || rooms < 1 || nights < 1) return null;
+  const paise = BigInt(typed);
   if (paise <= 0n) return null;
   const total = paise * BigInt(rooms) * BigInt(nights);
   return `${total / 100n}.${(total % 100n).toString().padStart(2, '0')}`;
@@ -185,10 +190,8 @@ export function routeFor(cumulativePaise: bigint): 'accounts' | 'manager' {
   return cumulativePaise > APPROVAL_LIMIT_PAISE ? 'manager' : 'accounts';
 }
 
-/** Rupees text ("1,14,000" or "1,14,000.50") to paise; null when not a positive amount. */
+/** Rupees text ("1,14,000" or "1,14,000.50") to paise; null when not a positive amount (src/lib/money.ts). */
 export function rupeesToPaise(text: string): bigint | null {
-  const m = /^\s*(\d{1,10})(?:\.(\d{1,2}))?\s*$/.exec(text.replace(/,/g, ''));
-  if (!m) return null;
-  const paise = BigInt(m[1]!) * 100n + BigInt((m[2] ?? '').padEnd(2, '0') || '0');
-  return paise > 0n ? paise : null;
+  const paise = readRupees(text, { max: AMOUNT_MAX_PAISE });
+  return typeof paise === 'string' && paise !== '0' ? BigInt(paise) : null;
 }

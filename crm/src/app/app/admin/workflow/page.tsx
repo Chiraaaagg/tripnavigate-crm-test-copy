@@ -48,8 +48,9 @@ export default async function FeaturesRoute() {
       bitrixHref={bitrixHref}
       notices={superAdmin ? { enabled: noticesEnabled, action: setNoticesEnabledAction as unknown as ExistingSettingsAction } : null}
       moneyRulesHref={canManageFinancePolicy(staff.access, financeEntities) ? '/app/admin/finance-policy' : null}
-      // Accounts phase 3 (screen 15.4): the page itself refuses anyone but a Super Admin.
-      customerMessagesHref={SETTINGS_CUSTOMER_MESSAGES_PATH}
+      // Accounts phase 3 (screen 15.4): only a Super Admin may open Customer messages, so the link is shown only to
+      // them (the same rule as the Settings area list; the page still refuses everyone else on its own).
+      customerMessagesHref={superAdmin ? SETTINGS_CUSTOMER_MESSAGES_PATH : null}
     />
   );
 }

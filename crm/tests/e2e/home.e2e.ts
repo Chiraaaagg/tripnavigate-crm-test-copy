@@ -114,11 +114,13 @@ test.describe('Home: content and permissions', () => {
   test('greeting, then straight to the work: one primary action, the top waiting row named for the count; no "Your deals" counts', async ({ page }) => {
     await open(page, 'home-manager');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Welcome, Synthetic Manager Delhi');
-    // The top waiting row's button is the page's one primary action (design plan 2.2).
-    await expect(page.locator('main header').getByRole('link', { name: 'Open 5 drafts: Booking drafts you can continue' })).toHaveAttribute('href', '/app/deals');
+    // The top waiting row's button is the page's one primary action (design plan 2.2). Its row label is
+    // screen-reader-only text; Chromium puts a space before it in the name, so the name is matched with \W+.
+    await expect(page.locator('main header').getByRole('link', { name: /^Open 5 drafts\W+Booking drafts you can continue$/ })).toHaveAttribute('href', '/app/deals');
     // Exactly one element in main carries the brand emphasis (fill or outline), and it is the one primary action.
     expect(await brandEmphasis(page.locator('main'))).toHaveLength(1);
-    expect(await primaryActions(page.locator('main'))).toEqual(['Open 5 drafts']);
+    // primaryActions reads innerText, which includes the screen-reader-only row label.
+    expect(await primaryActions(page.locator('main'))).toEqual([expect.stringMatching(/^Open 5 drafts(\W+Booking drafts you can continue)?$/)]);
     // SL-19, DM-18: the Deal ownership counts repeated the Deals list and are gone; "What needs you" comes first.
     await expect(page.getByRole('region', { name: 'Your deals' })).toHaveCount(0);
     await expect(page.locator('main')).not.toContainText('Deals you can open');
@@ -138,14 +140,20 @@ test.describe('Home: content and permissions', () => {
       'Confirmed deals needing a booking (your deals and branches)',
     ]);
     const buttons = needs(page).locator('tbody').getByRole('link');
-    await expect(buttons).toHaveText(['Open 5 drafts', 'Complete 1 draft', 'Start 2 bookings']);
+    // Visible words named for the count, then the screen-reader-only row label (text content reads both).
+    await expect(buttons).toHaveText([
+      'Open 5 drafts: Booking drafts you can continue',
+      'Complete 1 draft: Booking drafts missing details (your deals and branches)',
+      'Start 2 bookings: Confirmed deals needing a booking (your deals and branches)',
+    ]);
     await expect(needs(page).getByRole('link', { name: /^Start 2 bookings\W+Confirmed deals needing a booking \(your deals and branches\)$/ })).toHaveAttribute('href', '/app/deals');
     // SL-19: a row with nothing waiting has no button; it sits in the fold, closed until opened.
     await expect(needs(page).locator('table')).not.toContainText('Nothing waiting');
     await expect(quiet(page).locator('summary')).toHaveText('Nothing waiting in 1 other list');
     await expect(quiet(page)).not.toHaveAttribute('open', '');
     await quiet(page).locator('summary').click();
-    await expect(quietLabels(page)).toHaveText(['Returned by Accounts (your deals and branches)']);
+    // Each quiet row is its label plus the screen-reader-only ": nothing waiting".
+    await expect(quietLabels(page)).toHaveText(['Returned by Accounts (your deals and branches): nothing waiting']);
     await expect(quiet(page).getByRole('link')).toHaveCount(0);
     await expect(needs(page)).not.toContainText('Requests to approve');
   });
@@ -188,14 +196,14 @@ test.describe('Home: content and permissions', () => {
   test('each role sees only the counts that apply to it (no Sales-only zeros)', async ({ page }) => {
     await open(page, 'home-sales');
     await expect(rowLabels(page)).toHaveText(['Booking drafts you can continue', 'Returned by Accounts (your deals)', 'Booking drafts missing details (your deals)']);
-    await expect(quietLabels(page)).toHaveText(['Confirmed deals needing a booking (your deals)']);
+    await expect(quietLabels(page)).toHaveText(['Confirmed deals needing a booking (your deals): nothing waiting']);
     await open(page, 'home-accounts');
     await expect(rowLabels(page)).toHaveText([
       'Bookings to review in your companies',
       'Receipts to verify (recorded by someone else)',
       'Reported payments to check in your companies',
     ]);
-    await expect(quietLabels(page)).toHaveText(['Department costs to review (submitted by someone else)']);
+    await expect(quietLabels(page)).toHaveText(['Department costs to review (submitted by someone else): nothing waiting']);
     await expect(needs(page).getByRole('link', { name: /^Verify 2 receipts\W+Receipts to verify/ })).toHaveAttribute('href', '/app/accounts?filter=awaiting_verification');
     await expect(page.locator('main header').getByRole('link', { name: /^Review 4 bookings\W+Bookings to review/ })).toHaveAttribute('href', '/app/accounts?filter=needs_review');
     await open(page, 'home-multi-role');
@@ -205,7 +213,7 @@ test.describe('Home: content and permissions', () => {
     await expect(needs(page).locator('tbody tr td:nth-child(2)').nth(0)).toHaveText('3');
     const purchaseRow = needs(page).locator('tbody tr', { hasText: 'Purchase tasks not taken yet, or yours in progress' });
     await expect(purchaseRow).toContainText('4');
-    await expect(purchaseRow.getByRole('link')).toHaveText('Open 4 tasks');
+    await expect(purchaseRow.getByRole('link')).toHaveText('Open 4 tasks: Purchase tasks not taken yet, or yours in progress');
     await expect(purchaseRow.getByRole('link')).toHaveAttribute('href', '/app/purchase');
     // Accounts phase 3 (contract 15 Nav): Purchase also has "Rate contracts".
     await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link')).toHaveText(['Home', 'Deals', 'Purchase tasks', 'Suppliers', 'Rate contracts']);

@@ -172,7 +172,8 @@ describe('visa wrappers against the Track A commands', () => {
       const base: Record<string, string> = {
         taskId, requestId, applicantCount: '2', paidBy: 'company', paymentMode: 'upi', receiptEvidenceId: receiptId, passportTaken: 'on', remark: '',
       };
-      const lines = [[a1!.id, 'SYN-REF-A1', '₹6,500', ''], [a2!.id, 'syn-ref-a2', '6500.50', '1,000']] as const;
+      // One money rule (D4): comma grouping is accepted, a rupee sign is not.
+      const lines = [[a1!.id, 'SYN-REF-A1', '6,500', ''], [a2!.id, 'syn-ref-a2', '6500.50', '1,000']] as const;
       for (const [i, [id, ref, gov, svc]] of lines.entries()) {
         base[visaApplicantField(i, 'applicationId')] = id;
         base[visaApplicantField(i, 'expectedRowVersion')] = String(await rowVersion(id));
@@ -181,6 +182,12 @@ describe('visa wrappers against the Track A commands', () => {
         base[visaApplicantField(i, 'governmentFee')] = gov;
         base[visaApplicantField(i, 'serviceFee')] = svc;
       }
+      // The same fee typed with the rupee sign is refused before anything is written
+      // (the cost-entry count below proves nothing was saved).
+      const withSign = await actions.applyVisaApplicationsAction(null, form({
+        ...base, requestId: rid(), [visaApplicantField(0, 'governmentFee')]: '₹6,500',
+      }));
+      expect(withSign).toMatchObject({ ok: false, message: 'Check the highlighted field.' });
       const applied = await actions.applyVisaApplicationsAction(null, form(base));
       expect(applied).toMatchObject({ ok: true, message: 'Saved as applied for 2 passengers. Waiting for the decision.' });
       expect(applied.ok && applied.data.clubId).toBeTruthy();

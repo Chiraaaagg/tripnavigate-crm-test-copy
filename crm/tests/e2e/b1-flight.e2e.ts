@@ -221,7 +221,7 @@ test.describe('B1 admin workflow switches (Batch 4: Settings · Features)', () =
       await expect(dialog.getByRole('radio')).toHaveCount(0);
       await expect(dialog).toContainText('Changing this in the live CRM needs the owner’s APPROVE first. Write it in the reason.');
       // Book now (service list) starts real department work: its reason stays required (lead ruling on Q1); the count's is optional (D9).
-      await expect(dialog.getByLabel('Why are you changing it?')).toHaveAccessibleDescription(key === 'service_items_enabled' ? /10 to 500 characters/ : /You may leave it empty/);
+      await expect(dialog.getByLabel('Why are you changing it?')).toHaveAccessibleDescription(key === 'service_items_enabled' ? /10 to 500 characters/ : /Leave it empty, or write 10 to 500 characters/);
       await expect(dialog.getByRole('button', { name: /^Turn .+ on$/ })).toBeVisible();
       await page.keyboard.press('Escape');
       await expect(change).toBeFocused();

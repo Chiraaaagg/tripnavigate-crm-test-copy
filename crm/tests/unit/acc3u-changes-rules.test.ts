@@ -134,7 +134,10 @@ describe('change mode', () => {
 describe('over-budget hint (display aid; the database decides)', () => {
   it('parses rupee text to whole paise without floats', () => {
     expect(rupeeTextToPaise('12,500.5')).toBe(1250050n);
-    expect(rupeeTextToPaise('₹ 49000')).toBe(4900000n);
+    expect(rupeeTextToPaise(' 49,000 ')).toBe(4900000n);
+    // One money rule (D4): a rupee sign, spaces inside and odd commas give no hint.
+    for (const bad of ['₹ 49000', '49 000', '4,9,000', '-5']) expect(rupeeTextToPaise(bad), bad).toBeNull();
+    expect(overBudgetHint('₹49000', '0', '5000000')).toBeNull();
     expect(rupeeTextToPaise('1.234')).toBeNull();
     expect(rupeeTextToPaise('abc')).toBeNull();
     expect(rupeeTextToPaise('0.1')).toBe(10n);

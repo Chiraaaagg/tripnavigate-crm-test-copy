@@ -26,6 +26,7 @@ import { Textarea } from './textarea';
  * the page's hidden fields plus the reason under `reasonName`.
  *
  * reason 'optional' (owner D9): may be left empty; an empty box posts "".
+ * A typed optional reason still needs 10 to 500 characters (checked here and on the server).
  * reason 'required': 10 to 500 characters, checked here and again on the server.
  * A refusal (from this check or from the server) keeps the dialog open with
  * the typed reason and says what to fix; a save closes it, puts focus back on
@@ -148,19 +149,22 @@ export function ConfirmChange<R extends ConfirmResult>({
     reasonHint ??
     (mode === 'required'
       ? `${REASON_LIMITS.min} to ${REASON_LIMITS.max} characters. It is kept with the change, with your name and the time.`
-      : 'You may leave it empty. The change, your name and the time are kept either way.');
+      : `Leave it empty, or write ${REASON_LIMITS.min} to ${REASON_LIMITS.max} characters. The change, your name and the time are kept either way.`);
 
   const check = (event: SubmitEvent<HTMLFormElement>) => {
-    if (mode !== 'required') return;
+    if (mode === 'none') return;
     const length = collapse(reason).length;
-    if (length >= REASON_LIMITS.min && length <= REASON_LIMITS.max) {
+    // An optional reason may be empty; a typed one needs 10 to 500 characters, like a required one (the database rule).
+    if ((mode === 'optional' && length === 0) || (length >= REASON_LIMITS.min && length <= REASON_LIMITS.max)) {
       setCheckError(null);
       return;
     }
     event.preventDefault();
     setCheckError(
       length < REASON_LIMITS.min
-        ? `Write the reason: at least ${REASON_LIMITS.min} characters. Nothing was changed.`
+        ? mode === 'optional'
+          ? `Leave the reason empty, or write at least ${REASON_LIMITS.min} characters. Nothing was changed.`
+          : `Write the reason: at least ${REASON_LIMITS.min} characters. Nothing was changed.`
         : `Shorten the reason to ${REASON_LIMITS.max} characters or fewer. Nothing was changed.`,
     );
     setFocusTick((f) => ({ to: 'reason', n: (f?.n ?? 0) + 1 }));

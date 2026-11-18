@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { rupeesToPaise as readRupees } from '@/lib/money';
 import {
   FLIGHT_CRS_TYPES,
   FLIGHT_DIRECT_LIMIT_PAISE,
@@ -34,17 +35,13 @@ type Parsed<T> = { ok: true; value: T } | { ok: false; fields: string[] };
 const MAX_FARE_PAISE = 99_999_999_999n;
 
 /**
- * Rupees text → whole paise ("12,345.50", "₹ 6000", "6 000" → "1234550",
- * "600000", "600000"). Empty → null. Negative, more than two decimals, or
- * not a number → undefined (invalid).
+ * Rupees text → whole paise ("12,345.50", " 6000 " → "1234550", "600000"), by
+ * the one money rule (src/lib/money.ts). Empty → null. A ₹ sign, spaces
+ * inside, odd commas, negative, more than two decimals, above the cap or not
+ * a number → undefined (invalid).
  */
 export function fareNum(raw: string | null | undefined): Paise | null | undefined {
-  const value = (raw ?? '').replace(/[,\s]/g, '').replace(/^₹/, '');
-  if (value === '') return null;
-  const match = /^(\d{1,12})(?:\.(\d{1,2}))?$/.exec(value);
-  if (!match) return undefined;
-  const paise = BigInt(match[1]!) * 100n + BigInt((match[2] ?? '').padEnd(2, '0') || '0');
-  return paise > MAX_FARE_PAISE ? undefined : paise.toString();
+  return readRupees(raw, { max: MAX_FARE_PAISE });
 }
 
 /** Whole paise → rupees text for display ("1234550" → "12,345.50"). */

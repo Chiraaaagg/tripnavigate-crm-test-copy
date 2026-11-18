@@ -207,7 +207,7 @@ test.describe('Switch rows (DA-253 to DA-256, R1 C6)', () => {
     await expect(dialog).toContainText('The count is hidden. Nothing else changes.');
     await expect(dialog).toContainText('Who is affected: Every branch.');
     await expect(dialog).toContainText('Changing this in the live CRM needs the owner’s APPROVE first. Write it in the reason.');
-    await expect(dialog.getByLabel('Why are you changing it?')).toHaveAccessibleDescription(/You may leave it empty/);
+    await expect(dialog.getByLabel('Why are you changing it?')).toHaveAccessibleDescription(/Leave it empty, or write 10 to 500 characters/);
     await expect(dialog.getByRole('button', { name: 'Turn Count of won deals with no booking (on Home) off' })).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
@@ -368,10 +368,11 @@ test.describe('Each switch posts the same fields as before (R1)', () => {
         await dialog.locator('button[type="submit"]').click();
         await expect(reason, key).toHaveAttribute('aria-invalid', 'true');
         await expect(dialog, key).toBeVisible();
-        await expect(row.getByRole('status'), key).toBeEmpty();
+        // The row sits behind the open modal (aria-hidden), so its status line is found in the markup.
+        await expect(row.locator('[role="status"]'), key).toBeEmpty();
         await reason.fill('Owner approved on 17 Nov (synthetic).');
       } else {
-        await expect(reason, key).toHaveAccessibleDescription(/You may leave it empty/);
+        await expect(reason, key).toHaveAccessibleDescription(/Leave it empty, or write 10 to 500 characters/);
       }
       await dialog.locator('button[type="submit"]').click();
       await expect(dialog, key).toHaveCount(0);
@@ -407,7 +408,8 @@ test.describe('Bitrix connection: switches and which deals come in (DA-257, DA-2
     await dialog.locator('button[type="submit"]').click();
     await expect(reason).toHaveAttribute('aria-invalid', 'true');
     await expect(dialog).toBeVisible();
-    await expect(row.getByRole('status')).toBeEmpty();
+    // The row sits behind the open modal (aria-hidden), so its status line is found in the markup.
+    await expect(row.locator('[role="status"]')).toBeEmpty();
   });
 
   test('two phases: Review changes counts the deals, then one confirm dialog saves and hides {n} deals; nothing is saved before the confirm', async ({ page }) => {

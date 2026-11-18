@@ -1,3 +1,4 @@
+import { maxPaiseForDigits, rupeesToPaise as readRupees } from '@/lib/money';
 import {
   DEPARTMENTS,
   DUES_STATUSES,
@@ -34,20 +35,17 @@ function readList(params: Params, key: string): string[] {
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const PAISE = /^(0|[1-9]\d{0,17})$/;
 
 function oneOf<T extends string>(list: readonly T[], value: string | undefined): T | undefined {
   return value !== undefined && (list as readonly string[]).includes(value) ? (value as T) : undefined;
 }
 
-/** Rupees typed in a filter ("1,250.50") -> whole paise string, or undefined. */
+const FILTER_MAX_PAISE = maxPaiseForDigits(15);
+
+/** Rupees typed in a filter ("1,250.50") -> whole paise string, or undefined (empty or not an amount, by src/lib/money.ts). */
 export function rupeesToPaise(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const v = value.replace(/[,\s₹]/g, '');
-  const m = /^(\d{1,15})(?:\.(\d{1,2}))?$/.exec(v);
-  if (!m) return undefined;
-  const paise = `${m[1]}${(m[2] ?? '').padEnd(2, '0')}`.replace(/^0+(?=\d)/, '');
-  return PAISE.test(paise) ? paise : undefined;
+  const paise = readRupees(value, { max: FILTER_MAX_PAISE });
+  return typeof paise === 'string' ? paise : undefined;
 }
 
 export function recordsFilterFromParams(params: Params): RecordsFilter {

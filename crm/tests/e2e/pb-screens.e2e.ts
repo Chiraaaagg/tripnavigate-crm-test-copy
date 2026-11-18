@@ -201,3 +201,18 @@ test('the booking request result stays on the page after the drawer is gone', as
   await expect(drawer).toBeHidden();
   await expect(flash).toContainText('Booking request recorded.');
 });
+
+test('one money rule (D4): a payment amount typed as "₹100" is refused, the typed text stays, and the refusal names the amount', async ({ page }) => {
+  await open(page, 'pb-task-work-go-ahead-given');
+  await page.getByRole('button', { name: 'Request advance payment' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Request a supplier payment' });
+  await expect(drawer).toBeVisible();
+  await settled(page);
+  const amount = drawer.getByLabel('Amount (₹)');
+  await amount.fill('₹100');
+  await drawer.getByRole('button', { name: 'Send payment request' }).click();
+  await expect(drawer.getByText('Enter the amount in rupees, for example 25000.')).toBeVisible();
+  await expect(amount).toHaveValue('₹100');
+  await expect(amount).toHaveAttribute('aria-invalid', 'true');
+  await expect(amount).toBeFocused();
+});

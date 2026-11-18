@@ -3,6 +3,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { StatusBadge, type StatusTone } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
+import { StaffSearch } from './staff-search';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn, focusRing } from '@/components/ui/cn';
 import { Notice } from '@/components/ui/notice';
@@ -259,6 +260,7 @@ export interface StaffQueueFilter {
 function staffHref(filter: { q?: string; status?: StaffStatusFilter }): string {
   const qs = new URLSearchParams();
   if (filter.status && filter.status !== 'all') qs.set('status', filter.status);
+  // R1 review: the search words never go into the address; an old ?q= address is still filtered on the server.
   if (filter.q) qs.set('q', filter.q);
   const s = qs.toString();
   return s ? `${SETTINGS_PATH.staff}?${s}` : SETTINGS_PATH.staff;
@@ -274,7 +276,7 @@ type BitrixAccess = {
 function StaffRow({ s, bitrix, security, verificationMethods }: { s: StaffLine; bitrix: BitrixAccess; security?: StaffSecurityInfo; verificationMethods: VerificationMethodOption[] }) {
   const badge = STATUS_BADGE[s.status];
   return (
-    <li className="m-0 flex flex-col gap-3 px-4.5 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-5" data-slot="staff-row">
+    <li className="m-0 flex flex-col gap-3 px-4.5 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-5 [&[hidden]]:hidden" data-slot="staff-row" data-search={`${s.displayName} ${s.email}`.toLowerCase()}>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p className="m-0 font-semibold text-ink">
           {s.displayName}
@@ -354,7 +356,7 @@ export function StaffAdminView({
 }) {
   const status = filter.status ?? 'all';
   const { rows, counts } = staffQueue(staff, { q: filter.q, status });
-  const chips = STAFF_STATUS_FILTERS.map((f) => ({ href: staffHref({ q: filter.q, status: f }), label: STAFF_STATUS_FILTER_LABEL[f], count: counts[f], current: f === status }));
+  const chips = STAFF_STATUS_FILTERS.map((f) => ({ href: staffHref({ status: f }), label: STAFF_STATUS_FILTER_LABEL[f], count: counts[f], current: f === status }));
   const filtered = Boolean(filter.q) || status !== 'all';
   const actions = (
     <>
@@ -399,7 +401,6 @@ export function StaffAdminView({
         action={SETTINGS_PATH.staff}
         label="Search and filter staff"
         chipsLabel="Staff by status"
-        search={{ name: 'q', value: filter.q ?? '', label: 'Search staff', placeholder: 'Name or work email' }}
         chips={chips}
         keep={status !== 'all' ? { status } : undefined}
       />
@@ -426,11 +427,14 @@ export function StaffAdminView({
             }
           />
         ) : (
-          <ul aria-label="Staff in your entities" className="m-0 list-none divide-y divide-line border-t border-line p-0">
-            {rows.map((s) => (
-              <StaffRow key={s.userId} s={s} bitrix={bitrix} security={security[s.userId]} verificationMethods={verificationMethods} />
-            ))}
-          </ul>
+          // R1 review: the search filters these rows in the browser (names and e-mails stay out of the address).
+          <StaffSearch total={rows.length}>
+            <ul aria-label="Staff in your entities" className="m-0 list-none divide-y divide-line border-t border-line p-0">
+              {rows.map((s) => (
+                <StaffRow key={s.userId} s={s} bitrix={bitrix} security={security[s.userId]} verificationMethods={verificationMethods} />
+              ))}
+            </ul>
+          </StaffSearch>
         )}
       </Card>
     </PeopleResults>

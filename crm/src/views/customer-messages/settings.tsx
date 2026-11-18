@@ -5,6 +5,8 @@ import { StatusBadge } from '@/components/ui/badge';
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn, focusRing } from '@/components/ui/cn';
 import { Field } from '@/components/ui/field';
+import { Textarea } from '@/components/ui/textarea';
+import { SETTINGS_TEXT } from '@/modules/settings/text';
 import { Fold } from '@/components/ui/fold';
 import { Input } from '@/components/ui/input';
 import { Notice } from '@/components/ui/notice';
@@ -221,7 +223,7 @@ function SwitchesTab({ d, actions, preview }: TabProps) {
                             initialOpen={isOpen(match)}
                             initialState={stateFor(match)}
                           >
-                            <ReasonField id={`cmsg-sw-${type}-${channel}-reason`} hint="10 to 500 characters, e.g. the owner's approval." defaultValue={preview?.typed?.reason} />
+                            <OptionalReasonField id={`cmsg-sw-${type}-${channel}-reason`} defaultValue={preview?.typed?.reason} />
                           </DialogAction>
                         )}
                       </div>
@@ -328,7 +330,7 @@ function PilotTab({ d, actions, preview }: TabProps) {
               initialOpen={isOpen((o) => o.dialog === 'pilot')}
               initialState={stateFor((o) => o.dialog === 'pilot')}
             >
-              <ReasonField id="cmsg-pilot-reason" defaultValue={preview?.typed?.reason} />
+              <OptionalReasonField id="cmsg-pilot-reason" defaultValue={preview?.typed?.reason} />
             </DialogAction>
           }
         />
@@ -431,7 +433,7 @@ function SetupTab({ d, actions, preview }: TabProps) {
               initialOpen={isOpen((o) => o.dialog === 'timer')}
               initialState={stateFor((o) => o.dialog === 'timer')}
             >
-              <ReasonField id="cmsg-timer-reason" defaultValue={preview?.typed?.reason} />
+              <OptionalReasonField id="cmsg-timer-reason" defaultValue={preview?.typed?.reason} />
             </DialogAction>
           }
         />
@@ -454,6 +456,21 @@ function SetupTab({ d, actions, preview }: TabProps) {
         </ul>
       </SettingsCard>
     </>
+  );
+}
+
+/**
+ * D9 / Q1 (R1): the reason of a switch (a message switch, pilot mode, the
+ * timer) may be left empty; the server saves "No reason given". A typed
+ * reason still needs 10 to 500 characters (the server refuses a shorter one
+ * and the dialog keeps the text). Pilot Deals and text approvals keep the
+ * required ReasonField.
+ */
+function OptionalReasonField({ id, defaultValue }: { id: string; defaultValue?: string }) {
+  return (
+    <Field htmlFor={id} label="Reason" optional hint={SETTINGS_TEXT.reasonOptionalHint}>
+      <Textarea id={id} name="reason" maxLength={500} rows={3} defaultValue={defaultValue} aria-describedby={`${id}-hint`} />
+    </Field>
   );
 }
 

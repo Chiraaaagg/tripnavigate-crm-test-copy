@@ -35,7 +35,8 @@ export function ReportPaymentDialog({
   return (
     <Dialog defaultOpen={initialOpen}>
       <DialogTrigger asChild>
-        <Button variant="primary">
+        {/* Secondary: the Deal header's "Next" action is the page's one primary (R2 review). */}
+        <Button variant="secondary">
           <HandCoins aria-hidden="true" />
           Tell Accounts about a payment
         </Button>

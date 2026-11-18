@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page, test } from '@playwright/test';
 import { primaryActions } from '../helpers/primary-actions';
+import { pageReady } from '../helpers/page-ready';
 
 /**
  * Phase 6 approved import list (manifest) and Bitrix Lead provenance, through
@@ -63,7 +64,9 @@ async function noHorizontalScroll(page: Page) {
 async function open(page: Page, state: string) {
   await page.goto(`/preview/${state}`);
   await expect(page.getByRole('heading', { level: 1 })).toBeAttached();
-  await page.waitForLoadState('networkidle');
+  // Not networkidle: under `next dev` on the CI runner a preview page can stay busy and the wait ran
+  // into the 90 s test timeout (run 44157491493). Wait for the hydrated heading and fonts instead.
+  await pageReady(page);
 }
 
 const nav = (page: Page) => page.getByRole('navigation', { name: 'Main' });

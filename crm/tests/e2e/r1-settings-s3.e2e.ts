@@ -89,7 +89,8 @@ test.describe('Bitrix connection: four sub-tabs', () => {
     await open(page, 'r1-bitrix-cleanup-attention');
     await expect(page.locator('[data-slot="open-sync-work-line"]')).toHaveCount(0);
     await expect(page.locator('.stat-grid')).toContainText('Needs review');
-    await expect(page.getByRole('table')).toContainText('2 items need attention');
+    // Clean-up has two tables (items needing attention, waiting deals by Bitrix owner): name the one meant.
+    await expect(page.getByRole('table', { name: /need attention/ })).toContainText('2 items need attention');
     await expect(page.getByRole('button', { name: /^Retry/ })).toHaveCount(2);
   });
 });
@@ -102,8 +103,8 @@ test.describe('Which deals come in: one confirm dialog with the effect and a req
     await open(page, 'r1-bitrix-deals');
     await waitForHydration(page);
     const edit = page.getByRole('form', { name: 'Change which deals come in from Bitrix' });
-    // No reason box on the page any more: it is in the dialog.
-    await expect(edit.getByRole('textbox')).toHaveCount(0);
+    // No reason box on the page any more: it is in the dialog. (The start date is the form's one text field.)
+    await expect(edit.getByRole('textbox', { name: /reason|why/i })).toHaveCount(0);
     await edit.getByRole('checkbox', { name: 'Pipeline: Synthetic corporate pipeline' }).uncheck();
     await edit.getByRole('button', { name: 'Review changes' }).click();
     const dialog = page.getByRole('alertdialog', { name: REVIEW });

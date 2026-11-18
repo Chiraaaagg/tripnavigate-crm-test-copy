@@ -28,6 +28,9 @@ const tallyFile = await import('@/modules/accounts-desk/server/tally-file-action
 const documents = await import('@/modules/customer-documents/server/actions');
 const refunds = await import('@/modules/refunds/server/actions');
 const writeOffs = await import('@/modules/write-offs/server/actions');
+const nameMap = await import('@/modules/integration/server/name-map-actions');
+const tripDetails = await import('@/modules/integration/server/trip-details-actions');
+const messages = await import('@/modules/customer-messages/server/actions');
 
 const USER = 'a0000000-0000-4000-8000-000000000001';
 const ENTITY = 'e0000000-0000-4000-8000-000000000001';
@@ -92,7 +95,13 @@ describe('the reason helper', () => {
   });
 
   it('the shared change action: real department work and the Bitrix scope keep a required reason; every other switch is optional', () => {
-    const required: Record<string, string> = { service_items_enabled: 'real_booking', visa_passport_tasks_enabled: 'real_booking', lead_intake_unowned: 'bitrix_scope' };
+    const required: Record<string, string> = {
+      service_items_enabled: 'real_booking',
+      visa_passport_tasks_enabled: 'real_booking',
+      lead_intake_unowned: 'bitrix_scope',
+    };
+    // Owner decision, 18 Nov: the ID-proof copy to Bitrix takes the optional reason like the other switches.
+    expect(switchReasonRule('bitrix_id_proof_copy')).toBe('optional');
     for (const key of CHANGEABLE_SWITCH_KEYS) {
       expect(switchReasonRule(key), key).toBe(key in required ? 'required' : 'optional');
       expect(switchFamily(key), key).toBe(required[key] ?? null);
@@ -103,6 +112,7 @@ describe('the reason helper', () => {
 describe('Features and Bitrix switches (changeSettingSwitchAction)', () => {
   const post = (settingKey: string, reason: string) => settings.changeSettingSwitchAction(null, form({ settingKey, state: 'on', reason, confirm: 'yes' }));
 
+  // bitrix_name_read is a key of this action, but the Bitrix connection page posts its own action (setBitrixNameReadAction, below).
   it.each(['intake_prompt_enabled', 'prefill_auto_fill', 'referral_drafts', 'bitrix_trip_facts_read', 'bitrix_id_proof_copy', 'bitrix_name_read'])(
     '%s (optional): an empty reason reaches the database as "No reason given"',
     async (key) => {
@@ -174,6 +184,65 @@ describe('staff notices and the Tally exception owner (optional)', () => {
     const r = await run(form({ ...fields, reason: 'short' }));
     expect(r).toMatchObject({ ok: false });
     expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('Bitrix names and trip details: the actions the Bitrix connection page really posts (optional)', () => {
+  const SUPER = { userId: USER, supabase: { rpc }, access: { userId: USER, memberships: [{ roleCode: 'super_admin', legalEntityId: ENTITY, branchId: null }], rolePermissions: [], grants: [] }, memberships: [] };
+  const cases: Array<[string, (fd: FormData) => Promise<unknown>]> = [
+    ['Bitrix names (setBitrixNameReadAction)', (fd) => nameMap.setBitrixNameReadAction(null, fd)],
+    ['Bitrix trip details (setBitrixTripDetailsReadAction)', (fd) => tripDetails.setBitrixTripDetailsReadAction(null, fd)],
+  ];
+
+  it.each(cases)('%s: an empty or blank reason reaches the database as "No reason given"', async (_name, run) => {
+    requireStaff.mockResolvedValue(SUPER);
+    for (const reason of ['', ' \n ']) {
+      rpc.mockClear();
+      await run(form({ state: 'on', reason, confirm: 'yes' }));
+      expect(rpc).toHaveBeenCalledTimes(1);
+      expect(sentReasons()).toEqual([NO_REASON_GIVEN]);
+    }
+  });
+
+  it.each(cases)('%s: a typed reason is sent as typed; a short one is refused; the confirm step is still required', async (_name, run) => {
+    requireStaff.mockResolvedValue(SUPER);
+    await run(form({ state: 'off', reason: 'Owner approved on 18 Nov (synthetic)', confirm: 'yes' }));
+    expect(sentReasons()).toEqual(['Owner approved on 18 Nov (synthetic)']);
+    rpc.mockClear();
+    expect(await run(form({ state: 'on', reason: 'short', confirm: 'yes' }))).toMatchObject({ ok: false, code: 'invalid_input', fields: ['reason'] });
+    expect(await run(form({ state: 'on', reason: '' }))).toMatchObject({ ok: false, code: 'invalid_input', fields: ['confirm'] });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('Customer messages: the switches, pilot mode and the timer (optional); pilot Deals and text approvals (required)', () => {
+  const optional: Array<[string, (fd: FormData) => Promise<unknown>, Record<string, string>]> = [
+    ['message switch (A7)', (fd) => messages.setMessageSwitchAction(null as never, fd), { entityId: ENTITY, type: 'booking_confirmed', channel: 'email', enabled: 'true', expectedRowVersion: '1' }],
+    ['pilot mode (A8)', (fd) => messages.setPilotOnlyAction(null as never, fd), { entityId: ENTITY, pilotOnly: 'false' }],
+    ['timer (A11)', (fd) => messages.setTimerEnabledAction(null as never, fd), { enabled: 'true' }],
+  ];
+  const required: Array<[string, (fd: FormData) => Promise<unknown>, Record<string, string>]> = [
+    ['pilot Deal add or remove (A9)', (fd) => messages.setPilotDealAction(null as never, fd), { entityId: ENTITY, dealId: OTHER, inPilot: 'true' }],
+    ['WhatsApp text approval (A10)', (fd) => messages.setTemplateStatusAction(null as never, fd), { entityId: ENTITY, templateCode: 'tn_booking_confirmed_en_v1', status: 'approved' }],
+  ];
+
+  it.each(optional)('%s: an empty reason reaches the database as "No reason given"; a typed one is kept; a short one is refused', async (_name, run, fields) => {
+    await run(form({ ...fields, reason: '' }));
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(sentReasons()).toEqual([NO_REASON_GIVEN]);
+    rpc.mockClear();
+    await run(form({ ...fields, reason: 'Owner approved on 18 Nov (synthetic)' }));
+    expect(sentReasons()).toEqual(['Owner approved on 18 Nov (synthetic)']);
+    rpc.mockClear();
+    expect(await run(form({ ...fields, reason: 'short' }))).toMatchObject({ ok: false });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it.each(required)('%s: not a switch, so an empty reason is refused as today, with no database call', async (_name, run, fields) => {
+    for (const reason of ['', '  ']) expect(await run(form({ ...fields, reason }))).toMatchObject({ ok: false });
+    expect(rpc).not.toHaveBeenCalled();
+    await run(form({ ...fields, reason: 'Owner approved on 18 Nov (synthetic)' }));
+    expect(sentReasons()).toEqual(['Owner approved on 18 Nov (synthetic)']);
   });
 });
 

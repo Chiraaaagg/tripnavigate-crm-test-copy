@@ -45,7 +45,7 @@ export const SETTINGS_TEXT = {
   recordedWithReason: 'Recorded with your name and reason.',
   recordedNoReason: 'Recorded with your name and the time (no reason given).',
   reasonOptionalLabel: 'Reason',
-  reasonOptionalHint: 'You may leave it empty. The change, your name and the time are kept either way. If the owner approved it, write that here.',
+  reasonOptionalHint: 'Leave it empty, or write 10 to 500 characters. The change, your name and the time are kept either way. If the owner approved it, write that here.',
   reasonRequiredHint: '10 to 500 characters, saved with your name. Write the owner’s APPROVE here.',
   refusedReason: 'Not saved: say why, in 10 to 500 characters.',
   refusedReview: 'Not saved: review the change first. Nothing was changed.',

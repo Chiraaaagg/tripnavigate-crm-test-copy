@@ -194,6 +194,9 @@ function QuickSearchDialog({
   const hintId = `${id}-hint`;
   const [query, setQuery] = useState(defaultQuery);
   const [outcome, setOutcome] = useState<Outcome>({ state: 'idle' });
+  // Where focus was when the search opened (the find box, or the page for "/"). The dialog has no
+  // Radix Trigger, so Radix would leave focus on the page body on close; it goes back here instead.
+  const [returnFocusTo] = useState<HTMLElement | null>(() => (typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null)));
   const [active, setActive] = useState(0);
   const seq = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -349,6 +352,10 @@ function QuickSearchDialog({
       onOpenAutoFocus={(event) => {
         event.preventDefault();
         document.getElementById(inputId)?.focus();
+      }}
+      onCloseAutoFocus={(event) => {
+        event.preventDefault();
+        if (returnFocusTo && returnFocusTo !== document.body && returnFocusTo.isConnected) returnFocusTo.focus();
       }}
     >
       <div className="flex flex-col gap-2 px-5 pt-5 pr-14 pb-2">

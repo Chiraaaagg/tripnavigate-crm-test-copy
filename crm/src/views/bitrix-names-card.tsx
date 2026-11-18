@@ -1,16 +1,13 @@
 'use client';
 
 import { CircleCheck, CircleHelp, CircleOff, type LucideIcon, TriangleAlert } from 'lucide-react';
-import { useActionState, useEffect, useId, useRef, useState } from 'react';
-import { HandForm } from '@/components/hand-form';
+import { useId } from 'react';
 import { StatusBadge, type StatusTone } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
-import { ChoiceGroup, Radio } from '@/components/ui/choice';
-import { Field, fieldDescribedBy } from '@/components/ui/field';
+import { ConfirmChange } from '@/components/ui/confirm-change';
 import { Notice } from '@/components/ui/notice';
-import { Textarea } from '@/components/ui/textarea';
-import { NAME_READ_REASON, type NameReadStateView } from '@/modules/integration/name-map';
+import type { NameReadStateView } from '@/modules/integration/name-map';
+import { SETTINGS_TEXT } from '@/modules/settings/text';
 import type { NameReadSwitchActionResult } from '@/modules/integration/server/name-map-actions';
 import { formatIst } from './deal-labels';
 
@@ -18,18 +15,19 @@ import { formatIst } from './deal-labels';
  * DEC-55 (plan.md §12c): the "Bitrix names" switch (bitrix_name_read) on the
  * Bitrix sync page. On, Off or Unknown in words with an icon (Unknown is never
  * shown as Off). Only a Super Admin gets the change control; the server
- * refuses everyone else and writes the audit row. Change flow: choose On or
- * Off, type a reason (10 to 500 characters), review, then confirm. Focus moves
- * to each step's heading; a refusal keeps the typed reason and focuses it; a
- * save closes the steps and announces the result; the submit button is
- * disabled while saving (no double submit). P-SETTING pattern, catalog gap G5.
+ * refuses everyone else and writes the audit row. UX redesign R1 (C7, D9):
+ * "Change" opens one confirm dialog that switches to the other state; the
+ * reason is optional (an empty one is saved as "No reason given"; a typed one
+ * needs 10 to 500 characters). The dialog posts the same fields as before:
+ * state, reason, confirm=yes. A refusal keeps the dialog open with the typed
+ * reason; a save closes it and the result is announced beside the button.
  * Copy: copy-catalogue §16.10 DA-139 to DA-141.
  */
 
 export type NameReadAction = (prev: NameReadSwitchActionResult | null, formData: FormData) => Promise<NameReadSwitchActionResult>;
 
 export const NAMES_CARD_LINE = 'Shows Bitrix stage, status and source names. Read-only; nothing is written to Bitrix.';
-/** DA-139: both directions, in the review step. */
+/** DA-139: both directions, in the confirm dialog. */
 export const NAMES_APPROVAL_LINE = 'Changing this in the live CRM needs the owner’s approval first. Write the approval in the reason.';
 
 type Step = 'closed' | 'choose' | 'review';
@@ -125,7 +123,7 @@ export function BitrixNamesCard({
   action: NameReadAction;
   /** Preview gallery only. */
   initialResult?: NameReadSwitchActionResult | null;
-  /** Preview gallery only. */
+  /** Preview gallery only: 'choose' or 'review' opens the confirm dialog. */
   initialStep?: Step;
   /** Preview gallery only. */
   initialReason?: string;
@@ -133,66 +131,9 @@ export function BitrixNamesCard({
   copy?: ReadSwitchCopy;
 }) {
   const id = useId();
-  const [result, formAction, pending] = useActionState(action, initialResult);
   // "On" only when names are really shown (switch on AND connection on); `enabled` is the switch itself.
   const current = state.state === 'known' ? (state.enabled ? (state.effective ? 'on' : 'on_no_connection') : 'off') : 'unknown';
-  const [step, setStep] = useState<Step>(initialStep);
-  const [target, setTarget] = useState<'on' | 'off'>(state.state === 'known' && state.enabled ? 'off' : 'on');
-  const [reason, setReason] = useState(initialReason);
-  const [reasonError, setReasonError] = useState<string | null>(null);
-  // Where focus goes after the next render (a step heading, the reason field, the trigger, the result).
-  // A counter makes a repeated target (Back, then Back again) still move focus.
-  const [focus, setFocus] = useState<{ target: 'choose' | 'review' | 'reason' | 'trigger' | 'result'; n: number } | null>(null);
-  const moveFocus = (target: 'choose' | 'review' | 'reason' | 'trigger' | 'result') => setFocus((f) => ({ target, n: (f?.n ?? 0) + 1 }));
-  const chooseHeading = useRef<HTMLHeadingElement>(null);
-  const reviewHeading = useRef<HTMLHeadingElement>(null);
-  const reasonField = useRef<HTMLTextAreaElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const resultBox = useRef<HTMLDivElement>(null);
-  const [seenResult, setSeenResult] = useState(result);
-
-  // A new action result (render-time state adjustment, no effect): a save closes the steps and
-  // clears the reason; a reason refusal reopens the first step with the typed reason kept.
-  if (result !== seenResult) {
-    setSeenResult(result);
-    if (result?.ok) {
-      setStep('closed');
-      setReason('');
-      moveFocus('result');
-    } else if (result && result.code === 'invalid_input') {
-      setStep('choose');
-      moveFocus(result.fields.includes('reason') ? 'reason' : 'choose');
-    } else if (result) {
-      moveFocus('result');
-    }
-  }
-
-  useEffect(() => {
-    if (!focus) return;
-    const el = { choose: chooseHeading, review: reviewHeading, reason: reasonField, trigger, result: resultBox }[focus.target].current;
-    el?.focus();
-  }, [focus]);
-
-  const refusedFields = result && !result.ok && result.code === 'invalid_input' ? result.fields : [];
-  const reasonProblem = reasonError ?? (refusedFields.includes('reason') ? `Type a reason of ${NAME_READ_REASON.min} to ${NAME_READ_REASON.max} characters.` : null);
-  const trimmed = reason.replace(/\s+/g, ' ').trim();
-  const reasonId = `${id}-reason`;
-  const go = (next: Step, target: 'choose' | 'review' | 'trigger') => {
-    setStep(next);
-    moveFocus(target);
-  };
-
-  const review = () => {
-    if (trimmed.length < NAME_READ_REASON.min || trimmed.length > NAME_READ_REASON.max) {
-      setReasonError(`Type a reason of ${NAME_READ_REASON.min} to ${NAME_READ_REASON.max} characters.`);
-      moveFocus('reason');
-      return;
-    }
-    setReasonError(null);
-    go('review', 'review');
-  };
-
-  const stepHeading = 'm-0 text-base font-semibold text-ink outline-none';
+  const target = state.state === 'known' && state.enabled ? 'off' : 'on';
 
   return (
     <Card className="mt-6">
@@ -226,90 +167,30 @@ export function BitrixNamesCard({
             <p className="m-0 text-sm text-quiet">Not changed since it was installed (it starts Off).</p>
           )}
 
-          <div ref={resultBox} tabIndex={-1} className="outline-none" data-slot={`${copy.slot}-result`}>
-            {result ? (
-              <Notice tone={result.ok ? 'success' : 'danger'} role={result.ok ? 'status' : 'alert'}>
-                <p>{result.message}</p>
-              </Notice>
-            ) : null}
-          </div>
-
           {state.state === 'known' && !state.canSwitch ? <p className="m-0 text-sm text-quiet">Only a Super Admin can change this setting.</p> : null}
 
           {state.state === 'known' && state.canSwitch ? (
-            step === 'closed' ? (
-              <div>
-                <Button ref={trigger} variant="secondary" onClick={() => {
-                    // Start from the opposite of the current switch, so reopening after a save never pre-selects a no-op change.
-                    setTarget(state.state === 'known' && state.enabled ? 'off' : 'on');
-                    go('choose', 'choose');
-                  }}
-                >
-                  {copy.trigger}
-                </Button>
-              </div>
-            ) : (
-              <HandForm action={formAction} noValidate className="flex flex-col gap-4">
-                {step === 'choose' ? (
-                  <>
-                    <h3 ref={chooseHeading} tabIndex={-1} className={stepHeading}>
-                      Step 1 of 2: choose and give a reason
-                    </h3>
-                    <ChoiceGroup id={`${id}-state`} legend={copy.legend}>
-                      <Radio id={`${id}-on`} name="state-choice" value="on" label="On" description={copy.onChoice} checked={target === 'on'} onChange={() => setTarget('on')} />
-                      <Radio id={`${id}-off`} name="state-choice" value="off" label="Off" description={copy.offChoice} checked={target === 'off'} onChange={() => setTarget('off')} />
-                    </ChoiceGroup>
-                    <Field
-                      htmlFor={reasonId}
-                      label="Why are you changing it?"
-                      hint={`${NAME_READ_REASON.min} to ${NAME_READ_REASON.max} characters, saved with your name in the audit log.`}
-                      error={reasonProblem}
-                    >
-                      <Textarea
-                        ref={reasonField}
-                        id={reasonId}
-                        value={reason}
-                        onChange={(e) => setReason(e.target.value)}
-                        maxLength={NAME_READ_REASON.max}
-                        invalid={Boolean(reasonProblem)}
-                        aria-describedby={fieldDescribedBy(reasonId, { hint: true, error: reasonProblem })}
-                      />
-                    </Field>
-                    <div className="flex flex-wrap gap-2">
-                      <Button variant="primary" onClick={review}>
-                        Review change
-                      </Button>
-                      <Button variant="ghost" onClick={() => go('closed', 'trigger')}>
-                        Cancel
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <h3 ref={reviewHeading} tabIndex={-1} className={stepHeading}>
-                      Step 2 of 2: check and confirm
-                    </h3>
-                    <Notice tone="info" title={`${copy.turn} ${target}?`}>
-                      <p>{target === 'on' ? copy.reviewOn : copy.reviewOff}</p>
-                      <p>Nothing is written to Bitrix.</p>
-                      <p>{NAMES_APPROVAL_LINE}</p>
-                      <p className="wrap-break-word">Reason: {trimmed}</p>
-                    </Notice>
-                    <input type="hidden" name="state" value={target} />
-                    <input type="hidden" name="reason" value={trimmed} />
-                    <input type="hidden" name="confirm" value="yes" />
-                    <div className="flex flex-wrap gap-2">
-                      <Button type="submit" variant="primary" loading={pending} disabled={pending}>
-                        {pending ? 'Saving…' : `${copy.turn} ${target}`}
-                      </Button>
-                      <Button variant="ghost" onClick={() => go('choose', 'choose')} disabled={pending}>
-                        Back
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </HandForm>
-            )
+            <div data-slot={`${copy.slot}-result`}>
+              <ConfirmChange<NameReadSwitchActionResult>
+                title={`${copy.turn} ${target}?`}
+                effect={target === 'on' ? copy.reviewOn : copy.reviewOff}
+                affected="Every branch. Nothing is written to Bitrix."
+                confirmLabel={`${copy.turn} ${target}`}
+                tone={target === 'off' ? 'danger' : 'primary'}
+                reason="optional"
+                reasonName="reason"
+                reasonLabel="Why are you changing it?"
+                reasonHint={SETTINGS_TEXT.reasonOptionalHint}
+                formAction={action}
+                hiddenFields={{ state: target, confirm: 'yes' }}
+                trigger={{ label: copy.trigger }}
+                initialOpen={initialStep !== 'closed'}
+                initialReason={initialReason}
+                initialResult={initialResult}
+              >
+                <p className="m-0 text-sm text-quiet">{NAMES_APPROVAL_LINE}</p>
+              </ConfirmChange>
+            </div>
           ) : null}
         </CardBody>
       </section>

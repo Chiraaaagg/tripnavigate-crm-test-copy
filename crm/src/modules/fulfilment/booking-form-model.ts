@@ -14,6 +14,7 @@
  *   - hotel stays are check-in plus nights (check-out is derived).
  */
 
+import { rupeesToPaise } from '@/lib/money';
 import {
   BOOKING_FORM_SECTION_STEP,
   CUSTOMER_LIST_FIELD_MAX,
@@ -113,37 +114,12 @@ export function parseCount(text: string | number | null | undefined): number | n
   return Number(t);
 }
 
-const RUPEES = /^(\d{1,13})(?:\.(\d{1,2}))?$/;
-
 /**
- * Rupees typed by staff → whole paise as a decimal string.
- *   ''              → null (missing, never zero)
- *   '1,234.56'      → '123456' (Indian or Western comma grouping allowed)
- *   invalid or over → undefined ("1.001", "-1", "1e3", "₹100", over the cap)
- * `signed` allows a leading minus (a derived markup only).
+ * Rupees typed by staff -> whole paise as a decimal string. The one money rule
+ * now lives in src/lib/money.ts (owner decision D4); Book now re-exports it
+ * unchanged, so its callers and tests keep this import.
  */
-export function rupeesToPaise(text: string | null | undefined, opts: { signed?: boolean; max?: bigint } = {}): string | null | undefined {
-  const raw = String(text ?? '').trim();
-  if (raw === '') return null;
-  let t = raw;
-  let negative = false;
-  if (opts.signed && t.startsWith('-')) {
-    negative = true;
-    t = t.slice(1).trim();
-  }
-  if (/,/.test(t)) {
-    // Commas only between digit groups, never leading, trailing or doubled.
-    if (!/^\d{1,3}(,\d{2,3})*(\.\d{1,2})?$/.test(t)) return undefined;
-    t = t.replace(/,/g, '');
-  }
-  const m = RUPEES.exec(t);
-  if (!m) return undefined;
-  const paise = BigInt(m[1] ?? '0') * 100n + BigInt((m[2] ?? '').padEnd(2, '0'));
-  const max = opts.max ?? PRICE_AMOUNT_MAX_PAISE;
-  if (paise > max) return undefined;
-  if (negative && paise === 0n) return '0';
-  return (negative ? -paise : paise).toString();
-}
+export { rupeesToPaise };
 
 function toBig(paise: string | null | undefined): bigint | null {
   if (paise === null || paise === undefined || !/^-?\d{1,20}$/.test(paise)) return null;
