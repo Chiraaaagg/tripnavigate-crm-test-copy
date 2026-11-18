@@ -1,0 +1,106 @@
+import type { HotelOption, ImportSummaryView, PartyOption } from '@/views/booking-form/vn-types';
+
+/* LOCAL DESIGN-REVIEW GALLERY ONLY: synthetic lists for the voice-note batch states. Every name is made up. */
+
+export const PREVIEW_HOTELS: HotelOption[] = [
+  { hotelId: 'h0000000-0000-4000-8000-000000000001', name: 'Sample Palace Hotel', city: 'Jodhpur', area: 'Old City', category: '5 star' },
+  { hotelId: 'h0000000-0000-4000-8000-000000000002', name: 'Sample Palm Residency', city: 'Jodhpur', area: 'Ratanada', category: '4 star' },
+  { hotelId: 'h0000000-0000-4000-8000-000000000003', name: 'Sample Hill Resort', city: 'Shimla', area: 'Mall Road', category: '4 star' },
+  { hotelId: 'h0000000-0000-4000-8000-000000000004', name: 'Sample Pine Stay', city: 'Manali', area: null, category: '3 star' },
+];
+
+export const PREVIEW_PARTIES: PartyOption[] = [
+  {
+    partyId: 'p0000000-0000-4000-8000-000000000001',
+    type: 'personal',
+    name: 'Sample Customer Mehra',
+    contactPerson: null,
+    phone: '9876500021',
+    email: 'mehra@example.com',
+    addressLine1: '12 Sample Lane',
+    addressLine2: null,
+    city: 'Jodhpur',
+    stateCode: '08',
+    postalCode: '342001',
+    gstStatus: null,
+    gstin: null,
+    gstReason: null,
+    checkStatus: 'checked',
+    sourceLabel: 'Imported',
+  },
+  {
+    partyId: 'p0000000-0000-4000-8000-000000000002',
+    type: 'business',
+    name: 'Sample Travels Pvt Ltd',
+    contactPerson: 'Sample Contact',
+    phone: '9876500099',
+    email: 'accounts@sampletravels.example',
+    addressLine1: '1 Sample Road',
+    addressLine2: null,
+    city: 'Jodhpur',
+    stateCode: '08',
+    postalCode: '342001',
+    gstStatus: 'registered',
+    gstin: '08ABCDE1234F1Z5',
+    gstReason: null,
+    checkStatus: 'not_checked',
+    sourceLabel: 'Added on DL-1042',
+  },
+  {
+    partyId: 'p0000000-0000-4000-8000-000000000003',
+    type: 'business',
+    name: 'Sample Holidays LLP',
+    contactPerson: 'Sample Owner',
+    phone: '9876500077',
+    email: null,
+    addressLine1: '9 Sample Market',
+    addressLine2: 'Floor 2',
+    city: 'Ahmedabad',
+    stateCode: '24',
+    postalCode: '380001',
+    gstStatus: 'unregistered',
+    gstin: null,
+    gstReason: 'Small firm below the GST threshold',
+    checkStatus: 'returned',
+    sourceLabel: 'Imported',
+  },
+];
+
+export const PREVIEW_IMPORT_SUMMARY: ImportSummaryView = {
+  batchId: 'b0000000-0000-4000-8000-000000000001',
+  kind: 'hotel',
+  fileName: 'sample-hotels.csv',
+  status: 'validated',
+  counts: { rows: 120, valid: 114, invalid: 6, duplicates: 2, creates: 98, updates: 12, unchanged: 3, skippedVerified: 1 },
+  mapping: [
+    { column: 'Hotel ID', field: 'Source ID' },
+    { column: 'Hotel Name', field: 'Hotel name' },
+    { column: 'City', field: 'City' },
+    { column: 'Area', field: 'Area' },
+    { column: 'Stars', field: 'Star category' },
+    { column: 'Owner phone', field: null },
+  ],
+  invalidRows: [
+    { rowNo: 14, reasons: ['City is missing'] },
+    { rowNo: 37, reasons: ['Star category must be 1 to 7'] },
+    { rowNo: 58, reasons: ['Hotel name is missing', 'City is missing'] },
+  ],
+  duplicateRows: [
+    { rowNo: 22, text: 'Same ID as row 21 in this file' },
+    { rowNo: 90, text: 'Same name and city as a stored hotel (not merged)' },
+  ],
+  proposed: [
+    { rowNo: 2, action: 'create', name: 'Sample Lake View', changes: [] },
+    { rowNo: 3, action: 'update', name: 'Sample Palace Hotel', changes: ['area', 'star category'] },
+  ],
+  applyBlockedReason: null,
+  assumedRows: 2,
+  clearingRows: 1,
+  rowVersion: 3,
+  proposalHash: 'synthetic-proposal-0001',
+  rowNotes: [
+    { rowNo: 7, text: 'GST status assumed as registered (a GSTIN is given)' },
+    { rowNo: 19, text: 'State code 8 read as 08' },
+    { rowNo: 33, text: 'Will clear the stored area (the cell is blank)' },
+  ],
+};
