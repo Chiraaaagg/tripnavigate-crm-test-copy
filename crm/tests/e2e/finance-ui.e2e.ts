@@ -415,43 +415,29 @@ test.describe('Phase 5A retry identity and review states', () => {
   // R4 review P2-2: the drawer unmounts its content when it closes; the form state lives above it, so a
   // resubmit after reopening still replays the same request (no second cash or bank receipt).
   test('closing and reopening the receipt drawer after an unknown outcome posts the same requestId', async ({ page }) => {
-    // Record what each server-action POST carries. Chromium does not hand multipart bodies to
-    // page.waitForRequest reliably, so the page's own fetch notes the posted field values.
-    await page.addInitScript(() => {
-      const w = window as unknown as { __posted: string[][] };
-      w.__posted = [];
-      const original = window.fetch.bind(window);
-      window.fetch = (input, init) => {
-        if ((init?.method ?? 'GET').toUpperCase() === 'POST') {
-          const body = init?.body;
-          if (body instanceof FormData) w.__posted.push([...body.values()].filter((v): v is string => typeof v === 'string'));
-          else if (typeof body === 'string') w.__posted.push([body]);
-        }
-        return original(input, init);
-      };
-    });
-    const postedIds = () => page.evaluate(() => (window as unknown as { __posted: string[][] }).__posted);
-    await open(page, 'finance-deal-unknown-outcome--receipts');
+    // The stand-in action leaves the outcome unconfirmed and names the request id the server received,
+    // so each post is read from the server's own answer (a multipart action body is not visible to the test).
+    await open(page, 'finance-deal-unknown-outcome-echo--receipts');
     let record = await recordDrawer(page);
-    const before = await record.getByRole('form', { name: 'Record a receipt' }).locator('input[name="requestId"]').inputValue();
+    const idField = () => record.getByRole('form', { name: 'Record a receipt' }).locator('input[name="requestId"]');
+    const before = await idField().inputValue();
+    expect(before).toMatch(/^[0-9a-f-]{36}$/);
     await record.getByLabel('Amount received (₹)').fill('500');
     await record.getByRole('button', { name: 'Record bank transfer receipt' }).click();
-    await expect(record.getByRole('alert')).toContainText('We could not confirm this was saved.');
-    // The first post carried the form's id.
-    await expect.poll(async () => (await postedIds()).filter((values) => values.some((v) => v.includes(before))).length).toBe(1);
+    await expect(record.getByRole('alert')).toContainText(`Request id received: ${before}, amount ₹500.`);
+    await expect(idField()).toHaveValue(before);
     await page.keyboard.press('Escape');
     await expect(record).toBeHidden();
     record = await recordDrawer(page);
-    const form = record.getByRole('form', { name: 'Record a receipt' });
-    await expect(form.locator('input[name="requestId"]')).toHaveValue(before);
+    // After reopening: the same id in the form, the typed amount kept, and the earlier answer still shown.
+    await expect(idField()).toHaveValue(before);
     await expect(record.getByLabel('Amount received (₹)')).toHaveValue('500');
-    const postsBefore = (await postedIds()).length;
+    // The resubmit replays the same request (no second cash or bank receipt): the server receives the same id.
+    // A changed amount tells this answer apart from the first one, which is still on screen.
+    await record.getByLabel('Amount received (₹)').fill('600');
     await record.getByRole('button', { name: 'Record bank transfer receipt' }).click();
-    await expect(record.getByRole('alert')).toContainText('We could not confirm this was saved.');
-    // The resubmit after reopening is a new post, and it carries the same id (a replay, not a second receipt).
-    await expect.poll(async () => (await postedIds()).length).toBeGreaterThan(postsBefore);
-    const resubmit = (await postedIds()).slice(postsBefore);
-    expect(resubmit.some((values) => values.some((v) => v.includes(before)))).toBe(true);
+    await expect(record.getByRole('alert')).toContainText(`Request id received: ${before}, amount ₹600.`);
+    await expect(idField()).toHaveValue(before);
   });
 
   test('an approved review never shows an earlier return reason as current', async ({ page }) => {

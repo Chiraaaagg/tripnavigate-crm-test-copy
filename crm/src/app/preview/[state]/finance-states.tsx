@@ -59,6 +59,17 @@ async function previewUnknownOutcomeAction(): Promise<FinanceActionState> {
   throw new Error('Design preview: simulated lost response.');
 }
 
+/**
+ * Like a lost response, the outcome stays unconfirmed (no known code, so the form keeps its requestId),
+ * and the answer names the request id and amount the server received, so a test can see what was posted.
+ */
+async function previewUnknownOutcomeEchoAction(_prev: FinanceActionState, formData: FormData): Promise<FinanceActionState> {
+  'use server';
+  const id = String(formData.get('requestId') ?? 'none');
+  const amount = String(formData.get('amountRupees') ?? '');
+  return { status: 'error', message: `Design preview: the outcome is not confirmed. Request id received: ${id}, amount ₹${amount}.` };
+}
+
 /** Synthetic full details for "Show full details" (made-up values; nothing is read or audited). */
 const PREVIEW_DETAILS: Record<string, Omit<DestinationVersionDetail, 'versionId'>> = {
   'c5000000-0000-4000-8000-000000000011': { versionNo: 1, holderName: 'Synthetic Holidays Pvt Ltd', bankName: 'Synthetic Bank', accountNumber: '000123451111', ifsc: 'SYNB0001234', payeeName: null, upiId: null },
@@ -996,6 +1007,11 @@ const states: Record<string, (tab?: string) => ReactNode> = {
       <AccountsDealView {...dealTab('finance-deal-unknown-outcome', tab)} detail={partlyLiveDetail} actions={{ ...actions, recordReceiptAction: previewUnknownOutcomeAction }} destinationOptions={destinationOptions} />
     </StaffShell>
   ),
+  'finance-deal-unknown-outcome-echo': (tab?: string) => (
+    <StaffShell viewer={accounts} currentPath="/app/accounts">
+      <AccountsDealView {...dealTab('finance-deal-unknown-outcome-echo', tab)} detail={partlyLiveDetail} actions={{ ...actions, recordReceiptAction: previewUnknownOutcomeEchoAction }} destinationOptions={destinationOptions} />
+    </StaffShell>
+  ),
   'finance-deal-returned': (tab?: string) => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-returned', tab)} detail={returnedDetail} actions={actions} />
@@ -1224,7 +1240,7 @@ const states: Record<string, (tab?: string) => ReactNode> = {
 };
 
 
-const DEAL_TAB_STATES = ['finance-deal-detail', 'finance-deal-blocked', 'finance-deal-not-live', 'finance-deal-partly-live', 'finance-deal-cash-off', 'finance-deal-no-booking', 'finance-deal-approved-after-return', 'finance-deal-unknown-outcome', 'finance-deal-returned', 'finance-deal-destinations', 'finance-deal-no-destination', 'finance-deal-destinations-unavailable', 'finance-deal-destination-changed', 'finance-deal-return-blocked-committed'];
+const DEAL_TAB_STATES = ['finance-deal-detail', 'finance-deal-blocked', 'finance-deal-not-live', 'finance-deal-partly-live', 'finance-deal-cash-off', 'finance-deal-no-booking', 'finance-deal-approved-after-return', 'finance-deal-unknown-outcome', 'finance-deal-unknown-outcome-echo', 'finance-deal-returned', 'finance-deal-destinations', 'finance-deal-no-destination', 'finance-deal-destinations-unavailable', 'finance-deal-destination-changed', 'finance-deal-return-blocked-committed'];
 for (const name of DEAL_TAB_STATES) {
   for (const tab of [...ACCOUNTS_DEAL_PAGE_TABS, 'money']) states[`${name}--${tab}`] = () => states[name]!(tab);
 }
