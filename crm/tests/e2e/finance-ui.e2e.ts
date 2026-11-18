@@ -468,8 +468,9 @@ test.describe('R4 To check and the Accounts view of a Deal', () => {
     await expect(row.locator(`[id="${reasonId}"]`)).toBeVisible();
     await expect(row.locator(`[id="${reasonId}"]`)).toContainText('You recorded this receipt. Another Accounts person must do this step.');
     await expect(page.getByRole('form', { name: 'Verify R-2026-27-000001' })).toHaveCount(0);
-    // Clicking the disabled button does nothing.
-    await verify.click();
+    // Clicking the disabled button does nothing. Playwright waits for an aria-disabled button to become
+    // enabled, so the click is forced: it still reaches the button, and nothing may open.
+    await verify.click({ force: true });
     await expect(page.getByRole('form', { name: 'Verify R-2026-27-000001' })).toHaveCount(0);
     // With nothing this person can verify, "Record a receipt" is the page's one primary action.
     await expect(page.getByRole('button', { name: 'Record a receipt', exact: true })).toHaveClass(/\bbg-brand-strong\b/);
@@ -513,7 +514,8 @@ test.describe('R4 To check and the Accounts view of a Deal', () => {
     await expect(page.getByRole('main')).toContainText('The dues could not be loaded just now.');
     await open(page, 'finance-deal-refunds-empty');
     await expect(page.getByRole('heading', { name: 'No refunds on this deal' })).toBeVisible();
-    await expect(page.getByRole('main').getByRole('link', { name: 'Refunds', exact: true })).toHaveAttribute('href', '/app/accounts/refunds');
+    // The way to the Refunds list in the tab's text (the Refunds tab link has the same name).
+    await expect(page.getByRole('main').getByText(/Refunds are paid and verified on/).getByRole('link', { name: 'Refunds', exact: true })).toHaveAttribute('href', '/app/accounts/refunds');
   });
 
   test('no "Not possible now" list on receipt rows', async ({ page }) => {

@@ -405,6 +405,8 @@ test.describe('Accounts Phase 3 preview states', () => {
     test.skip(!STATES.includes('acc3-bills-list-release'), 'needs the acc3-bills-list-release state');
     expect(await open(page, 'acc3-bills-list-release')).toBe(true);
     await waitForHydration(page);
+    // Rows released earlier already show the "Released" status; Cancel must not add a release result.
+    const releasedBefore = await page.getByText('Released', { exact: true }).count();
     await page.getByRole('button', { name: 'Release Invoice draft of SYN-JOD-117' }).click();
     const dialog = page.getByRole('dialog', { name: 'Release the Invoice draft of SYN-JOD-117?' });
     await expect(dialog).toBeVisible();
@@ -415,7 +417,8 @@ test.describe('Accounts Phase 3 preview states', () => {
     expect(await axe(page)).toEqual([]);
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).toHaveCount(0);
-    await expect(page.getByText('Released', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Released', { exact: true })).toHaveCount(releasedBefore);
+    await expect(page.getByRole('status').filter({ hasText: 'Released:' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Release Invoice draft of SYN-JOD-117' })).toBeFocused();
   });
 });
