@@ -26,7 +26,7 @@ export interface DealWorkspaceViewProps {
   servicesTab?: ReactNode;
   /** ?tab=money: the "Tell Accounts about a payment" control for the Money card header (price readers who may report). */
   reportPayment?: ReactNode;
-  /** ?tab=money cards after the booking money (customer dues, refunds). Price readers only (the route decides). */
+  /** ?tab=money cards after the booking money (customer dues, refunds). Price readers and money readers (the route decides). */
   moneyTab?: ReactNode;
   /** ?tab=documents cards after the files (customer documents, quotations, itineraries). */
   documentsTab?: ReactNode;
@@ -43,9 +43,11 @@ function TabBody({ workspace, servicesTab, reportPayment, moneyTab, documentsTab
     case 'services':
       return servicesTab ? <div className="flex min-w-0 flex-col gap-5 [&>.work-panel]:m-0">{servicesTab}</div> : <TabUnavailable thing="Services and tasks" />;
     case 'money':
-      return workspace.money ? (
+      // A money reader without the price summary (a branch Manager through a deal.read grant) has no
+      // booking-money card, only the dues and refunds cards the route rendered.
+      return workspace.money || moneyTab ? (
         <div className="flex min-w-0 flex-col gap-5">
-          <DealMoneyTab money={workspace.money} reportPayment={reportPayment} />
+          {workspace.money ? <DealMoneyTab money={workspace.money} reportPayment={reportPayment} /> : null}
           {moneyTab}
         </div>
       ) : (

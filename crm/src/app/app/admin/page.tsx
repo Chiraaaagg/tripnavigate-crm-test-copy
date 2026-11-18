@@ -56,7 +56,10 @@ export default async function SettingsOverviewRoute({ searchParams }: { searchPa
           .then((m) => ({ missingGstin: m.branches.filter((b) => !b.gstin).map((b) => b.name), notApproved: m.notApproved.length }))
           .catch(() => 'unknown' as const)
       : undefined,
-    has('messages') && superAdminEntities.length > 0 ? messagesFact(staff, superAdminEntities[0]!) : undefined,
+    // One company's numbers; with several Super Admin companies the row names the one it shows (R1 review).
+    has('messages') && superAdminEntities.length > 0
+      ? messagesFact(staff, superAdminEntities[0]!, superAdminEntities.length > 1 ? staff.memberships.find((m) => m.legalEntityId === superAdminEntities[0])?.legalEntityName : undefined)
+      : undefined,
   ]);
 
   const facts: OverviewFacts = {
@@ -106,7 +109,7 @@ function healthFact(states: States): OverviewFact<{ realBooking: 'on' | 'off' | 
   return { realBooking: live.rows.find((r) => r.key === 'real_booking')?.state ?? 'unknown' };
 }
 
-async function messagesFact(staff: Awaited<ReturnType<typeof requireStaff>>, entityId: string): Promise<OverviewFacts['messages']> {
+async function messagesFact(staff: Awaited<ReturnType<typeof requireStaff>>, entityId: string, company?: string): Promise<OverviewFacts['messages']> {
   try {
     const data = await loadAdminCustomerMessages(staff, entityId);
     if (!data) return undefined;
@@ -116,6 +119,7 @@ async function messagesFact(staff: Awaited<ReturnType<typeof requireStaff>>, ent
       pilotOnly: data.pilotOnly,
       pilotDeals: data.pilot.length,
       keysMissing: data.providers.filter((p) => !p.configured).length,
+      ...(company ? { company } : {}),
     };
   } catch {
     return 'unknown';

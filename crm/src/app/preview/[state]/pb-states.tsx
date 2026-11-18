@@ -368,6 +368,7 @@ function workPage(viewer: ShellViewer, ws: PurchaseWorkspaceView, pay: PaymentCo
       managerReadOnly={managerReadOnly}
       goAheadState={ws.goAhead.state}
       nextText={purchaseNextText(ws)}
+      chargesEntryShown={ws.cancellation ? ws.cancellation.canEnter : undefined}
       work={<PurchaseWorkTab ws={ws} payments={pay} actions={PB_ACTIONS} senderName={ME} />}
     />,
   );

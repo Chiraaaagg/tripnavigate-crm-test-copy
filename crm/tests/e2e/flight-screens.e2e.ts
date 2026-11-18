@@ -226,8 +226,9 @@ test.describe('Flight queue (R3 work-queue pattern)', () => {
     expect(await dealsInOrder(page)).toEqual(['SYN-JOD-901']);
     await expect(page.getByRole('region', { name: 'Flight tasks table' })).toContainText('(of 4 on this tab)');
     await expect(page.getByRole('search', { name: /flight tasks/ }).getByLabel('Search flight tasks')).toHaveValue('goi');
+    // A chip narrows the Mine tab (as before R3, review P3-5).
     await open(page, 'flight-queue-chip');
-    expect(await dealsInOrder(page)).toEqual(['SYN-JOD-904']);
+    expect(await dealsInOrder(page)).toEqual(['SYN-JOD-901']);
     // Soonest travel first by default; dateless rows last in both directions.
     await open(page, 'flight-queue-all');
     expect(await dealsInOrder(page)).toEqual(['SYN-JOD-904', 'SYN-JOD-901', 'SYN-JOD-902', 'SYN-JOD-903']);

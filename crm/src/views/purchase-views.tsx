@@ -269,7 +269,7 @@ export function PurchaseQueuePage({
       ) : null}
       {rows.length === 0 && filtered && tabRows.length > 0 ? (
         <div role="status">
-          <QueueNothingMatches card clearHref={queueAddress(base, { show: showParam })} />
+          <QueueNothingMatches card clearHref={queueAddress(base, { show: showParam, sort: query.sort })} />
         </div>
       ) : rows.length === 0 ? (
         <Card>
@@ -481,6 +481,7 @@ export function PurchaseTaskPage({
   goAheadState,
   nextText,
   filesExtra,
+  chargesEntryShown,
 }: {
   task: PurchaseTaskView;
   /** Preview gallery only. */
@@ -505,6 +506,12 @@ export function PurchaseTaskPage({
   nextText?: string;
   /** Purchase build: supplier invoices and credit notes under the Files list (Files tab only). */
   filesExtra?: React.ReactNode;
+  /**
+   * R3 review P3-7: false when the Work tab has no charges form for this viewer
+   * (`cancellation.canEnter` false), so "Enter the charges" gets no button that
+   * would jump to nothing. Omitted: unchanged.
+   */
+  chargesEntryShown?: boolean;
 }) {
   const basePath = `/app/purchase/${task.taskId}`;
   const current = tabs?.current ?? 'details';
@@ -516,7 +523,8 @@ export function PurchaseTaskPage({
   const hasWork = tabs ? tabs.tabs.includes('work') : !!work;
   const onWork = tabs ? current === 'work' : !!work;
   let button: NextButton | undefined;
-  if (step && hasWork && !showClaim) {
+  const targetShown = !(step === 'charges' && chargesEntryShown === false);
+  if (step && hasWork && !showClaim && targetShown) {
     const target = purchaseNextTargetId(step);
     button = onWork
       ? { label: <>{PURCHASE_NEXT_LABEL[step]}<span className="sr-only"> (go to it below)</span></>, jumpTo: target }

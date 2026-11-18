@@ -160,7 +160,8 @@ describe('Manager · Approvals page', () => {
     expect(html).toContain('You can’t approve your own price. Another Manager decides.');
     expect(html).toContain('Another Manager decides this one. Nobody approves their own request.');
     expect(html).not.toMatch(/<form[^>]*>[^]*?Approve this cost above budget/);
-    expect(html.match(/disabled=""/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    // Review P3-6: shown disabled but still focusable (aria-disabled, in no form), so keyboard users reach the reason.
+    expect(html.match(/aria-disabled="true"/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
 
   it('cost above budget approves exactly the version shown (taskId and versionNo posted)', () => {

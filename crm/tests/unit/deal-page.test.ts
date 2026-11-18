@@ -14,6 +14,9 @@ const loadDealDues = vi.fn();
 const loadDealRefunds = vi.fn();
 const loadCustomerDocuments = vi.fn();
 const loadDealCustomerMessages = vi.fn();
+// Change requests and their history (Services and tasks): observed, so a desk-only viewer can be shown never to start them.
+const loadDealChangeRequests = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => null);
+const loadChangeHistory = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => null);
 
 vi.mock('@/modules/identity/server/session', () => ({ requireStaff: () => requireStaff() }));
 vi.mock('@/modules/deals/server/queries', () => ({
@@ -49,6 +52,11 @@ vi.mock('@/modules/customer-messages/server/queries', async (importOriginal) => 
   ...(await importOriginal<typeof import('@/modules/customer-messages/server/queries')>()),
   loadDealCustomerMessages: (...a: unknown[]) => loadDealCustomerMessages(...a),
 }));
+vi.mock('@/modules/booking-changes/server/queries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/booking-changes/server/queries')>()),
+  loadDealChangeRequests: (...a: unknown[]) => loadDealChangeRequests(...a),
+  loadChangeHistory: (...a: unknown[]) => loadChangeHistory(...a),
+}));
 vi.mock('@/lib/config', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/config')>()),
   getAppConfig: () => ({ supabaseUrl: 'http://127.0.0.1:54321', supabasePublishableKey: 'sb_publishable_test' }),
@@ -60,6 +68,9 @@ const { HotelBookingPanel, HotelBookingUnavailable } = await import('@/views/boo
 const { LiveDealsRefresh } = await import('@/components/LiveDealsRefresh');
 const { DealBookingUnavailable, DealBookNowCard } = await import('@/views/b11/book-views');
 const { StartBookNowForm } = await import('@/views/b11/book-entry-forms');
+const { DealDuesCard } = await import('@/views/accounts-desk/deal-money');
+const { DealRefundsCard } = await import('@/views/refunds/deal-card');
+const { MovedCardsNote } = await import('@/views/deal-workspace/moved-cards');
 
 const DEAL_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -371,7 +382,68 @@ describe('R2 Deal page: default tab, re-homed cards and the money fence', () => 
     expect(view.props.messagesTab).toBeDefined();
   });
 
+  // Review R2 (P2): a branch Manager reading the Deal through a deal.read grant has no price summary
+  // (commercialAbsence 'withheld') but reads dues and refunds; those cards live on Money now.
+  const managerDeal: DealDetail = { ...salesDeal, relation: 'scope', commercial: { visible: false }, commercialAbsence: 'withheld' };
+
+  it('branch Manager through deal.read (no price summary): Money is listed and shows the dues and refunds cards, no amounts in the model', async () => {
+    requireStaff.mockResolvedValue({ userId: 'u1', memberships: [{ roleCode: 'manager' }] });
+    getVisibleDeal.mockResolvedValue(managerDeal);
+    loadDealDues.mockResolvedValue({ synthetic: 'dues', viewer: 'manager' });
+    loadDealRefunds.mockResolvedValue({ synthetic: 'refunds' });
+    const { view, workspace } = await render('money');
+    expect(workspace.current).toBe('money');
+    expect(workspace.tabs.map((t) => t.tab)).toContain('money');
+    // No price summary and no "Tell Accounts about a payment" (price readers only).
+    expect(workspace).not.toHaveProperty('money');
+    expect(view.props.reportPayment).toBeUndefined();
+    expect(JSON.stringify(workspace)).not.toMatch(/₹|selling|margin/i);
+    expect(loadDealDues).toHaveBeenCalledTimes(1);
+    expect(loadDealRefunds).toHaveBeenCalledTimes(1);
+    const moneyTab = view.props.moneyTab as ReactNode;
+    expect(find(moneyTab, DealDuesCard)?.props).toMatchObject({ dues: { synthetic: 'dues' }, viewer: 'manager' });
+    expect(find(moneyTab, DealRefundsCard)?.props).toMatchObject({ refunds: { synthetic: 'refunds' } });
+  });
+
+  it('branch Manager through deal.read: old ?tab=services#dues and #refunds anchors point to Money', async () => {
+    requireStaff.mockResolvedValue({ userId: 'u1', memberships: [{ roleCode: 'manager' }] });
+    getVisibleDeal.mockResolvedValue(managerDeal);
+    const { view, workspace } = await render('services');
+    expect(workspace.current).toBe('services');
+    const note = find(view.props.servicesTab as ReactNode, MovedCardsNote);
+    const links = (note?.props.links ?? []) as Array<{ anchor: string; href: string }>;
+    expect(links.find((l) => l.anchor === 'dues')?.href).toBe(`/app/deals/${DEAL_ID}?tab=money#dues`);
+    expect(links.find((l) => l.anchor === 'refunds')?.href).toBe(`/app/deals/${DEAL_ID}?tab=money#refunds`);
+    // Services and tasks does not read customer money itself.
+    expect(loadDealDues).not.toHaveBeenCalled();
+    expect(loadDealRefunds).not.toHaveBeenCalled();
+  });
+
+  it('branch Manager through deal.read with no dues and no refunds: Money says so (never "could not load", never blank)', async () => {
+    requireStaff.mockResolvedValue({ userId: 'u1', memberships: [{ roleCode: 'manager' }] });
+    getVisibleDeal.mockResolvedValue(managerDeal);
+    const { view, workspace } = await render('money');
+    expect(workspace.current).toBe('money');
+    expect(view.props.moneyTab).toBeDefined();
+    expect(find(view.props.moneyTab as ReactNode, DealDuesCard)).toBeNull();
+  });
+
   for (const role of ['purchase', 'flight', 'visa']) {
+    it(`${role} only, even on a Deal whose price is readable: no Money tab, no customer-money or change-request read`, async () => {
+      requireStaff.mockResolvedValue({ userId: 'u1', memberships: [{ roleCode: role }] });
+      getVisibleDeal.mockResolvedValue({ ...salesDeal, relation: 'assigned' });
+      for (const tab of ['money', 'services']) {
+        const { view, workspace } = await render(tab);
+        expect(workspace.tabs.map((t) => t.tab), `tab ${tab}`).not.toContain('money');
+        expect(workspace.current, `tab ${tab}`).not.toBe('money');
+        for (const slot of ['moneyTab', 'reportPayment']) expect(view.props[slot], `${slot} on tab ${tab}`).toBeUndefined();
+      }
+      expect(loadDealDues).not.toHaveBeenCalled();
+      expect(loadDealRefunds).not.toHaveBeenCalled();
+      expect(loadDealChangeRequests).not.toHaveBeenCalled();
+      expect(loadChangeHistory).not.toHaveBeenCalled();
+    });
+
     it(`${role} only: no customer-money read on any tab or old address, and no money anywhere in the props`, async () => {
       requireStaff.mockResolvedValue({ userId: 'u1', memberships: [{ roleCode: role }] });
       getVisibleDeal.mockResolvedValue(purchaseDeal);
@@ -389,6 +461,8 @@ describe('R2 Deal page: default tab, re-homed cards and the money fence', () => 
       expect(loadDealRefunds).not.toHaveBeenCalled();
       expect(loadCustomerDocuments).not.toHaveBeenCalled();
       expect(loadDealCustomerMessages).not.toHaveBeenCalled();
+      expect(loadDealChangeRequests).not.toHaveBeenCalled();
+      expect(loadChangeHistory).not.toHaveBeenCalled();
     });
   }
 });

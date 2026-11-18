@@ -21,9 +21,13 @@ import { SWITCH_WORDS } from './text';
  *  - sync scope (Bitrix scope): "Which deals come in", "Bring in deals only
  *    when won" and "Bring in leads whose Bitrix owner is not a CRM
  *    salesperson" (its words are marked `scope`).
- * Those actions never call withOptionalReason. Everything else (the other
- * Features switches, the other Bitrix switches, staff notices, the Tally
- * exception owner) takes the optional reason.
+ * Those actions never call withOptionalReason. Everything else takes the
+ * optional reason: the other Features switches, the Bitrix switches outside
+ * the scope (Bitrix names, trip facts, trip details, and "Copy ID proofs to
+ * the Bitrix deal": owner decision, 18 November 2026), staff notices, the
+ * customer message switches, pilot mode, the timer and the Tally exception
+ * owner (owner decision, 18 November 2026). Pilot Deals, text approvals, Tally mapping and the money
+ * rules policy are not switches and keep their required reason.
  *
  * Pure: shared by the server actions (the rule) and the dialogs (whether the
  * reason box shows as optional or required).
@@ -42,7 +46,7 @@ export const REQUIRED_REASON_FAMILIES: readonly RequiredReasonFamily[] = ['finan
 /** Features switches that start real department work (tasks for Purchase, Flight and the Visa desk). */
 export const REAL_WORK_SWITCHES: readonly ChangeableSwitchKey[] = ['service_items_enabled', 'visa_passport_tasks_enabled'];
 
-/** The family of a switch of the shared change action, or null when it is outside the four. */
+/** The family of a switch of the shared change action, or null when it is outside the four (optional reason). */
 export function switchFamily(key: ChangeableSwitchKey): RequiredReasonFamily | null {
   if (SWITCH_WORDS[key].scope) return 'bitrix_scope';
   if (REAL_WORK_SWITCHES.includes(key)) return 'real_booking';

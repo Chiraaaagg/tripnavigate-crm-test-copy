@@ -211,7 +211,7 @@ test.describe('Deal page: header (P-HEADER)', () => {
     await expect(header).toContainText('Owner: You');
     await expect(header.getByRole('link', { name: 'BXL-700311' })).toHaveAttribute('href', '/app/leads/c6000000-0000-4000-8000-000000000001');
     await expect(header).toContainText('From lead BXL-700311');
-    // The system facts (stage, live updates) are folded under Details (R2).
+    // The Bitrix stage is folded under Details (R2); the live-update status stays outside the fold.
     await header.locator('#deal-system-details > summary').click();
     // Not colour alone (WCAG 1.4.1): the link is underlined.
     expect(await header.getByRole('link', { name: 'BXL-700311' }).evaluate((a) => getComputedStyle(a).textDecorationLine)).toBe('underline');

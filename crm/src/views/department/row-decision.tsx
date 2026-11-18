@@ -2,7 +2,7 @@
 
 import { Check, Lock, Undo2 } from 'lucide-react';
 import { useActionState, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { ApprovalRowActions } from '@/components/ui/approval-row-actions';
+import { ApprovalRowActions, ApproveSubmit } from '@/components/ui/approval-row-actions';
 import { Button } from '@/components/ui/button';
 import { ConfirmChange } from '@/components/ui/confirm-change';
 import { Notice } from '@/components/ui/notice';
@@ -71,6 +71,15 @@ export interface RowDecisionProps {
   initialReturnOpen?: boolean;
 }
 
+/**
+ * R3 review P2-1: once Approve has succeeded, a queued second press keeps that
+ * first "Done" and posts nothing (its reply would be a refusal, "already
+ * decided", and would replace "Done" with a false "Not saved").
+ */
+export function keepFirstOk<T extends { ok: boolean }>(run: (prev: T | null, formData: FormData) => Promise<T>) {
+  return async (prev: T | null, formData: FormData): Promise<T> => (prev?.ok ? prev : run(prev, formData));
+}
+
 const stringFields = (fields: Readonly<Record<string, string | number>>): Record<string, string> =>
   Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, String(v)]));
 
@@ -93,7 +102,7 @@ export function RowDecision({
   initialApproveOpen = false,
   initialReturnOpen = false,
 }: RowDecisionProps) {
-  const [approveResult, approve] = useActionState(guard(action), approveConfirm ? null : initialApproveResult);
+  const [approveResult, approve] = useActionState(keepFirstOk(guard(action)), approveConfirm ? null : initialApproveResult);
   // One request id per row: a double press or a retry after a lost reply is the same request.
   const [requestId] = useState(() => crypto.randomUUID());
   const [returned, setReturned] = useState<UiResult | null>(null);
@@ -239,7 +248,8 @@ function PartialActions({
   return (
     <div className="flex flex-wrap items-start gap-2 font-sans" data-slot="approval-actions">
       {approveBlockedReason ? (
-        <Button size="sm" disabled aria-describedby={blockedId}>
+        // Focusable but inert (R3 review P3-6): aria-disabled, no handler and no form, so it cannot post.
+        <Button size="sm" aria-disabled="true" aria-describedby={blockedId}>
           <Check aria-hidden="true" />
           {approveLabel}
           {forRecord}
@@ -271,11 +281,7 @@ function PartialActions({
           {Object.entries(approveFields).map(([name, value]) => (
             <input key={name} type="hidden" name={name} value={value} />
           ))}
-          <Button type="submit" size="sm">
-            <Check aria-hidden="true" />
-            {approveLabel}
-            {forRecord}
-          </Button>
+          <ApproveSubmit label={approveLabel} forRecord={forRecord} />
         </form>
       )}
       {ret ? (

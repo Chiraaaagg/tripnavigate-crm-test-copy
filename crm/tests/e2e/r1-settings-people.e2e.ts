@@ -187,6 +187,16 @@ test.describe('People and access › Staff (S9, S10)', () => {
     const list = main.getByRole('list', { name: 'Staff in your entities' });
     await expect(list.locator('[data-slot="staff-row"]')).toHaveCount(5);
     await pillsHaveIconAndWord(page);
+    // R1 review: the search filters in the browser; names and e-mails never go into the address.
+    const before = page.url();
+    await main.getByLabel('Search staff').fill('recovery failed');
+    await expect(list.locator('[data-slot="staff-row"]:visible')).toHaveCount(1);
+    await expect(main.getByRole('status').filter({ hasText: 'of 5 shown' })).toContainText('1 of 5 shown.');
+    await main.getByLabel('Search staff').press('Enter');
+    expect(page.url()).toBe(before);
+    expect(page.url()).not.toContain('q=');
+    await main.getByLabel('Search staff').fill('');
+    await expect(list.locator('[data-slot="staff-row"]:visible')).toHaveCount(5);
   });
 
   test('plain failure words, the code only behind Details', async ({ page }) => {

@@ -179,6 +179,7 @@ export default async function PurchaseTaskRoute({ params, searchParams }: { para
         managerReadOnly={managerReadOnly}
         goAheadState={workspace?.goAhead.state ?? null}
         nextText={workspace ? purchaseNextText(workspace) : undefined}
+        chargesEntryShown={workspace?.cancellation ? workspace.cancellation.canEnter : undefined}
         idProofs={idProofs !== null ? <TravellerIdProofsCard state={idProofs} /> : undefined}
         work={
           current === 'work' && (workspace || workForm) ? (

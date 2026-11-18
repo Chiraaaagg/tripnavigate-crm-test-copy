@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireStaff } from '@/modules/identity/server/session';
+import { withOptionalReason } from '@/modules/settings/reason';
 import { asRpcClient } from '../commands';
 import { normaliseNameReadReason } from '../name-map';
 import { setBitrixNameRead } from './name-map';
@@ -9,7 +10,7 @@ import { setBitrixNameRead } from './name-map';
 /**
  * DEC-55: "Show Bitrix names" switch on the Bitrix sync page (Super Admin).
  *
- * Form fields: `state` = 'on' | 'off', `reason` (10-500 characters, spaces
+ * Form fields: `state` = 'on' | 'off', `reason` (empty, or 10-500 characters, spaces
  * collapsed), `confirm` = 'yes' (the page's confirmation step; refused without
  * it, so a confirmation that only exists in the browser is not enough).
  * Authorization is checked on the server twice: requireStaff() (aal2, active
@@ -38,9 +39,12 @@ const MESSAGE = {
 
 export async function setBitrixNameReadAction(
   _prev: NameReadSwitchActionResult | null,
-  formData: FormData,
+  input: FormData,
 ): Promise<NameReadSwitchActionResult> {
   const staff = await requireStaff();
+  // D9 / Q1 (R1): not one of the four STANDING-RULES families (it reads from Bitrix, writes nothing there):
+  // the reason is optional; an empty one is saved as "No reason given" (modules/settings/reason.ts).
+  const formData = withOptionalReason(input);
   const fields: Array<'state' | 'reason' | 'confirm'> = [];
   const state = formData.get('state');
   if (state !== 'on' && state !== 'off') fields.push('state');

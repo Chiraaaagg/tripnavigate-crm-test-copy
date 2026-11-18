@@ -5,6 +5,7 @@ import {
   buildDealOverviewMoney,
   buildDealWorkspace,
   canListDealMessages,
+  canListDealMoney,
   dealHasServices,
   dealTabsFor,
   defaultDealTab,
@@ -151,6 +152,26 @@ describe('R2 Deal tab contract: every old ?tab= value, per role', () => {
       const tabs = build(v, undefined).tabs.map((t) => t.tab);
       expect(tabs).not.toContain('money');
       expect(tabs).not.toContain('messages');
+    }
+  });
+});
+
+describe('R2 Money tab listing (review R2, P2)', () => {
+  const priced = { relation: 'scope' as const, commercialAbsence: undefined };
+  const withheld = { relation: 'scope' as const, commercialAbsence: 'withheld' as const };
+  it('a branch Manager reading through deal.read (price withheld) still gets Money: dues and refunds live there', () => {
+    expect(canListDealMoney(withheld, ['manager'])).toBe(true);
+    expect(canListDealMoney(withheld, ['accounts'])).toBe(true);
+    expect(canListDealMoney({ ...withheld, relation: 'owner' }, ['sales'])).toBe(true);
+  });
+  it('a price reader gets Money; a viewer with neither price nor money reading does not', () => {
+    expect(canListDealMoney(priced, ['sales'])).toBe(true);
+    expect(canListDealMoney(withheld, ['sales'])).toBe(false);
+  });
+  it('never a desk-only viewer, even with a price grant', () => {
+    for (const roles of [['purchase'], ['flight'], ['visa'], ['flight', 'visa']]) {
+      expect(canListDealMoney(priced, roles), roles.join('+')).toBe(false);
+      expect(canListDealMoney({ ...priced, relation: 'owner' }, roles), roles.join('+')).toBe(false);
     }
   });
 });
