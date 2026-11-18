@@ -100,6 +100,9 @@ test.describe('B1.1 department cost block', () => {
     await expect(card).toContainText('returned by Accounts');
     await expect(card.getByRole('button', { name: 'Fix and send the payment again' })).toBeVisible();
     await open(page, 'b11-flight-task-cost-sent');
+    // R3 (O9): a finished payment step folds to one line on the Work tab; open it to read the card.
+    const paymentFold = page.locator('details#step-payment');
+    if ((await paymentFold.count()) > 0 && (await paymentFold.getAttribute('open')) === null) await paymentFold.locator('summary').click();
     await expect(page.getByRole('region', { name: 'Cost and payment' })).toContainText('Paid directly · with Accounts');
     // "Approved budget" is the budget line; the payment itself is never described as waiting for an approval.
     await expect(page.getByRole('region', { name: 'Cost and payment' })).not.toContainText(/waiting for (an )?approval|payment approval/i);

@@ -1,5 +1,8 @@
+'use client';
+
 import { Check, Lock, Undo2 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
+import { useFormStatus } from 'react-dom';
 import { Button } from './button';
 import { ConfirmChange, type ConfirmAction, type ConfirmResult } from './confirm-change';
 
@@ -12,8 +15,13 @@ import { ConfirmChange, type ConfirmAction, type ConfirmResult } from './confirm
  * reads clearly to a screen reader.
  *
  * blocked: `disabledReason` disables both and says why beside them ("You
- * raised this, so a different person approves it."). Nobody approves their
- * own work; the database still refuses it whatever the screen shows.
+ * raised this, so a different person approves it."). They stay focusable
+ * (aria-disabled, described by the reason) and sit in no form, so they
+ * cannot post. Nobody approves their own work; the database still refuses it
+ * whatever the screen shows.
+ *
+ * Approve is disabled and shows a spinner while its post is pending (R3
+ * review P2-1), so a double press cannot send a second decision.
  *
  * Contract note: the build plan named an `onReturn` callback. A server page
  * cannot pass a callback to a client part, so Return takes the dialog's
@@ -48,26 +56,7 @@ export function ApprovalRowActions<R extends ConfirmResult>({ recordName, approv
   const returnLabel = returnChange?.label ?? 'Return';
   const forRecord = <span className="sr-only"> {recordName}</span>;
   if (disabledReason) {
-    return (
-      <div className="flex flex-wrap items-center justify-end gap-2 font-sans" data-slot="approval-actions">
-        <Button size="sm" disabled>
-          <Check aria-hidden="true" />
-          {approveLabel}
-          {forRecord}
-        </Button>
-        {returnChange ? (
-          <Button size="sm" variant="ghost" disabled>
-            <Undo2 aria-hidden="true" />
-            {returnLabel}
-            {forRecord}
-          </Button>
-        ) : null}
-        <p className="m-0 flex basis-full items-start justify-end gap-1.5 text-sm text-quiet">
-          <Lock aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-          <span>{disabledReason}</span>
-        </p>
-      </div>
-    );
+    return <BlockedActions approveLabel={approveLabel} returnLabel={returnChange ? returnLabel : null} forRecord={forRecord} reason={disabledReason} />;
   }
   return (
     <div className="flex flex-wrap items-start justify-end gap-2 font-sans" data-slot="approval-actions">
@@ -75,11 +64,7 @@ export function ApprovalRowActions<R extends ConfirmResult>({ recordName, approv
         {approve.hiddenFields
           ? Object.entries(approve.hiddenFields).map(([name, value]) => <input key={name} type="hidden" name={name} value={value} />)
           : null}
-        <Button type="submit" size="sm">
-          <Check aria-hidden="true" />
-          {approveLabel}
-          {forRecord}
-        </Button>
+        <ApproveSubmit label={approveLabel} forRecord={forRecord} />
       </form>
       {returnChange ? (
         <ConfirmChange
@@ -106,6 +91,43 @@ export function ApprovalRowActions<R extends ConfirmResult>({ recordName, approv
           }}
         />
       ) : null}
+    </div>
+  );
+}
+
+/** The Approve submit: disabled with a spinner while the post is pending, so a double press posts once. */
+export function ApproveSubmit({ label, forRecord }: { label: ReactNode; forRecord: ReactNode }) {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" size="sm" loading={pending}>
+      {pending ? null : <Check aria-hidden="true" />}
+      {label}
+      {forRecord}
+    </Button>
+  );
+}
+
+function BlockedActions({ approveLabel, returnLabel, forRecord, reason }: { approveLabel: string; returnLabel: string | null; forRecord: ReactNode; reason: ReactNode }) {
+  const reasonId = useId();
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2 font-sans" data-slot="approval-actions">
+      {/* Focusable but inert: aria-disabled, no handler and no form, so nothing can post. */}
+      <Button size="sm" aria-disabled="true" aria-describedby={reasonId}>
+        <Check aria-hidden="true" />
+        {approveLabel}
+        {forRecord}
+      </Button>
+      {returnLabel ? (
+        <Button size="sm" variant="ghost" aria-disabled="true" aria-describedby={reasonId}>
+          <Undo2 aria-hidden="true" />
+          {returnLabel}
+          {forRecord}
+        </Button>
+      ) : null}
+      <p id={reasonId} className="m-0 flex basis-full items-start justify-end gap-1.5 text-sm text-quiet">
+        <Lock aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+        <span>{reason}</span>
+      </p>
     </div>
   );
 }

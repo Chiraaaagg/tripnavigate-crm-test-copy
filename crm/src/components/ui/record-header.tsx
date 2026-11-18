@@ -135,19 +135,21 @@ export function RecordHeader({
             </div>
           ) : null}
         </div>
-        {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+        {/* Beside the title the actions take at most half the row, so long words in them (a take box's help line at 200% zoom) wrap instead of pushing the page sideways. Short actions do not change. */}
+        {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2 sm:max-w-[50%]">{actions}</div> : null}
       </div>
       {next && (next.text || next.button) ? (
         <div
-          className="mt-3 flex flex-col gap-2.5 rounded-control border border-line bg-card px-3.5 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+          className="mt-3 flex flex-col gap-2.5 rounded-control border border-line bg-card px-3.5 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
           data-slot="next-step"
         >
+          {/* When the words and the button do not fit on one line (a long label, 200% zoom), the button moves under the words and wraps, never pushing the page sideways. */}
           <p className="m-0 text-base text-copy">
             <span className="font-semibold text-ink">Next: </span>
             {next.text}
           </p>
           {next.button ? (
-            <div className="shrink-0 max-sm:[&>*]:w-full max-sm:[&_button]:w-full">
+            <div className="max-w-full max-sm:[&>*]:w-full max-sm:[&_button]:w-full">
               <NextAction button={next.button} />
             </div>
           ) : null}

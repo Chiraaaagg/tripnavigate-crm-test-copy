@@ -24,7 +24,9 @@ const act = (a: unknown) => a as ExistingSettingsAction;
  * phase 3 B1, B2, C2), UX redesign R1: per company eight rows on one screen
  * (Tally export, exception owner, customer documents, refunds, automatic
  * drafts, automatic release, write-offs, Tally import file), each with one
- * confirm dialog and an optional reason (D9). Finance policy managers (Super
+ * confirm dialog. The switches are finance modes (lead ruling on Q1), so
+ * their reason stays required (10 to 500 characters); only the exception
+ * owner, a person and not a switch, takes the optional reason (D9). Finance policy managers (Super
  * Admin without Accounts) change them; the database decides and audits.
  * A Super Admin who also holds Accounts in a finance company sees that
  * company read only with the reason (S12; the read refuses them, so no

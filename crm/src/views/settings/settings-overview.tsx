@@ -46,7 +46,7 @@ export function SettingsOverviewView({ rows, tabs }: { rows: OverviewRowVM[]; ta
             {rows.map((row) => (
               <TableRow key={row.category} data-area={row.category}>
                 <TableCell className="whitespace-nowrap max-sm:whitespace-normal">
-                  <Link href={row.href} className={cn('inline-flex items-center gap-2 rounded-chip font-semibold text-brand-strong underline-offset-4 hover:underline', focusRing)}>
+                  <Link href={row.href} className={cn('inline-flex items-center gap-2 rounded-chip font-semibold text-brand-strong underline decoration-1 underline-offset-4 hover:decoration-2', focusRing)}>
                     <AreaIcon category={row.category} className="text-quiet" />
                     {row.label}
                   </Link>

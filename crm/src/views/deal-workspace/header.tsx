@@ -192,16 +192,15 @@ export function DealWorkspaceHeader({
           </Notice>
         ) : null}
         {header.bitrixLate ? <LateRecordNotice thing="deal" /> : null}
-        {header.stage || live ? (
+        {/* The live-update indicator (role="status") stays outside the fold, so an offline or paused state is seen and read out. */}
+        {live ? <div className="[&_.live-indicator]:m-0">{live}</div> : null}
+        {header.stage ? (
           <Fold summary="Details" className="shadow-none" bodyClassName="flex flex-col gap-2" id="deal-system-details">
-            {header.stage ? (
-              <p className="m-0 inline-flex flex-wrap items-center gap-1 text-copy">
-                {/* DA-115: "Stage: {name}"; an unrecognised stage says so without the extra label. */}
-                {bitrixNameUnrecognised(header.stage) ? null : <span className="text-quiet">Stage:</span>}
-                <BitrixName name={header.stage} kind="stage" capitalDetails />
-              </p>
-            ) : null}
-            {live ? <div className="[&_.live-indicator]:m-0">{live}</div> : null}
+            <p className="m-0 inline-flex flex-wrap items-center gap-1 text-copy">
+              {/* DA-115: "Stage: {name}"; an unrecognised stage says so without the extra label. */}
+              {bitrixNameUnrecognised(header.stage) ? null : <span className="text-quiet">Stage:</span>}
+              <BitrixName name={header.stage} kind="stage" capitalDetails />
+            </p>
           </Fold>
         ) : null}
       </div>

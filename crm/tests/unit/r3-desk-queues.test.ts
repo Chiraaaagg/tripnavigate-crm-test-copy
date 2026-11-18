@@ -127,7 +127,11 @@ describe('Flight queue model', () => {
 
   it('tab, then search, then chip, then sort; counts per tab and per chip', () => {
     const m = flightQueueModel(GROUPS, { canTakeTasks: true, show: 'all', q: 'syn', only: 'payment', sort: 'latest' });
-    expect(refs(m.rows)).toEqual(['SYN-2']);
+    // `?only=` narrows Mine only, as before R3 (review P3-5): on All it is ignored.
+    expect(m.only).toBeNull();
+    expect(refs(m.rows)).toEqual(['SYN-3', 'SYN-1', 'SYN-5', 'SYN-4', 'SYN-2']);
+    expect(refs(flightQueueModel(GROUPS, { canTakeTasks: true, show: 'not_taken', only: 'ready' }).rows)).toEqual(['SYN-3']);
+    expect(refs(flightQueueModel(GROUPS, { canTakeTasks: true, show: 'mine', q: 'syn', only: 'booking_changed', sort: 'latest' }).rows)).toEqual(['SYN-5']);
     expect(m.tabRows).toHaveLength(5);
     expect(m.counts).toEqual({ not_taken: 1, mine: 2, all: 5 });
     expect(m.chipCounts).toEqual({ booking_changed: 1, payment: 1, change_decision: 0, ready: 1 });

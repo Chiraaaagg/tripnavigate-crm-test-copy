@@ -221,7 +221,8 @@ export interface OverviewFacts {
   money?: OverviewFact<{ on: number; total: number }>;
   bitrix?: OverviewFact<{ autoSync: SwitchState }>;
   features?: OverviewFact<{ on: number; total: number; unknown: number }>;
-  messages?: OverviewFact<{ on: number; total: number; pilotOnly: boolean; pilotDeals: number; keysMissing: number }>;
+  /** `company`: the company the numbers belong to, named when the person is Super Admin of more than one (R1 review). */
+  messages?: OverviewFact<{ on: number; total: number; pilotOnly: boolean; pilotDeals: number; keysMissing: number; company?: string }>;
   health?: OverviewFact<{ realBooking: SwitchState }>;
 }
 
@@ -282,7 +283,7 @@ function rowFor(category: SettingsCategory, facts: OverviewFacts): Pick<Overview
       if (f === 'unknown') return UNKNOWN_ROW;
       const pilot = f.pilotOnly ? `pilot list on (${plural(f.pilotDeals, 'Deal')})` : 'every Deal';
       const keys = f.keysMissing > 0 ? ` · ${plural(f.keysMissing, 'sending key')} not saved yet` : '';
-      return { state: f.keysMissing > 0 ? { tone: 'attention', label: 'Set-up not finished' } : { tone: 'info', label: `${f.on} of ${f.total} on` }, text: `${f.on} of ${f.total} on · ${pilot}${keys}` };
+      return { state: f.keysMissing > 0 ? { tone: 'attention', label: 'Set-up not finished' } : { tone: 'info', label: `${f.on} of ${f.total} on` }, text: `${f.company ? `${f.company}: ` : ''}${f.on} of ${f.total} on · ${pilot}${keys}` };
     }
     case 'health': {
       const f = facts.health;

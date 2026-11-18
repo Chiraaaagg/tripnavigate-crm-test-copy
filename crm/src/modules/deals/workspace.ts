@@ -86,6 +86,28 @@ export function isDeskOnlyViewer(roleCodes: readonly string[]): boolean {
 }
 
 /**
+ * People who may read customer money on this Deal (dues, refunds) even
+ * without the selling-price summary: the Deal's Sales owner, a branch
+ * Manager, Accounts. Never a desk-only viewer. The dues and refunds reads
+ * still decide what each one sees (null = no card).
+ */
+export function isDealMoneyReader(relation: ViewerRelation, roleCodes: readonly string[]): boolean {
+  if (isDeskOnlyViewer(roleCodes)) return false;
+  return relation === 'owner' || roleCodes.includes('manager') || roleCodes.includes('accounts');
+}
+
+/**
+ * The Money tab is listed for price readers (canSeeDealMoney) and for money
+ * readers (isDealMoneyReader: a branch Manager reading the Deal through a
+ * deal.read grant has no price summary but does read dues and refunds).
+ * Never for a desk-only viewer (Purchase, Flight, Visa).
+ */
+export function canListDealMoney(deal: Pick<DealDetail, 'commercialAbsence' | 'relation'>, roleCodes: readonly string[]): boolean {
+  if (isDeskOnlyViewer(roleCodes)) return false;
+  return canSeeDealMoney(deal) || isDealMoneyReader(deal.relation, roleCodes);
+}
+
+/**
  * The Messages tab is listed for the people the customer-message read serves:
  * the Deal's Sales owner, a branch Manager, Accounts. Never a desk-only
  * viewer. The read still decides what they see (null = nothing).
@@ -96,7 +118,7 @@ export function canListDealMessages(relation: ViewerRelation, roleCodes: readonl
 }
 
 export interface DealTabAccess {
-  /** canSeeDealMoney(deal). */
+  /** canListDealMoney(deal, roleCodes) (the route); canSeeDealMoney(deal) when the route does not say. */
   money: boolean;
   /** The combined documents read (B1-2) is installed, or the quotation or itinerary list was readable. */
   documents: boolean;
@@ -855,6 +877,8 @@ export interface DealWorkspaceInput extends DealHeaderInput {
   documentsAvailable?: boolean;
   /** canListDealMessages for this viewer (decided by the route from the relation and roles); default false. */
   messagesListed?: boolean;
+  /** canListDealMoney for this viewer (decided by the route from the Deal and roles); default canSeeDealMoney(deal). */
+  moneyListed?: boolean;
   /** Flight build: loadDealFlightHistory when the History tab is open; undefined = not read. */
   flightHistory?: DealFlightHistoryDTO | null | 'error';
   /** Visa build: loadDealVisaHistory when the History tab is open; undefined = not read. */
@@ -862,12 +886,12 @@ export interface DealWorkspaceInput extends DealHeaderInput {
 }
 
 /** The tabs this viewer may open and the one to render, from the reads the route already has. */
-export function dealTabsFor(input: Pick<DealWorkspaceInput, 'deal' | 'tab' | 'quotations' | 'itinerariesReadable' | 'documentsAvailable' | 'messagesListed' | 'book' | 'services'>): {
+export function dealTabsFor(input: Pick<DealWorkspaceInput, 'deal' | 'tab' | 'quotations' | 'itinerariesReadable' | 'documentsAvailable' | 'messagesListed' | 'moneyListed' | 'book' | 'services'>): {
   visible: DealTab[];
   current: DealTab;
 } {
   const visible = visibleDealTabs({
-    money: canSeeDealMoney(input.deal),
+    money: input.moneyListed ?? canSeeDealMoney(input.deal),
     documents: Boolean(input.documentsAvailable) || input.quotations !== null || input.itinerariesReadable,
     messages: Boolean(input.messagesListed),
   });

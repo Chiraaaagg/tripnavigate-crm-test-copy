@@ -321,7 +321,9 @@ test.describe('R3 Suppliers area: accessibility at 1280, 390 px and 200% zoom', 
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await open(page, state);
       expect(await axe(page)).toEqual([]);
-      expect(await page.getByRole('heading', { level: 1 }).count()).toBe(1);
+      // An "add" drawer open on load is modal (aria-modal) and hides the page, so the page's own h1 is counted in the markup then.
+      const dialogOpen = (await page.getByRole('dialog').or(page.getByRole('alertdialog')).count()) > 0;
+      expect(await (dialogOpen ? page.locator('h1') : page.getByRole('heading', { level: 1 })).count()).toBe(1);
       await page.setViewportSize({ width: 390, height: 844 });
       await open(page, state);
       await noHorizontalScroll(page);
@@ -352,7 +354,8 @@ test.describe('R3 Suppliers register (queue pattern, add in a drawer)', () => {
   test('the Manager approvals address marks the "Payments on hold" chip and status is words, not colour', async ({ page }) => {
     await open(page, 'acc2-supplier-register-state-chip');
     await expect(page.getByRole('navigation', { name: 'Supplier state' }).getByRole('link', { name: /^Payments on hold/ })).toHaveAttribute('aria-current', 'page');
-    await expect(page.getByRole('table', { name: 'Suppliers table' })).toContainText('Payments on hold');
+    // "Suppliers table" names the scrolling region around the table; the table itself is named by its caption.
+    await expect(page.getByRole('region', { name: 'Suppliers table' }).getByRole('table')).toContainText('Payments on hold');
   });
 
   test('"Add a supplier" opens the same form in a drawer; Escape closes it and focus returns to the button', async ({ page }) => {

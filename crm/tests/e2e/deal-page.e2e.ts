@@ -211,7 +211,7 @@ test.describe('Deal page: header (P-HEADER)', () => {
     await expect(header).toContainText('Owner: You');
     await expect(header.getByRole('link', { name: 'BXL-700311' })).toHaveAttribute('href', '/app/leads/c6000000-0000-4000-8000-000000000001');
     await expect(header).toContainText('From lead BXL-700311');
-    // The system facts (stage, live updates) are folded under Details (R2).
+    // The Bitrix stage is folded under Details (R2); the live-update status stays outside the fold.
     await header.locator('#deal-system-details > summary').click();
     // Not colour alone (WCAG 1.4.1): the link is underlined.
     expect(await header.getByRole('link', { name: 'BXL-700311' }).evaluate((a) => getComputedStyle(a).textDecorationLine)).toBe('underline');
@@ -683,6 +683,20 @@ test.describe('Deal page: production style policy', () => {
                 /^\s*((transition-duration|animation-name|--radix-collapsible-content-(height|width))\s*:[^;]*;\s*)*$/.test(el.getAttribute('style') ?? '')
               ),
           )
+          // R2: a modal dialog open on first load (the payment report, Radix Dialog). Radix sets through the CSSOM:
+          // pointer-events: none on the body (DismissableLayer), outline/opacity/position/pointer-events on the two
+          // focus guards (FocusGuards), and pointer-events: auto on the overlay and the dialog. They are not in the
+          // server HTML either. Only those values on those nodes, and only while such a dialog is open, are let through.
+          .filter((el) => {
+            const openDialog = '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]';
+            if (!document.querySelector(openDialog)) return true;
+            const style = el.getAttribute('style') ?? '';
+            const only = (props: string) => new RegExp(`^\\s*((${props})\\s*:[^;]*;\\s*)*$`).test(style);
+            if (el === document.body) return !only('pointer-events');
+            if (el.matches('[data-radix-focus-guard]')) return !only('outline|opacity|position|pointer-events');
+            if (el.matches(openDialog) || el.nextElementSibling?.matches(openDialog)) return !only('pointer-events');
+            return true;
+          })
           .map((el) => el.outerHTML.slice(0, 120)),
       );
       expect(live, state).toEqual([]);

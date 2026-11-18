@@ -262,7 +262,7 @@ const states: Record<string, () => ReactNode> = {
   'flight-queue-manager': () => shell(managerViewer, '/app/flight', <FlightQueuePage queue={queue} canTakeTasks={false} show="all" />),
   /* UX redesign R3 (C2): the queue toolbar's search, filter chip, sort and "nothing matches" states. */
   'flight-queue-search': () => shell(flightViewer, '/app/flight', <FlightQueuePage queue={queue} canTakeTasks show="all" q="goi" />),
-  'flight-queue-chip': () => shell(flightViewer, '/app/flight', <FlightQueuePage queue={queue} canTakeTasks show="all" only="payment" />),
+  'flight-queue-chip': () => shell(flightViewer, '/app/flight', <FlightQueuePage queue={queue} canTakeTasks show="mine" only="change_decision" />),
   'flight-queue-sort-latest': () => shell(flightViewer, '/app/flight', <FlightQueuePage queue={queue} canTakeTasks show="all" sort="latest" />),
   'flight-queue-no-match': () => shell(flightViewer, '/app/flight', <FlightQueuePage queue={queue} canTakeTasks show="all" q="nothing-like-this" />),
   'flight-queue-manager-search': () => shell(managerViewer, '/app/flight', <FlightQueuePage queue={queue} canTakeTasks={false} show="all" q="JOD-904" />),

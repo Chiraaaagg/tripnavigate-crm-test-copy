@@ -17,7 +17,7 @@ import { getAppConfig } from '@/lib/config';
 import { loadDealDocuments } from '@/modules/deals/server/documents';
 import { loadDealLeadLink } from '@/modules/deals/server/lead-link';
 import { getVisibleDeal, loadBitrixNameLookup } from '@/modules/deals/server/queries';
-import { buildDealWorkspace, canListDealMessages, DEAL_TAB_LABEL, dealHref, isDeskOnlyViewer, requestedDealTab, type DealBookingInput } from '@/modules/deals/workspace';
+import { buildDealWorkspace, canListDealMessages, canListDealMoney, DEAL_TAB_LABEL, dealHref, isDealMoneyReader, isDeskOnlyViewer, requestedDealTab, type DealBookingInput } from '@/modules/deals/workspace';
 import { loadDealServices, loadWorkflowSettings } from '@/modules/fulfilment/server/intake';
 import { loadBookingForDeal } from '@/modules/fulfilment/server/queries';
 import { BOOK_NOW_NOT_INSTALLED, loadBookNow } from '@/modules/fulfilment/server/book-now';
@@ -167,11 +167,14 @@ export default async function DealPage({
       : {}),
     // Messages tab: Sales owner, branch Manager, Accounts (never a desk-only viewer); the read decides the rest.
     messagesListed: canListDealMessages(deal.relation, roleCodes),
+    // Money tab: price readers and money readers (a branch Manager through a deal.read grant reads dues and
+    // refunds without the price summary); never a desk-only viewer.
+    moneyListed: canListDealMoney(deal, roleCodes),
   });
   const current = workspace.current;
   // People who may read customer money on this Deal; a failed money read shows its error card only to them
   // (review item 16). Purchase, Flight and Visa see nothing about customer money.
-  const moneyReader = !deskOnly && (roleCodes.some((r) => r === 'accounts' || r === 'manager') || deal.relation === 'owner');
+  const moneyReader = isDealMoneyReader(deal.relation, roleCodes);
 
   const bookHref = `/app/deals/${deal.id}/book`;
   const startForm =
@@ -196,11 +199,11 @@ export default async function DealPage({
     const bookState = bookView ? dealBookState(bookView) : null;
     const intakeHref = bookState || bookFailed ? null : legacyIntakeHref;
     // Accounts phase 3 (contract 10.5 R-G1, R-G4; screen 15.10): changes after a supplier confirmed and their
-    // history. Sales owner, branch Manager and Accounts read; Purchase, Flight and Visa get null (no card).
-    const [dealChanges, changeHistory] = await Promise.all([
-      loadDealChangeRequests(staff, deal.id).catch(() => 'error' as const),
-      loadChangeHistory(staff, deal.id).catch(() => 'error' as const),
-    ]);
+    // history. Sales owner, branch Manager and Accounts read; Purchase, Flight and Visa would get null, so the
+    // reads are not started for a desk-only viewer (no card).
+    const [dealChanges, changeHistory] = deskOnly
+      ? ([null, null] as const)
+      : await Promise.all([loadDealChangeRequests(staff, deal.id).catch(() => 'error' as const), loadChangeHistory(staff, deal.id).catch(() => 'error' as const)]);
     const changeViewer = roleCodes.includes('accounts') ? 'accounts' : roleCodes.includes('manager') ? 'manager' : 'sales';
     const changeActions =
       changeViewer === 'accounts'
@@ -342,11 +345,12 @@ export default async function DealPage({
     }
   }
 
-  // Money tab (R2: dues and plan, reported payments, refunds). The tab is listed only for price readers,
-  // so these reads never start for Purchase, Flight or Visa; deskOnly is checked again on purpose.
+  // Money tab (R2: dues and plan, reported payments, refunds). The tab is listed for price readers and money
+  // readers, never for Purchase, Flight or Visa, so these reads never start for them; deskOnly is checked again
+  // on purpose. A money reader without the price summary (workspace.money absent) still gets dues and refunds.
   let moneyTab: ReactNode;
   let reportPayment: ReactNode;
-  if (current === 'money' && workspace.money && !deskOnly) {
+  if (current === 'money' && !deskOnly) {
     // Accounts phase (contract 8.3 deal_dues, 11.4) and phase 2 (7.5 R-C1): Customer dues and Refunds. The reads
     // fence every viewer (null = no card); a failed read shows the error card only to money readers.
     const [dues, refundCard] = await Promise.all([loadDealDues(staff, deal.id).catch(() => 'error' as const), refundsCard(staff, deal.id, { moneyReader })]);
@@ -368,11 +372,13 @@ export default async function DealPage({
           {duesCard}
           {refundCard}
         </>
-      ) : undefined;
-    // "Tell Accounts about a payment": the existing Book now claim panel in a dialog, for people the claims
-    // read lets report (deal_payment_claims; canReport). The same server actions as Book now.
+      ) : workspace.money ? undefined : (
+        <StateBlock kind="empty" title="No customer money to show" text="Customer dues and refunds on this deal are shown to its Sales owner, the branch Manager and Accounts." />
+      );
+    // "Tell Accounts about a payment": the existing Book now claim panel in a dialog, for price readers the
+    // claims read lets report (deal_payment_claims; canReport). The same server actions as Book now.
     const claims = bookView?.claims;
-    reportPayment = claims?.canReport ? (
+    reportPayment = workspace.money && claims?.canReport ? (
       <ReportPaymentDialog dealId={deal.id} claims={claims} reportAction={reportPaymentClaimAction} withdrawAction={withdrawPaymentClaimAction} />
     ) : undefined;
   }

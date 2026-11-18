@@ -1,12 +1,14 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page, test } from '@playwright/test';
+import { waitForHydration } from './hydration';
 
 /**
  * DEC-55 (plan.md §12c): the "Bitrix names" switch card on the Bitrix sync
  * page, through the design-preview gallery (synthetic props, stand-in
  * actions, no database). On / Off / Unknown in words with an icon (Unknown is
- * never Off); change control for the Super Admin only; choose, reason,
- * review, confirm; a refusal keeps the typed reason. The server refusal and
+ * never Off); change control for the Super Admin only; one confirm dialog
+ * (UX redesign R1, C7) with an optional reason (D9); a refusal keeps the
+ * dialog and the typed reason. The server refusal and
  * audit row are covered by the database and action tests, not here.
  */
 
@@ -34,7 +36,15 @@ test.describe('Bitrix names card: accessibility', () => {
       ]) {
         await page.setViewportSize(size);
         await open(page, state);
-        await expect(card(page)).toBeVisible();
+        await waitForHydration(page);
+        // R1 (C7): the review and refused states open the one confirm dialog on load. It is modal, so the
+        // card is aria-hidden and counted in the markup instead; axe then checks the page with the dialog.
+        const dialog = page.getByRole('alertdialog');
+        await expect(card(page).or(dialog).first()).toBeVisible();
+        if ((await dialog.count()) > 0) {
+          await expect(dialog).toBeVisible();
+          await expect(page.locator('section[aria-labelledby]').filter({ has: page.locator('h2, h3', { hasText: /^Bitrix names$/ }) })).toHaveCount(1);
+        }
         expect(await axe(page), `${state} at ${size.width}`).toEqual([]);
         const { scrollWidth, clientWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
         expect(scrollWidth, `${state} at ${size.width}`).toBeLessThanOrEqual(clientWidth);
@@ -53,56 +63,55 @@ test.describe('Bitrix names card: states and change flow', () => {
     await expect(card(page).getByRole('button', { name: 'Change Bitrix names setting' })).toBeVisible();
   });
 
-  test('change flow: choose, reason (10 to 500 characters), review, confirm; a short reason is refused and kept', async ({ page }) => {
+  test('change flow (R1): one confirm dialog, the reason optional; a typed reason under 10 characters is stopped and kept', async ({ page }) => {
     await open(page, 'names-switch-off-admin');
     await card(page).getByRole('button', { name: 'Change Bitrix names setting' }).click();
-    await expect(card(page).getByRole('radio', { name: 'On' })).toBeChecked();
-    const reason = card(page).getByRole('textbox', { name: 'Why are you changing it?' });
+    const dialog = page.getByRole('alertdialog', { name: 'Turn Bitrix names on?' });
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await expect(dialog).toContainText('Nothing is written to Bitrix.');
+    // DA-139: the owner's approval comes first; the reason records it.
+    await expect(dialog).toContainText('Changing this in the live CRM needs the owner’s approval first. Write the approval in the reason.');
+    await expect(dialog.getByRole('radio')).toHaveCount(0);
+    const reason = dialog.getByRole('textbox', { name: /Why are you changing it\?/ });
+    await expect(reason).toHaveAccessibleDescription(/Leave it empty, or write 10 to 500 characters/);
     await reason.fill('too short');
-    await card(page).getByRole('button', { name: 'Review change' }).click();
-    await expect(card(page)).toContainText('Type a reason of 10 to 500 characters.');
+    await dialog.getByRole('button', { name: 'Turn Bitrix names on' }).click();
+    await expect(dialog).toContainText('Leave the reason empty, or write at least 10 characters.');
     await expect(reason).toHaveValue('too short');
     await expect(reason).toHaveAttribute('aria-invalid', 'true');
-    await reason.fill('Synthetic: owner approved showing names.');
-    await card(page).getByRole('button', { name: 'Review change' }).click();
-    await expect(card(page).getByRole('note')).toContainText('Turn Bitrix names on?');
-    await expect(card(page).getByRole('note')).toContainText('Nothing is written to Bitrix.');
-    // DA-139: the owner's approval comes first; the reason records it.
-    await expect(card(page).getByRole('note')).toContainText('Changing this in the live CRM needs the owner’s approval first. Write the approval in the reason.');
-    await card(page).getByRole('button', { name: 'Back' }).click();
-    await expect(card(page).getByRole('textbox', { name: 'Why are you changing it?' })).toHaveValue('Synthetic: owner approved showing names.');
-    await card(page).getByRole('button', { name: 'Review change' }).click();
-    await card(page).getByRole('button', { name: 'Turn Bitrix names on' }).click();
+    await expect(reason).toBeFocused();
+    // D9: an empty reason is accepted (the server saves "No reason given").
+    await reason.fill('');
+    await dialog.getByRole('button', { name: 'Turn Bitrix names on' }).click();
+    await expect(dialog).toHaveCount(0);
     await expect(card(page).getByRole('status')).toContainText('Bitrix names are on.');
-    // After the save the steps close: nothing is left to submit twice.
-    await expect(card(page).getByRole('button', { name: 'Turn Bitrix names on' })).toHaveCount(0);
+    // After the save the dialog is closed: nothing is left to submit twice.
+    await expect(page.getByRole('button', { name: 'Turn Bitrix names on' })).toHaveCount(0);
     await expect(card(page).getByRole('textbox')).toHaveCount(0);
   });
 
-  test('focus moves to each step heading, to the field on a short reason, and back to the trigger on Cancel', async ({ page }) => {
+  test('focus: Cancel first in the dialog, and back to the trigger on Cancel or Escape', async ({ page }) => {
     await open(page, 'names-switch-off-admin');
     const trigger = card(page).getByRole('button', { name: 'Change Bitrix names setting' });
     await trigger.click();
-    await expect(card(page).getByRole('heading', { name: 'Step 1 of 2: choose and give a reason' })).toBeFocused();
-    await card(page).getByRole('button', { name: 'Review change' }).click();
-    await expect(card(page).getByRole('textbox', { name: 'Why are you changing it?' })).toBeFocused();
-    await card(page).getByRole('textbox', { name: 'Why are you changing it?' }).fill('Synthetic: owner approved showing names.');
-    await card(page).getByRole('button', { name: 'Review change' }).click();
-    await expect(card(page).getByRole('heading', { name: 'Step 2 of 2: check and confirm' })).toBeFocused();
-    await card(page).getByRole('button', { name: 'Back' }).click();
-    await expect(card(page).getByRole('heading', { name: 'Step 1 of 2: choose and give a reason' })).toBeFocused();
-    await card(page).getByRole('button', { name: 'Cancel' }).click();
-    await expect(card(page).getByRole('button', { name: 'Change Bitrix names setting' })).toBeFocused();
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(trigger).toBeFocused();
+    await trigger.click();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(trigger).toBeFocused();
   });
 
-  test('no double submit: the confirm button is disabled while saving and the result is announced once', async ({ page }) => {
+  test('no double submit: the confirm button is busy while saving and the result is announced once', async ({ page }) => {
     await open(page, 'names-switch-review');
-    const submit = card(page).getByRole('button', { name: 'Turn Bitrix names on' });
+    const submit = page.getByRole('alertdialog').getByRole('button', { name: 'Turn Bitrix names on' });
     await submit.click();
     // Pending or already done: either way a second click cannot send again.
-    await expect(card(page).getByRole('button', { name: /Turn Bitrix names on|Saving…/ })).toHaveCount(0, { timeout: 10_000 });
+    await expect(page.getByRole('button', { name: 'Turn Bitrix names on' })).toHaveCount(0, { timeout: 10_000 });
     await expect(card(page).getByRole('status')).toHaveCount(1);
-    await expect(card(page).locator('[data-slot="names-result"]')).toBeFocused();
+    await expect(card(page).locator('[data-slot="names-result"]')).toContainText('Bitrix names are on.');
   });
 
   test('On while the Bitrix connection is off says codes are shown', async ({ page }) => {
@@ -112,10 +121,11 @@ test.describe('Bitrix names card: states and change flow', () => {
     await expect(card(page).getByRole('note')).toContainText('On, but the Bitrix connection is off: codes are shown.');
   });
 
-  test('a refusal says so and keeps the typed reason', async ({ page }) => {
+  test('a refusal says so and keeps the dialog and the typed reason', async ({ page }) => {
     await open(page, 'names-switch-refused');
-    await expect(card(page).getByRole('alert')).toContainText('Only the Super Admin can change this setting. Nothing was changed.');
-    await expect(card(page).getByRole('textbox', { name: 'Why are you changing it?' })).toHaveValue('Synthetic: owner approved showing Bitrix names.');
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog.getByRole('alert')).toContainText('Only the Super Admin can change this setting. Nothing was changed.');
+    await expect(dialog.getByRole('textbox', { name: /Why are you changing it\?/ })).toHaveValue('Synthetic: owner approved showing Bitrix names.');
   });
 
   test('On with the last change: who, when and why', async ({ page }) => {

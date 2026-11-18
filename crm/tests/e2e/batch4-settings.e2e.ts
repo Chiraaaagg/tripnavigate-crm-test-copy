@@ -207,7 +207,7 @@ test.describe('Switch rows (DA-253 to DA-256, R1 C6)', () => {
     await expect(dialog).toContainText('The count is hidden. Nothing else changes.');
     await expect(dialog).toContainText('Who is affected: Every branch.');
     await expect(dialog).toContainText('Changing this in the live CRM needs the owner’s APPROVE first. Write it in the reason.');
-    await expect(dialog.getByLabel('Why are you changing it?')).toHaveAccessibleDescription(/You may leave it empty/);
+    await expect(dialog.getByLabel('Why are you changing it?')).toHaveAccessibleDescription(/Leave it empty, or write 10 to 500 characters/);
     await expect(dialog.getByRole('button', { name: 'Turn Count of won deals with no booking (on Home) off' })).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
@@ -372,7 +372,7 @@ test.describe('Each switch posts the same fields as before (R1)', () => {
         await expect(row.locator('[role="status"]'), key).toBeEmpty();
         await reason.fill('Owner approved on 17 Nov (synthetic).');
       } else {
-        await expect(reason, key).toHaveAccessibleDescription(/You may leave it empty/);
+        await expect(reason, key).toHaveAccessibleDescription(/Leave it empty, or write 10 to 500 characters/);
       }
       await dialog.locator('button[type="submit"]').click();
       await expect(dialog, key).toHaveCount(0);

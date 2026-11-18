@@ -119,14 +119,22 @@ export function flightQueueModel(
   const tabRows = filterGroups(groups, current);
   const searched = tabRows.filter((g) => matchesSearch(q, flightSearchText(g)));
   const chipCounts = Object.fromEntries(QUEUE_ONLY_KEYS.map((k) => [k, searched.filter(ONLY_TEST[k]).length])) as Record<QueueOnly, number>;
-  const chipped = only ? searched.filter(ONLY_TEST[only]) : searched;
+  // `?only=` narrows Mine only, as before R3 (review P3-5): "/app/flight?only=ready" still shows every Not taken row.
+  const narrowed = canTakeTasks && current === 'mine' ? only : null;
+  const chipped = narrowed ? searched.filter(ONLY_TEST[narrowed]) : searched;
   const rows = sortQueue(chipped, sort, (g) => flightDates(g).from, (g) => g.dealReference);
   const counts = { not_taken: groups.filter(isNotTakenGroup).length, mine: filterGroups(groups, 'mine').length, all: groups.length };
-  return { current, only, q, sort, tabRows, rows, counts, chipCounts };
+  return { current, only: narrowed, q, sort, tabRows, rows, counts, chipCounts };
 }
 
 /** The row's "Next step", from the queue facts (the workspace's "Next:" line says the same in more detail). */
-export function flightRowNext(g: FlightQueueGroup): RowNext {
+export function flightRowNext(g: FlightQueueGroup, canTakeTasks = true): RowNext {
+  const next = flightRowNextFor(g);
+  // A viewer who cannot take tasks (the branch Manager) only follows progress: words, never a row button.
+  return canTakeTasks ? next : { text: next.text };
+}
+
+function flightRowNextFor(g: FlightQueueGroup): RowNext {
   if (g.status.code === 'done') return { text: 'Nothing waiting' };
   if (!g.assignedToYou && !g.assigneeName) {
     return g.canTake
@@ -189,7 +197,7 @@ export function FlightQueuePage({
         chipsLabel="Show only"
         keep={deskToolbarKeep(canTakeTasks, query)}
         search={{ name: 'q', value: m.q, label: 'Search flight tasks', placeholder: 'Deal, route, branch or colleague' }}
-        chips={chips}
+        chips={m.current === 'mine' && canTakeTasks ? chips : []}
         sort={{ name: 'sort', value: m.sort, options: QUEUE_SORT_OPTIONS }}
       />
       <Card>
@@ -219,7 +227,7 @@ export function FlightQueuePage({
             </TableHeader>
             <TableBody>
               {m.rows.map((g) => (
-                <FlightRow key={g.dealId} g={g} />
+                <FlightRow key={g.dealId} g={g} canTakeTasks={canTakeTasks} />
               ))}
             </TableBody>
           </Table>
@@ -229,10 +237,10 @@ export function FlightQueuePage({
   );
 }
 
-function FlightRow({ g }: { g: FlightQueueGroup }) {
+function FlightRow({ g, canTakeTasks }: { g: FlightQueueGroup; canTakeTasks: boolean }) {
   const { from, to } = flightDates(g);
   const onlyScreenshots = g.flights.length > 0 && g.flights.every((f) => f.entryMode === 'screenshot');
-  const next = flightRowNext(g);
+  const next = flightRowNext(g, canTakeTasks);
   // One status badge; the other facts as plain words beside it (design plan 1.2), not more stacked badges.
   const second = chipsOf(g.chips).map((c) => c.text).join(' · ');
   return (
