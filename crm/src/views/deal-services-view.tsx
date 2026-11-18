@@ -29,8 +29,14 @@ export function DealServicesCard({
   services,
   intakeHref,
   linkLabel = 'Open intake',
+  canOpenFlightWorkspace = false,
+  canOpenVisaDesk = false,
 }: {
   services: DealServicesView;
+  /** Visa build: the viewer holds the Visa role or is a branch Manager (the visa link opens the desk task). */
+  canOpenVisaDesk?: boolean;
+  /** Flight build: the viewer holds the Flight role or is a branch Manager (the flight link opens the workspace). */
+  canOpenFlightWorkspace?: boolean;
   /** The intake screen, offered to editors while service items are switched on. */
   intakeHref?: string | null;
   /** B1.1: "Open the booking" when the link leads to the Book now form. */
@@ -68,7 +74,7 @@ export function DealServicesCard({
           <>
             <ol className="m-0 flex list-none flex-col divide-y divide-line p-0" aria-label="Sold services">
               {items.map((item) => (
-                <ServiceRow key={item.itemId} item={item} dealId={services.dealId} />
+                <ServiceRow key={item.itemId} item={item} dealId={services.dealId} canOpenFlightWorkspace={canOpenFlightWorkspace} canOpenVisaDesk={canOpenVisaDesk} />
               ))}
             </ol>
             {intakeHref ? (
@@ -85,7 +91,7 @@ export function DealServicesCard({
   );
 }
 
-function ServiceRow({ item, dealId }: { item: ServiceItemView; dealId: string }) {
+function ServiceRow({ item, dealId, canOpenFlightWorkspace, canOpenVisaDesk }: { item: ServiceItemView; dealId: string; canOpenFlightWorkspace: boolean; canOpenVisaDesk: boolean }) {
   return (
     <li className="m-0 flex flex-col gap-2 px-4.5 py-3.5">
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
@@ -103,8 +109,8 @@ function ServiceRow({ item, dealId }: { item: ServiceItemView; dealId: string })
         <dt className="font-medium text-quiet">Next step</dt>
         <dd className="m-0 text-copy">
           {serviceNextStepText(item)}{' '}
-          <Link href={serviceNextHref(item, dealId)} className={cn('rounded-chip font-medium text-brand-strong underline underline-offset-4 hover:text-brand-deep', focusRing)}>
-            {serviceNextLinkText(item)}
+          <Link href={serviceNextHref(item, dealId, { canOpenFlightWorkspace, canOpenVisaDesk })} className={cn('rounded-chip font-medium text-brand-strong underline underline-offset-4 hover:text-brand-deep', focusRing)}>
+            {serviceNextLinkText(item, { canOpenFlightWorkspace, canOpenVisaDesk })}
           </Link>
         </dd>
       </dl>

@@ -36,6 +36,12 @@ const CLAIM_READERS = new Set([
   // 20261119000400 (Won-only prune): only checks whether a claim exists for a
   // Deal (CRM work keeps the Deal out of the prune); reads no amount.
   'authz.deal_crm_work',
+  // Accounts phase (contract 2026-11-10, 4.4 and 8.1; intended, lead 10 Nov): the workspace rows and the dues
+  // computation show 'reported' claims separately (never as money); see tests/db/acc-dues.test.ts.
+  'authz.acct_rows', 'authz.dues_compute',
+  // Accounts phase 3 (contract 6.6; 16.6 setup update by Track T, lead 13 Nov): the write-off blockers ("receipt_unverified")
+  // and the small-balances list check for reported claims; Accounts / Manager readers only, no amount from a claim.
+  'authz.wo_blockers', 'public.small_balances_list',
 ]);
 
 /** Money, queue, count and department reads that must never read claims. */

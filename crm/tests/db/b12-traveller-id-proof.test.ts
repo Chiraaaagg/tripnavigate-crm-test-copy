@@ -591,13 +591,21 @@ describe('booking_form_get', () => {
         // sourceQuotation: added by 20261120000200 (null for a draft not converted from a quotation).
         // prefill: added by 20261120000600 (Bitrix values; unavailable here).
         // Booking form keys: added by 20261124000120 (stripped here; covered by booking-form-*.test.ts).
-        const { idProofLimits, idProofCanEdit, idProofCanRemove, sourceQuotation, prefill, travellers, ...rest } =
+        // idProofRequired: added by the Accounts phase (20261203000100, contract 5.1).
+        const { idProofLimits, idProofCanEdit, idProofCanRemove, idProofRequired, sourceQuotation, prefill, travellers, ...rest } =
           stripBookingFormKeys(now!);
+        expect(typeof idProofRequired).toBe('boolean');
         expect(sourceQuotation).toBeNull();
         expect(prefill).toMatchObject({ available: false });
         expect(typeof idProofCanEdit).toBe('boolean');
         expect(typeof idProofCanRemove).toBe('boolean');
-        const { travellers: oldTravellers, ...oldRest } = before;
+        const { travellers: oldTravellers, ...oldRestRaw } = before;
+        // Book now v2 review round 1: purchaseBudgetPaise reaches booking-form readers only with
+        // commercial access (the budget can now equal the "Our cost" estimate), so it is dropped
+        // from the old body for readers that no longer receive it.
+        const oldRest = JSON.stringify(rest).includes('"purchaseBudgetPaise"')
+          ? oldRestRaw
+          : (JSON.parse(JSON.stringify(oldRestRaw, (k, v) => (k === 'purchaseBudgetPaise' ? undefined : v))) as typeof oldRestRaw);
         expect(rest).toEqual(oldRest);
         expect(idProofLimits).toBeDefined();
         const stripped = (travellers as Array<Record<string, unknown>>).map(({ idProofs, ...t }) => {

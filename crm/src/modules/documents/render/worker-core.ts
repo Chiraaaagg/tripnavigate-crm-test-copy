@@ -12,6 +12,15 @@ import type { PackageDocumentInput } from '../contracts';
 import type { RenderedDocument } from './checks';
 import { adaptRenderJobInput, renderJobTitle } from './job-input';
 import type { PdfResult } from './pdf';
+import type { CustomerDocumentContent } from '@/modules/customer-documents/content';
+import {
+  customerJobContent,
+  customerJobTitle,
+  type CustomerRenderClaim,
+  type CustomerRenderComplete,
+  type CustomerRenderInput,
+  type CustomerRenderedFile,
+} from './customer-job-input';
 
 /**
  * One render job, start to finish (B1.2 Phase F; local worker only while the
@@ -206,4 +215,106 @@ export async function processOneJob(deps: WorkerDeps): Promise<JobOutcome> {
     },
     { placeholders: placeholders.length, pdf },
   );
+}
+
+// ===========================================================================
+// Accounts phase 2 (contract 6.8): the second queue, customer documents.
+// ===========================================================================
+
+
+export interface CustomerWorkerDeps {
+  worker: string;
+  claim(): Promise<CustomerRenderClaim | null>;
+  input(jobId: string): Promise<CustomerRenderInput | { status: 'conflict' }>;
+  /** The customer template for the frozen content, with the page checks run on the template's own markup. */
+  renderHtml(job: CustomerRenderClaim, content: CustomerDocumentContent, title: string): Promise<RenderedDocument>;
+  renderPdf(html: string): Promise<PdfResult>;
+  upload(objectPath: string, pdf: Uint8Array): Promise<void>;
+  complete(jobId: string, outcome: { ok: true; file: CustomerRenderedFile } | { ok: false; errorCode: RenderErrorCode }): Promise<CustomerRenderComplete>;
+}
+
+export type CustomerJobOutcome =
+  | { outcome: 'idle' }
+  | { outcome: 'conflict'; jobId: string }
+  | { outcome: 'content_changed'; jobId: string }
+  | {
+      outcome: 'completed';
+      jobId: string;
+      queue: 'customer';
+      status: string;
+      errorCode: string | null;
+      notes: string[];
+      placeholders: number;
+      pdf: { sizeBytes: number; pageCount: number; renderMs: number } | null;
+    };
+
+/**
+ * One customer document job: claim -> frozen content (lease checked; a hash
+ * that differs fails content_changed in the database) -> content checks
+ * (cdoc-1 shape, forbidden keys, safety scan) -> template HTML -> page checks
+ * -> PDF -> layout checks -> private upload -> complete. Every customer
+ * document is final: placeholders, unsafe words, layout issues or blocked
+ * requests fail the job without a PDF. Nothing logs.
+ */
+export async function processOneCustomerJob(deps: CustomerWorkerDeps): Promise<CustomerJobOutcome> {
+  const job = await deps.claim();
+  if (!job) return { outcome: 'idle' };
+  const notes: string[] = [];
+  const done = async (ok: boolean, code: RenderErrorCode | null, file: CustomerRenderedFile | null, extra: { placeholders?: number; pdf?: PdfResult | null } = {}) => {
+    const r = await deps.complete(job.jobId, ok && file ? { ok: true, file } : { ok: false, errorCode: code ?? ('internal' as RenderErrorCode) });
+    return {
+      outcome: 'completed' as const,
+      jobId: job.jobId,
+      queue: 'customer' as const,
+      status: r.status,
+      errorCode: r.errorCode ?? (ok ? null : code),
+      notes,
+      placeholders: extra.placeholders ?? 0,
+      pdf: extra.pdf ? { sizeBytes: extra.pdf.sizeBytes, pageCount: extra.pdf.pageCount, renderMs: extra.pdf.ms } : null,
+    };
+  };
+
+  let input: Awaited<ReturnType<CustomerWorkerDeps['input']>>;
+  try {
+    input = await deps.input(job.jobId);
+  } catch {
+    return done(false, 'internal' as RenderErrorCode, null);
+  }
+  if (input.status === 'conflict') return { outcome: 'conflict', jobId: job.jobId };
+  if (input.status === 'failed') return { outcome: 'content_changed', jobId: job.jobId };
+
+  const checked = customerJobContent(input);
+  if (!checked.ok) return done(false, (checked.code === 'input_invalid' ? 'input_invalid' : 'content_safety') as RenderErrorCode, null);
+
+  let doc: RenderedDocument;
+  try {
+    doc = await deps.renderHtml(job, checked.content, customerJobTitle(checked.content));
+  } catch (error) {
+    if (error instanceof RenderStepError) return done(false, error.code, null);
+    const timeout = error instanceof Error && /timeout/i.test(error.name + error.message);
+    return done(false, (timeout ? 'render_timeout' : 'input_invalid') as RenderErrorCode, null);
+  }
+  const safety = [...new Set([...safetyCodes(doc.safetyHits), ...(doc.pageIssues ?? [])])];
+  if (safety.length) return done(false, 'content_safety' as RenderErrorCode, null, { placeholders: doc.placeholders.length });
+  if (doc.placeholders.length) return done(false, 'placeholders_present' as RenderErrorCode, null, { placeholders: doc.placeholders.length });
+
+  let pdf: PdfResult;
+  try {
+    pdf = await deps.renderPdf(doc.html);
+  } catch (error) {
+    const timeout = error instanceof Error && /timeout/i.test(error.name + error.message);
+    return done(false, (timeout ? 'render_timeout' : 'browser_failed') as RenderErrorCode, null);
+  }
+  if (pdf.layoutIssues.length) return done(false, layoutFailureCode(pdf.layoutIssues), null, { pdf });
+  if (pdf.blockedRequests > 0) {
+    notes.push('network_requests_blocked');
+    return done(false, 'asset_missing' as RenderErrorCode, null, { pdf });
+  }
+  if (pdf.pageCount < 1 || pdf.pageCount > 50) return done(false, 'layout_overflow' as RenderErrorCode, null, { pdf });
+  try {
+    await deps.upload(job.objectPath, pdf.pdf);
+  } catch {
+    return done(false, 'upload_failed' as RenderErrorCode, null, { pdf });
+  }
+  return done(true, null, { objectPath: job.objectPath, sha256: pdf.sha256, sizeBytes: pdf.sizeBytes, pageCount: pdf.pageCount }, { pdf });
 }

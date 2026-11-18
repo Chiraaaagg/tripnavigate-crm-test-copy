@@ -1,6 +1,23 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { isUiPreviewEnabled } from '@/lib/config';
+import { PB_PREVIEW_STATES } from './[state]/pb-states';
+import { PURCHASE_MONEY_STATES } from './[state]/purchase-money-states';
+import { FLIGHT_PREVIEW_STATES } from './[state]/flight-states';
+import { VISA_PREVIEW_STATES } from './[state]/visa-states';
+import { ACC_PREVIEW_STATES } from './[state]/acc-states';
+import { ACC2_DOCS_STATES } from './[state]/acc2-docs-states';
+import { ACC2_REFUND_STATES } from './[state]/acc2-refund-states';
+import { ACC2_SUPPLIER_STATES } from './[state]/acc2-supplier-states';
+import { ACC2_SETTINGS_STATES } from './[state]/acc2-settings-states';
+import { ACC2_CANCEL_STATES } from './[state]/acc2-cancel-states';
+import { ACC3_MESSAGES_STATES } from './[state]/acc3-messages-states';
+import { ACC3_BILLS_STATES } from './[state]/acc3-bills-states';
+import { ACC3_WRITEOFF_STATES } from './[state]/acc3-writeoffs-states';
+import { ACC3_TALLY_STATES } from './[state]/acc3-tally-states';
+import { ACC3_ALERTS_STATES } from './[state]/acc3-alerts-states';
+import { ACC3_RATES_STATES } from './[state]/acc3-rates-states';
+import { ACC3_CHANGES_STATES } from './[state]/acc3-changes-states';
 
 export const dynamic = 'force-dynamic';
 
@@ -141,6 +158,83 @@ const PREVIEW_LINKS = [
       { label: 'Session Expired', href: '/session-expired' },
       { label: 'Signed Out', href: '/signed-out' },
       { label: 'Account panel with sign-out options open', href: '/preview/shell-sign-out-everywhere' },
+    ],
+  },
+  {
+    group: 'Purchase build (2 Nov 2026): Purchase, Accounts and Manager',
+    links: [...PB_PREVIEW_STATES, ...PURCHASE_MONEY_STATES].map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Flight build (4 Nov 2026): Flight queue, workspace, Deal card, Approvals, Home',
+    links: FLIGHT_PREVIEW_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Visa build (8 Nov 2026): Visa queue, task page, popups, Deal card, Home, Book now',
+    links: VISA_PREVIEW_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Accounts phase (10 Nov 2026): Documents and money, Dues, Tally, Deal dues, bell, Purchase banner, settings',
+    links: ACC_PREVIEW_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Accounts phase 2 (11 Nov 2026): customer documents',
+    links: ACC2_DOCS_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Accounts phase 2 (11 Nov 2026): refunds and supplier refunds',
+    links: ACC2_REFUND_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Accounts phase 2 (11 Nov 2026): suppliers, hotels and supplier import',
+    links: ACC2_SUPPLIER_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Accounts phase 2 (11 Nov 2026): Tally mapping, Accounts settings, bell pop-ups and sound',
+    links: ACC2_SETTINGS_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Accounts phase 2 (11 Nov 2026): Flight and Visa trip cancelled panels, Manager cancellation review',
+    links: ACC2_CANCEL_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Accounts phase 3: customer messages (Deal card, Settings, Book now language, voucher and boarding pass)',
+    links: ACC3_MESSAGES_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Accounts phase 3: automatic bills (documents card, Bills to check, Settings › Accounts), daily check',
+    links: ACC3_BILLS_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Accounts phase 3: write-offs (small balances, approvals, monthly totals, dues line)',
+    links: ACC3_WRITEOFF_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Accounts phase 3: Tally file and matching upload',
+    links: ACC3_TALLY_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Accounts phase 3: bell › Alerts on this device',
+    links: ACC3_ALERTS_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Accounts phase 3 (Release B): rate contracts',
+    links: ACC3_RATES_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Accounts phase 3 (Release B): changes after confirmation, add or remove services, history',
+    links: ACC3_CHANGES_STATES.map((state) => ({ label: state, href: `/preview/${state}` })),
+  },
+  {
+    group: 'Accounts phase 0 (10 Nov 2026): flight-only ID proof, return blocked, Flight cancel request',
+    links: [
+      { label: 'Book now - flight-only booking (no adult ID proof needed), step 1', href: '/preview/bookform-flight-only--travellers' },
+      { label: 'Book now - flight-only booking, step 3 ready list', href: '/preview/bookform-flight-only--finish' },
+      { label: 'Task ID proofs - flight-only booking', href: '/preview/acc-id-proofs-flight-only' },
+      { label: 'Accounts deal - Return blocked after commitment', href: '/preview/finance-deal-return-blocked-committed--review' },
+      { label: 'Flight money - Cancel request (requester or task owner)', href: '/preview/flight-ws-cancel-request' },
+      { label: 'Flight money - Cancel request refused', href: '/preview/flight-ws-cancel-refused' },
+      { label: 'Flight money - Cancel request, requester no longer assigned', href: '/preview/flight-ws-cancel-former-requester' },
+      { label: 'Flight money - Pending request, not yours to cancel', href: '/preview/flight-ws-cancel-not-yours' },
     ],
   },
 ];

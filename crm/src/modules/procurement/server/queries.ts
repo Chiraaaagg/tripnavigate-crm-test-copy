@@ -1,10 +1,35 @@
 import 'server-only';
 import { z } from 'zod';
-import { asRpcClient } from '@/modules/fulfilment/commands';
+import { asRpcClient, purchaseTaskGet } from '@/modules/fulfilment/commands';
 import type { StaffContext } from '@/modules/identity/server/session';
-import { ProcurementCommandError, purchaseWorkspace, supplierGet, supplierList } from '../commands';
-import type { PurchaseWorkspaceView, SupplierDetailView, SupplierSummary } from '../contracts';
-import { toSupplierDetail, toSupplierSummary, toWorkspaceView } from '../dto';
+import {
+  accountsGoAheadList,
+  dealCancellationSummary,
+  managerCancellationsToDecide,
+  ProcurementCommandError,
+  purchaseQueueFlags,
+  purchaseWorkspace,
+  supplierGet,
+  supplierList,
+} from '../commands';
+import type {
+  AccountsGoAheadRow,
+  DealCancellationSummary,
+  ManagerCancellationRow,
+  PurchaseQueueFlags,
+  PurchaseWorkspaceView,
+  SupplierDetailView,
+  SupplierSummary,
+} from '../contracts';
+import {
+  toAccountsGoAheadRow,
+  toDealCancellationSummary,
+  toManagerCancellationRow,
+  toQueueFlags,
+  toSupplierDetail,
+  toSupplierSummary,
+  toWorkspaceView,
+} from '../dto';
 
 /**
  * Phase 4 reads, under the staff member's own session. "Not visible" and
@@ -30,10 +55,12 @@ export async function loadPurchaseWorkspace(staff: Staff, taskId: string): Promi
   if (!id.success) return null;
   const rpc = asRpcClient(staff.supabase);
   try {
-    const record = await purchaseWorkspace(rpc, id.data);
-    if (!record) return null;
+    // Purchase build: the task comes from purchase_task_get, which carries
+    // every service type (transfer and activity tasks too).
+    const [record, task] = await Promise.all([purchaseWorkspace(rpc, id.data), purchaseTaskGet(rpc, id.data)]);
+    if (!record || !task) return null;
     const suppliers = record.canWork ? await supplierList(rpc) : [];
-    return toWorkspaceView(record, suppliers);
+    return toWorkspaceView(record, suppliers, task);
   } catch (error) {
     if (isRefusal(error)) return null;
     throw new Error('Could not load this Purchase task. Please retry.');
@@ -58,5 +85,56 @@ export async function loadSupplier(staff: Staff, supplierId: string): Promise<Su
   } catch (error) {
     if (isRefusal(error)) return null;
     throw new Error('Could not load this supplier. Please retry.');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Purchase build (20261130000120)
+// ---------------------------------------------------------------------------
+
+/** Accounts: hotel go-ahead requests (pending first). [] when the viewer is not Accounts. */
+export async function loadAccountsGoAheadList(staff: Staff): Promise<AccountsGoAheadRow[]> {
+  try {
+    return (await accountsGoAheadList(asRpcClient(staff.supabase))).map(toAccountsGoAheadRow);
+  } catch (error) {
+    if (isRefusal(error)) return [];
+    throw new Error('Could not load the hotel go-ahead requests. Please retry.');
+  }
+}
+
+/**
+ * Branch Manager › Approvals: charge details of the trip cancellations waiting
+ * for the Manager (manager_cancellations_to_decide, 20261204000920 — the rows
+ * manager_approvals().cancellations shows; not every cancellation ever opened).
+ */
+export async function loadManagerCancellations(staff: Staff): Promise<ManagerCancellationRow[]> {
+  try {
+    return (await managerCancellationsToDecide(asRpcClient(staff.supabase))).map(toManagerCancellationRow);
+  } catch (error) {
+    if (isRefusal(error)) return [];
+    throw new Error('Could not load trip cancellations. Please retry.');
+  }
+}
+
+/** Deal page: the trip-cancellation state; null when the Deal is not readable. */
+export async function loadDealCancellation(staff: Staff, dealId: string): Promise<DealCancellationSummary | null> {
+  const id = z.uuid().safeParse(dealId);
+  if (!id.success) return null;
+  try {
+    const record = await dealCancellationSummary(asRpcClient(staff.supabase), id.data);
+    return record ? toDealCancellationSummary(record) : null;
+  } catch (error) {
+    if (isRefusal(error)) return null;
+    throw new Error('Could not load the trip cancellation state. Please retry.');
+  }
+}
+
+/** Purchase queue: go-ahead state and trip-cancelled flag per task id. {} when nothing is visible. */
+export async function loadPurchaseQueueFlags(staff: Staff): Promise<Record<string, PurchaseQueueFlags>> {
+  try {
+    return toQueueFlags(await purchaseQueueFlags(asRpcClient(staff.supabase)));
+  } catch (error) {
+    if (isRefusal(error)) return {};
+    throw new Error('Could not load the Purchase queue. Please retry.');
   }
 }

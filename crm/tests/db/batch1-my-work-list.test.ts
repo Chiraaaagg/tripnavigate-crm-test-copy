@@ -116,7 +116,13 @@ describe('my_work_counts keeps its keys and adds draftsToContinue', () => {
       for (const [actor, label] of [[MANAGER, 'manager+accounts'], [SALES_B, 'sales+flight']] as const) {
         const c = await counts(actor);
         expect((await all(actor, 'drafts')).length).toBe(c.draftsToContinue);
-        expect(c.waitingForMe).toBeGreaterThan(c.draftsToContinue as number);
+        if (label === 'sales+flight') {
+          // Flight build (migration 20261201000150, contract D12): flight tasks no longer add to waitingForMe; the flight
+          // task shows on Home through flight_home_counts() (one Deal not taken) instead.
+          expect(await one<Record<string, number | null>>(actor, 'select public.flight_home_counts() as r')).toMatchObject({ flightDealsNotTaken: 1 });
+        } else {
+          expect(c.waitingForMe).toBeGreaterThan(c.draftsToContinue as number);
+        }
         await expectListsEqualCounts(actor, label);
       }
     });

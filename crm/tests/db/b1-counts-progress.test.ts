@@ -43,7 +43,9 @@ const ZERO: MyWorkCounts & Record<string, unknown> = {
   waitingForMe: 0, returnedToMe: 0, missingDetails: 0, intakeNeeded: 0, receiptsToVerify: null, requestsToApprove: null,
   visaTasksWaiting: null, claimsToProcess: null, expensesToReview: null,
 };
-const ZERO_ACC = { ...ZERO, claimsToProcess: 0, expensesToReview: 0 };
+// Purchase build (20261130000210): requestsToApprove counts real items for Accounts
+// (hotel go-ahead, supplier payments and company funding to approve); 0 here.
+const ZERO_ACC = { ...ZERO, claimsToProcess: 0, expensesToReview: 0, requestsToApprove: 0 };
 const ZERO_VISA = { ...ZERO, visaTasksWaiting: 0 }; // visa.jodhpur holds the Visa role (fixtures)
 
 describe('my_work_counts', () => {
@@ -92,12 +94,17 @@ describe('my_work_counts', () => {
       const queue = await one<Array<{ taskId: string; status: string }>>(PURCHASE, PURCHASE_LIST_SQL);
       expect(queue).toHaveLength(3);
       expect(await counts(PURCHASE)).toEqual({ ...ZERO, waitingForMe: 3 });
-      expect(await counts(FLIGHT)).toEqual({ ...ZERO_VISA, waitingForMe: 1 });
+      // Flight build (migration 20261201000150, contract D12): flight tasks leave my_work_counts.waitingForMe; Flight's
+      // Home counts come only from flight_home_counts(). The same coverage: one Deal not taken before the claim.
+      expect(await counts(FLIGHT)).toEqual({ ...ZERO_VISA, waitingForMe: 0 });
+      expect(await one<Record<string, number | null>>(FLIGHT, 'select public.flight_home_counts() as r')).toMatchObject({ flightDealsNotTaken: 1, flightDealsMine: 0 });
       // Taking a task keeps it in the taker's count (in progress, theirs) and out of nobody else's.
       await one(PURCHASE, PURCHASE_CLAIM_SQL, [queue[0]!.taskId]);
       expect(await counts(PURCHASE)).toEqual({ ...ZERO, waitingForMe: 3 });
       await one(FLIGHT, FLIGHT_CLAIM_SQL, [taskIds![3]]);
-      expect(await counts(FLIGHT)).toEqual({ ...ZERO_VISA, waitingForMe: 1 });
+      // Flight build (20261201000150): still 0 in waitingForMe; after the claim the Deal is Flight's own, in progress.
+      expect(await counts(FLIGHT)).toEqual({ ...ZERO_VISA, waitingForMe: 0 });
+      expect(await one<Record<string, number | null>>(FLIGHT, 'select public.flight_home_counts() as r')).toMatchObject({ flightDealsNotTaken: 0, flightDealsMine: 1 });
       // Same numbers as the queues: not started, or in progress and mine.
       const purchaseQueue = await one<Array<{ status: string; assignedToYou: boolean }>>(PURCHASE, PURCHASE_LIST_SQL);
       expect(purchaseQueue.filter((t) => t.status === 'not_started' || (t.status === 'in_progress' && t.assignedToYou))).toHaveLength(3);
@@ -223,6 +230,23 @@ describe('deal_service_summary', () => {
       await owner(`insert into storage.objects (bucket_id, name, metadata) values ('purchase-evidence', $1, jsonb_build_object('size', 2048::bigint))`, [ev.objectPath]);
       await one(PURCHASE, 'select public.purchase_evidence_finish($1, true) as r', [ev.evidenceId]);
       const [cost] = await owner<{ version_no: number }>('select max(version_no) as version_no from public.purchase_cost_versions where task_id = $1', [taskId]);
+      // Purchase build (owner decision 1, 20261130000110): booking request, then the Accounts go-ahead for the hotel.
+      // SYNTHETIC FIXTURE: the Accounts booking review of the task's version is set to approved as the owner.
+      await one(PURCHASE, 'select public.purchase_booking_request_send($1, $2, $3, $4::text[], $5, $6, $7) as r', [
+        taskId, cost!.version_no, 'desk@example.test', [], 'Booking request · SYN-DEL-001 · Synthetic Hotel', 'Synthetic booking request (fixture).',
+        crypto.randomUUID(),
+      ]);
+      await owner(
+        `insert into public.accounts_booking_reviews (booking_version_id, deal_id, legal_entity_id, status, reviewed_by, reviewed_at)
+         select v.id, v.deal_id, v.legal_entity_id, 'approved', $2, now() from public.booking_versions v where v.id = authz.task_current_version($1)
+         on conflict (booking_version_id) do update set status = 'approved', reviewed_by = excluded.reviewed_by, reviewed_at = now()`,
+        [taskId, ACC.userId],
+      );
+      const [goAhead] = await owner<{ id: string; row_version: number }>(
+        `select id, row_version from public.purchase_go_ahead_requests where task_id = $1 and status = 'pending'`, [taskId]);
+      await one(ACC, 'select public.purchase_go_ahead_decide($1, $2, $3, $4, $5) as r', [
+        goAhead!.id, 'approve', null, goAhead!.row_version, crypto.randomUUID(),
+      ]);
       const confirmed = await one<{ outcome: string }>(PURCHASE, 'select public.purchase_supplier_confirm($1, $2, $3) as r', [taskId, cost!.version_no, 'SYN-CONF-0001']);
       expect(confirmed.outcome).toBe('created');
       const [after] = await one<Array<Record<string, unknown>>>(OWNER, SUMMARY_SQL, [[DEAL]]);

@@ -85,71 +85,69 @@ async function chooseOther(select: Locator): Promise<string> {
 }
 
 test.describe('choices stay as shown after a reply', () => {
-  test('Visa desk: a document status stays chosen after a save', async ({ page }) => {
-    await open(page, 'b11-visa-task-docs-pending');
-    const select = page.locator('main').getByLabel('Passport copy').first();
-    await expect(select).toHaveValue('checked');
-    await select.selectOption('received');
-    const form = select.locator('xpath=ancestor::form');
-    const save = form.getByRole('button', { name: /^Save/ });
-    await pressAndWait(page, save);
-    await expect(select).toHaveValue('received');
-    expectPosted(await pressAndCapture(page, save), 'documentStatus', 'received');
-    await expect(select).toHaveValue('received');
+  // Visa build (contract 11.1): the old desk's forms (document status select, upload kind select, outcome select) are
+  // retired. The new desk sends each command from its own code (no <form action>), so the React reset cannot hit it, but
+  // the intent stays: what the user chose or typed is still on screen after the reply, and a refusal keeps it.
+  test('Visa desk: a document tick stays as chosen after a refused row save; an accepted save posts only the changed tick', async ({ page }) => {
+    // Was: the "Passport copy" status select stayed "received" after a save.
+    await open(page, 'visa-work-edit-row-refused');
+    const row = page.locator('main').getByRole('row').filter({ has: page.getByRole('button', { name: /^Save/ }) }).first();
+    const box = row.getByRole('checkbox').first();
+    const was = await box.isChecked();
+    await box.setChecked(!was);
+    await row.getByRole('button', { name: /^Save/ }).click();
+    await expect(page.locator('main').getByRole('alert').first()).toBeVisible();
+    await expect(box).toBeChecked({ checked: !was });
+    await open(page, 'visa-work-edit-row-echo');
+    const echoRow = page.locator('main').getByRole('row').filter({ has: page.getByRole('button', { name: /^Save/ }) }).first();
+    const echoBox = echoRow.getByRole('checkbox').first();
+    await echoBox.setChecked(!(await echoBox.isChecked()));
+    await echoRow.getByRole('button', { name: /^Save/ }).click();
+    await expect(page.locator('main')).toContainText(/row saved with 1 document change/);
   });
 
-  test('Visa desk: the document upload kind stays chosen after a stored file (the file input empties)', async ({ page }) => {
-    await open(page, 'b11-visa-task-docs-pending');
-    const main = page.locator('main');
-    await main.getByText(/^Upload a document for /).first().click();
-    const form = page.getByRole('form', { name: /^Upload a document for / }).first();
-    const kind = form.getByLabel('What is this file?');
-    await expect(kind).toHaveValue('applicant_document');
-    await kind.selectOption('authority_outcome');
-    const file = form.locator('input[type="file"]');
+  test('Visa desk: the chosen document stays chosen in the upload popup after the reply (the file input empties)', async ({ page }) => {
+    // Was: the "What is this file?" kind select stayed "authority_outcome" after a stored file.
+    await open(page, 'visa-popup-upload-doc');
+    const dialog = page.getByRole('dialog');
+    const which = dialog.getByLabel('Which document');
+    const chosen = await chooseOther(which);
+    const file = dialog.locator('input[type="file"]');
     await file.setInputFiles(SMALL_PDF);
-    const upload = form.getByRole('button', { name: 'Upload file' });
-    await pressAndWait(page, upload);
-    await expect(form.getByRole('status')).toContainText('File stored.');
-    await expect(kind).toHaveValue('authority_outcome');
-    await expect(file).toHaveValue('');
-    await file.setInputFiles(SMALL_PDF);
-    expectPosted(await pressAndCapture(page, upload), 'kind', 'authority_outcome');
+    await dialog.getByRole('button', { name: 'Upload and save' }).click();
+    // The stand-in accepts: either the popup closes with the result shown, or it stays with the choice kept and the file emptied.
+    if (await dialog.isVisible().catch(() => false)) {
+      await expect(which).toHaveValue(chosen);
+    } else {
+      await expect(page.locator('main [role=status]').first()).toBeVisible();
+    }
   });
 
-  test('Visa desk: the outcome stays "Refused" after a refusal', async ({ page }) => {
-    await open(page, 'b11-visa-task-outcome-refused');
-    const form = page.getByRole('form', { name: /^Record the outcome for / }).first();
-    const outcome = form.getByLabel('Outcome', { exact: true });
-    await expect(outcome).toHaveValue('issued');
-    await outcome.selectOption('refused');
-    const button = form.getByRole('button', { name: 'Record refused' });
-    await pressAndWait(page, button);
-    await expect(form.getByRole('alert').first()).toBeVisible();
-    await expect(outcome).toHaveValue('refused');
-    await expect(button).toBeVisible();
-    expectPosted(await pressAndCapture(page, button), 'state', 'refused');
+  test('Visa desk: a refused decision keeps the chosen handover; a refused Applied keeps the typed details', async ({ page }) => {
+    // Was: the outcome select stayed "Refused" after a refusal (old "Record refused").
+    await open(page, 'visa-popup-approve-refused');
+    const dialog = page.getByRole('dialog');
+    const method = dialog.getByLabel(/How the passport goes back/);
+    const chosen = await chooseOther(method);
+    await dialog.getByRole('button', { name: 'Save approval' }).click();
+    await expect(dialog.getByRole('alert').first()).toBeVisible();
+    await expect(method).toHaveValue(chosen);
+    await open(page, 'visa-popup-apply-refused');
+    const apply = page.getByRole('dialog');
+    const ref = apply.getByLabel(/Reference number/).first();
+    await ref.fill('SYN-KEEP-001');
+    await apply.getByRole('button', { name: /^(Confirm applied|Save as applied)$/ }).click();
+    await expect(apply.getByRole('alert').first()).toBeVisible();
+    await expect(ref).toHaveValue('SYN-KEEP-001');
   });
 
-  test('Flight cost: what it was for and who paid stay chosen after a refusal', async ({ page }) => {
+  test('Flight cost: the old "Record a cost" form is retired for flights', async ({ page }) => {
+    // Flight build (contract decision 3 / B13): the per-passenger fare breakup is the only flight cost record,
+    // so the manual cost form whose choices this test used to check no longer exists on flight tasks.
+    // Typed input kept after a refusal in the new Confirm tickets popup is covered by flight-screens.e2e.ts.
     await open(page, 'b11-flight-task-cost-over-limit');
-    const form = page.getByRole('form', { name: 'Record a cost' });
-    const kind = form.getByLabel('What was it for');
-    const paidBy = form.getByLabel('Paid by');
-    const chosenKind = await chooseOther(kind);
-    // Not the first option: a reset lands on the first option of a select, so choosing it would prove nothing.
-    const chosenPaidBy = 'customer_direct';
-    await expect(paidBy).not.toHaveValue(chosenPaidBy);
-    await paidBy.selectOption(chosenPaidBy);
-    await form.getByLabel('Amount ₹').fill('1200');
-    const save = form.getByRole('button', { name: 'Save cost' });
-    await pressAndWait(page, save);
-    await expect(form.locator('[data-slot="error-summary"]')).toBeVisible();
-    await expect(kind).toHaveValue(chosenKind);
-    await expect(paidBy).toHaveValue(chosenPaidBy);
-    const body = await pressAndCapture(page, save);
-    expectPosted(body, 'costKind', chosenKind);
-    expectPosted(body, 'paidBy', chosenPaidBy);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.getByRole('form', { name: 'Record a cost' })).toHaveCount(0);
   });
 
   test('Quotation Details: "Domestic or international" stays chosen after a refusal', async ({ page }) => {

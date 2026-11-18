@@ -240,8 +240,9 @@ export const SETTINGS_TAB_DESCRIPTION = {
   people: 'Staff accounts, sign-in recovery and extra access to deals.',
   company: 'Company details printed on documents, and the branches. Read only.',
   money: 'Receipt and cash limits, and which payment modes are available.',
+  accounts: 'Staff notices, customer documents and refunds switches, Tally export, Tally ledger mapping and who owns Tally exceptions.',
   bitrix: 'How the CRM reads from Bitrix: status, which deals and leads come in, and the Bitrix switches.',
-  imports: 'Hotel and customer lists from a CSV file: check first, then import.',
+  imports: 'Hotels, customers and suppliers from a CSV file: check first, then import.',
   features: 'Switch CRM features on or off for every branch.',
   health: 'Bookings, PDFs, email alerts and Bitrix updates at a glance. Read only.',
 } as const;

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACC } from './finance-support';
 import {
-  ACCOUNTS, DEAL, FLIGHT, FLIGHT_FACTS, FLIGHT_GET_SQL, HOTEL, MANAGER_AMD, OWNER, PURCHASE, PURCHASE_GET_SQL, SALES_B, SUPER, allKeys,
+  ACCOUNTS, DEAL, FLIGHT, FLIGHT_FACTS, FLIGHT_GET_SQL, HOTEL, MANAGER_AMD, OWNER, PURCHASE, PURCHASE_GET_SQL, SALES_B, SUPER, TRAVELLERS, TRAVELLERS_SQL, allKeys,
 } from './b1-support';
 import { b11Helpers, rid } from './b11-support';
 
@@ -60,6 +60,38 @@ describe('revision access', () => {
         expect([...allKeys(p)].filter((k) => /sellingTotal|reason|review|^plan$/i.test(k))).toEqual([]);
         expect(JSON.stringify(p)).not.toMatch(/9900000|Synthetic return reason/);
       }
+    });
+  });
+
+  it('Visa build (contract 5.6, QB1): a removed traveller number is never posted again; the form reports the high-water mark', async () => {
+    await asOwner(db, async () => {
+      const base = await readyDraft(OWNER, DEAL, [['hotel', HOTEL]]);
+      await confirm(OWNER, base.versionId, base.hash);
+      await one(ACC, 'select public.accounts_review_return($1, $2, $3) as r', [base.versionId, 'Synthetic return reason for the test', rid()]);
+      const opened = await one<{ versionId: string; rowVersion: number }>(OWNER, 'select public.booking_open_revision($1) as r', [base.versionId]);
+      const saved = await h.saveTravellers(OWNER, DEAL, opened.rowVersion, TRAVELLERS.slice(0, 3));
+      expect((await owner<{ n: number }>('select authz.deal_traveller_seq_high($1) as n', [DEAL]))[0]!.n).toBe(4);
+      expect(await h.form(OWNER)).toMatchObject({ travellerSeqHigh: 4 });
+      // Posting seq 4 again (it was used by the accepted version) is refused; above the mark is fine.
+      await refused(OWNER, TRAVELLERS_SQL, [DEAL, saved.rowVersion, JSON.stringify(TRAVELLERS)], '22023', 'traveller_seq_reused');
+      const fresh = { ...TRAVELLERS[3]!, seq: 5 };
+      await h.saveTravellers(OWNER, DEAL, saved.rowVersion, [...TRAVELLERS.slice(0, 3), fresh]);
+      expect(await owner('select seq from public.deal_travellers where deal_id = $1 order by seq', [DEAL])).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }, { seq: 5 }]);
+    });
+  });
+
+  it('Visa build (contract 5.6, QB3): a completed flight task still commits the Deal (no revision)', async () => {
+    await asOwner(db, async () => {
+      await h.addFlight();
+      const base = await readyDraft(OWNER, DEAL, [['hotel', HOTEL], ['flight', FLIGHT_FACTS]]);
+      const { taskIds } = await confirm(OWNER, base.versionId, base.hash);
+      await one(ACC, 'select public.accounts_review_return($1, $2, $3) as r', [base.versionId, 'Synthetic return reason for the test', rid()]);
+      await owner('set local session_replication_role = replica');
+      await owner(`update public.fulfilment_tasks set status = 'completed', assignee_user_id = $2, completed_by = $2, completed_at = now() where id = $1`,
+        [taskIds![1], FLIGHT.userId]);
+      await owner('set local session_replication_role = origin');
+      expect((await owner<{ c: boolean }>('select authz.deal_committed($1) as c', [DEAL]))[0]!.c).toBe(true);
+      await refused(OWNER, 'select public.booking_open_revision($1) as r', [base.versionId], '55000', 'already_committed');
     });
   });
 });

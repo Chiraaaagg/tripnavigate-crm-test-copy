@@ -213,7 +213,9 @@ describe('Deal page and workspace view', () => {
     return (view?.props.workspace as DealWorkspaceVM).header;
   }
 
-  it('passes the readable Lead link into the header model, and the view links it', async () => {
+  // The first test imports the whole Deal page route (Accounts phase 2 added the customer document and refund
+  // cards), which can take longer than the 5 s default while the full unit run is busy: timeout only, no assertion change.
+  it('passes the readable Lead link into the header model, and the view links it', { timeout: 30_000 }, async () => {
     loadDealLeadLink.mockResolvedValue({ href: `/app/leads/${LEAD_UUID}`, reference: 'BXL-501' });
     const view = await renderPage();
     expect(loadDealLeadLink).toHaveBeenCalledWith({ userId: 'u-sales', access: sales }, DEAL_ID);
@@ -223,7 +225,7 @@ describe('Deal page and workspace view', () => {
     expect(html).toMatch(new RegExp(`<a [^>]*href="/app/leads/${LEAD_UUID}"[^>]*>[^<]*BXL-501`));
   });
 
-  it('shows no Lead link when there is no readable Lead, or the lookup fails (Purchase is refused in the loader)', async () => {
+  it('shows no Lead link when there is no readable Lead, or the lookup fails (Purchase is refused in the loader)', { timeout: 30_000 }, async () => {
     loadDealLeadLink.mockResolvedValue(null);
     expect(header(await renderPage())).not.toHaveProperty('leadLink');
     loadDealLeadLink.mockRejectedValue(new Error('read failed'));

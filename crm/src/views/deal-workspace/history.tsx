@@ -1,14 +1,17 @@
-import { FileText, History, Send, Undo2, Banknote } from 'lucide-react';
+import { FileText, History, Send, Undo2, Banknote, Plane, Stamp } from 'lucide-react';
 import Link from 'next/link';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn, focusRing } from '@/components/ui/cn';
+import { Notice } from '@/components/ui/notice';
 import { Timeline, type TimelineItem } from '@/components/ui/timeline';
-import { dealHistoryGroups } from '@/modules/deals/workspace';
+import { DEAL_HISTORY_FLIGHT_UNAVAILABLE_TEXT, DEAL_HISTORY_VISA_UNAVAILABLE_TEXT, dealHistoryGroups } from '@/modules/deals/workspace';
+import { VISA_DEAL_HISTORY_TITLE, VISA_TEXT } from '@/modules/visa/contracts';
 import type { DealHistoryEventVM, DealHistoryVM } from '@/modules/deals/workspace-contract';
 import { ACCOUNTS_REVIEW_STATUS_LABEL, CHANGE_CLASS_LABEL } from '@/modules/fulfilment/contracts';
 import { CLAIM_STATUS_SALES_LABEL } from '../b11/book-fields';
 import { formatIst } from '../deal-labels';
 import { TabUnavailable } from './tab-error';
+import { FLIGHT_HISTORY_TITLE } from '../flight/labels';
 
 /*
  * History tab (DE-02, FP-027, screen plan §3 "History rule"). Every event
@@ -60,7 +63,48 @@ function item(e: DealHistoryEventVM): TimelineItem {
         title: `Payment reported: ${CLAIM_STATUS_SALES_LABEL[e.status]}`,
         meta: when(e.at),
       };
+    case 'flight_event':
+      return flightItem(e);
+    case 'visa_event':
+      return visaItem(e);
   }
+}
+
+/**
+ * Visa build (contract 9.3 deal_visa_history, VL5): events of the Deal's visa
+ * and passport tasks under "Visa and passport": what happened, for whom, by
+ * whom (named only when the read names them) and a reason note. A club of
+ * passengers applied together is one event. Never a fee, reference, e-mail or
+ * passport number.
+ */
+function visaItem(e: Extract<DealHistoryEventVM, { kind: 'visa_event' }>): TimelineItem {
+  const base = e.visaKind === 'applied' && e.clubSize ? VISA_TEXT.appliedTogether.replace('{n}', String(e.clubSize)) : (VISA_DEAL_HISTORY_TITLE[e.visaKind] ?? 'Visa work recorded');
+  const who = e.byYou ? 'You' : e.byName;
+  return {
+    id: e.id,
+    icon: Stamp,
+    title: `${base}${e.travellerName && !(e.visaKind === 'applied' && e.clubSize) ? ` · ${e.travellerName}` : ''}${e.title ? ` · ${e.title}` : ''}`,
+    meta: `${when(e.at)}${who ? ` · by ${who === 'You' ? 'you' : who}` : ''}`,
+    detail: e.note ? `Reason: ${e.note}` : undefined,
+  };
+}
+
+/**
+ * Flight build (contract 9.4 deal_flight_history, decision 9): flight events
+ * of the Deal's flight group, grouped under "Flight" by the workspace module:
+ * what happened, on which flight, who (named only when the read names them)
+ * and a reason note; never an amount, PNR or ticket number.
+ */
+function flightItem(e: Extract<DealHistoryEventVM, { kind: 'flight_event' }>): TimelineItem {
+  const base = FLIGHT_HISTORY_TITLE[e.flightKind] ?? 'Flight work recorded';
+  const who = e.byYou ? 'You' : e.byName;
+  return {
+    id: e.id,
+    icon: Plane,
+    title: `${base}${e.changeNo ? ` (change ${e.changeNo})` : ''}${e.flightTitle ? ` · ${e.flightTitle}` : ''}`,
+    meta: `${when(e.at)}${who ? ` · by ${who === 'You' ? 'you' : who}` : ''}`,
+    detail: e.note ? `Reason: ${e.note}` : undefined,
+  };
 }
 
 export function DealHistoryTab({ history }: { history: DealHistoryVM }) {
@@ -73,17 +117,24 @@ export function DealHistoryTab({ history }: { history: DealHistoryVM }) {
           <History aria-hidden="true" className="size-4 text-faint" />
         </CardHeader>
         <CardBody className="flex flex-col gap-5">
-          {history.events.length === 0 ? (
+          {history.events.length === 0 && !history.flightUnavailable && !history.visaUnavailable ? (
             <p className="m-0 text-copy">{HISTORY_EMPTY_TEXT}</p>
           ) : (
             <>
               <p className="m-0 text-sm text-quiet">Each group lists its newest event first.</p>
-              {dealHistoryGroups(history.events).map((group) => (
+              {dealHistoryGroups(history.events, { flightUnavailable: history.flightUnavailable, visaUnavailable: history.visaUnavailable }).map((group) => (
                 <section key={group.key} aria-labelledby={`history-${group.key}`} className="flex flex-col gap-3">
                   <h3 id={`history-${group.key}`} className="m-0 text-base font-semibold text-ink">
                     {group.heading}
                   </h3>
-                  <Timeline label={`${group.heading}, newest first`} items={group.events.map(item)} />
+                  {group.unavailable ? (
+                    // Flight / Visa build: only that read failed; the other groups still show. Never "no events".
+                    <Notice tone="warning" role="status">
+                      <p>{group.key === 'visa' ? DEAL_HISTORY_VISA_UNAVAILABLE_TEXT : DEAL_HISTORY_FLIGHT_UNAVAILABLE_TEXT}</p>
+                    </Notice>
+                  ) : (
+                    <Timeline label={`${group.heading}, newest first`} items={group.events.map(item)} />
+                  )}
                 </section>
               ))}
             </>

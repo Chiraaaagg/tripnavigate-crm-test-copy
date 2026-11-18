@@ -76,13 +76,48 @@
 @source '../views/department';
 @source '../views/booking-health-views.tsx';
 @source '../views/purchase-views.tsx';
+/* Purchase build (2 Nov 2026): Purchase task Work tab, e-mail and payment drawers, payment requests, Manager approvals. */
+@source '../views/purchase';
 @source '../views/purchase-forms.tsx';
+/* Flight build (4 Nov 2026): Flight queue, workspace, Confirm tickets, payments, Deal flight card, Approvals fares. */
+@source '../views/flight';
+@source './preview/[state]/flight-states.tsx';
+/* Visa build (8 Nov 2026): Visa queue, task page, popups, Deal visa card. */
+@source '../views/visa';
+@source './preview/[state]/visa-states.tsx';
+/* Accounts phase (10 November 2026, Track D): Accounts desk screens, the notification bell and their preview states. */
+@source '../views/accounts-desk';
+@source '../views/notices';
+@source './preview/[state]/acc-states.tsx';
 @source '../views/procurement-views.tsx';
 @source '../views/finance-views.tsx';
 @source '../views/finance-common.tsx';
 @source '../views/finance-cash-views.tsx';
 @source '../views/finance-destination-views.tsx';
 @source './preview/[state]/batch4-dept-states.tsx';
+/* Accounts phase 2 (11 November 2026, Track E): customer documents, refunds, suppliers, Tally mapping, cancellation panels and their preview states. */
+@source '../views/customer-documents';
+@source '../views/refunds';
+@source '../views/suppliers';
+@source '../views/tally-mapping';
+@source '../views/cancellations';
+@source './preview/[state]/acc2-docs-states.tsx';
+@source './preview/[state]/acc2-refund-states.tsx';
+@source './preview/[state]/acc2-supplier-states.tsx';
+@source './preview/[state]/acc2-settings-states.tsx';
+@source './preview/[state]/acc2-cancel-states.tsx';
+@source '../views/customer-messages';
+@source '../views/write-offs';
+@source '../views/tally-file';
+@source '../views/rate-contracts';
+@source '../views/booking-changes';
+@source './preview/[state]/acc3-messages-states.tsx';
+@source './preview/[state]/acc3-bills-states.tsx';
+@source './preview/[state]/acc3-writeoffs-states.tsx';
+@source './preview/[state]/acc3-tally-states.tsx';
+@source './preview/[state]/acc3-alerts-states.tsx';
+@source './preview/[state]/acc3-rates-states.tsx';
+@source './preview/[state]/acc3-changes-states.tsx';
 /* Root layout: the skip link sits above the sticky top bar (z-60). */
 @source './layout.tsx';
 

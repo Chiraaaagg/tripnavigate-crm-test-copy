@@ -6,7 +6,8 @@ import { cspRecorder, enrolTotpViaUi, signInViaUi, withDb } from '../helpers/bro
 import { isLoopbackDatabaseUrl, isLoopbackUrl } from '../helpers/test-env.mjs';
 
 /**
- * Booking form (owner-approved preview, 22 October 2026) against a REAL local
+ * Booking form (owner-approved preview, 22 October 2026; Book now v2 of 26
+ * October 2026: cards save themselves, fare per person, screenshot flights) against a REAL local
  * Supabase stack, served by the production build (playwright.real.config.ts).
  * The lead runs it; never against a hosted database. Covers what the gallery
  * cannot: unsaved entries surviving step moves, save and reload of every new
@@ -139,119 +140,161 @@ test.describe('Booking form on a real local stack', () => {
       await expect(sales).toHaveURL(new RegExp(`/app/deals/${dealId}/book/travellers`), { timeout: 60_000 });
     });
 
-    await test.step('typed values survive a move to step 3 and back (nothing saved yet)', async () => {
+    // Book now v2 (owner-approved prototype, 26 October 2026): every card saves itself about 700 ms after
+    // the typing stops, and only once all its checks pass (ruling D1); its pill says Saving…, Saved or
+    // "Not saved · needs a fix". The draft's stored values are read back from the database here.
+    const draftRow = () =>
+      db(async (client) => {
+        const { rows } = await client.query<{ destination: string | null; pax: number | null; adults: number | null; children: number | null; infants: number | null; email: string | null; phone: string | null }>(
+          `select v.trip_destination as destination, v.pax_total as pax, v.adults_count as adults, v.children_count as children, v.infants_count as infants,
+             c.email, c.mobile as phone
+           from public.booking_versions v left join public.booking_version_contacts c on c.booking_version_id = v.id
+           where v.deal_id = $1 and v.status = 'draft'`,
+          [dealId],
+        );
+        return rows[0] ?? null;
+      });
+    const customerPill = sales.locator('#pill-customer');
+
+    await test.step('typed values survive a move to step 3 and back; an incomplete card is not saved (D1)', async () => {
       await main.getByLabel('Name', { exact: true }).fill('Synthetic Form Customer');
       await main.getByLabel('Phone', { exact: true }).first().fill('9876500077');
       await main.getByLabel('Email', { exact: true }).first().fill('form.customer@example.test');
       await main.getByLabel('Destination', { exact: true }).fill('Udaipur');
       await main.getByLabel('Travel date').fill('2026-12-01');
       await main.getByLabel('Return date').fill('2026-12-07');
-      await main.getByLabel('Total passengers').fill('4');
-      await main.getByLabel('Children', { exact: true }).fill('1');
-      await main.getByLabel('Infants', { exact: true }).fill('1');
+      await main.getByRole('spinbutton', { name: 'Adults' }).fill('2');
+      await main.getByRole('spinbutton', { name: 'Children' }).fill('1');
+      await main.getByRole('spinbutton', { name: 'Infants' }).fill('1');
       await main.getByLabel('Trip', { exact: true }).selectOption('domestic');
+      await expect(main.locator('#bf-pax-total')).toContainText('Total: 4.');
+      // The contact tick is still missing: nothing is saved yet.
+      await expect(customerPill).toHaveAttribute('data-state', 'fix', { timeout: 30_000 });
+      await expect(main).toContainText('Check the mobile or email with the customer, then tick the box.');
       await steps.getByRole('button', { name: /Price & Bill To/ }).click();
       await expect(sales).toHaveURL(/\/book\/finish$/);
       await steps.getByRole('button', { name: /Customer & passengers/ }).click();
       await expect(main.getByLabel('Destination', { exact: true })).toHaveValue('Udaipur');
-      // Voice-note batch: adults has its own stepper; left empty it is worked out (4 - 1 - 1) and said in words.
-      await expect(main.getByText('Adults worked out as 2 (total minus children and infants).')).toBeVisible();
-      await expect(main.getByLabel('Adults', { exact: true })).toHaveAttribute('placeholder', '2');
+      await expect(main.getByRole('spinbutton', { name: 'Adults' })).toHaveValue('2');
+      expect((await draftRow())?.destination ?? null).toBeNull();
     });
 
-    await test.step('save, reload: the saved customer, trip and party come back; a deliberately cleared email stays empty', async () => {
+    await test.step('the tick saves the card; reload brings it back; a deliberately cleared email stays empty', async () => {
       await main.getByLabel('I confirmed the contact details with the customer').check();
-      await main.getByRole('button', { name: 'Save customer details' }).click();
-      await expect(main.getByRole('status').filter({ hasText: 'Customer details saved.' })).toBeVisible({ timeout: 30_000 });
+      await expect(customerPill).toHaveAttribute('data-state', 'saved', { timeout: 30_000 });
+      await expect.poll(async () => JSON.stringify(await draftRow()), { timeout: 30_000 }).toContain('"destination":"Udaipur","pax":4,"adults":2,"children":1,"infants":1');
       await sales.reload();
-      await expect(main.getByLabel('Total passengers')).toHaveValue('4');
-      await expect(main.getByLabel('Children', { exact: true })).toHaveValue('1');
+      await expect(main.getByRole('spinbutton', { name: 'Adults' })).toHaveValue('2');
+      await expect(main.getByRole('spinbutton', { name: 'Children' })).toHaveValue('1');
       await expect(main.getByLabel('Return date')).toHaveValue('2026-12-07');
       await main.getByLabel('Email', { exact: true }).first().fill('');
-      await main.getByRole('button', { name: 'Save customer details' }).click();
-      await expect(main.getByRole('status').filter({ hasText: 'Customer details saved.' })).toBeVisible({ timeout: 30_000 });
+      // Changing the phone or email asks for the tick again.
+      await expect(main.getByLabel('I confirmed the contact details with the customer')).not.toBeChecked();
+      await main.getByLabel('I confirmed the contact details with the customer').check();
+      await expect.poll(async () => (await draftRow())?.email ?? 'cleared', { timeout: 30_000 }).toBe('cleared');
       await sales.reload();
       await expect(main.getByLabel('Email', { exact: true }).first()).toHaveValue('');
     });
 
-    await test.step('a refused save keeps what was typed', async () => {
+    await test.step('a wrong phone is not saved and stays as typed; the corrected one saves', async () => {
       await main.getByLabel('Phone', { exact: true }).first().fill('12345');
-      await main.getByRole('button', { name: 'Save customer details' }).click();
-      await expect(main.locator('[data-slot="error-summary"]').first()).toBeVisible({ timeout: 30_000 });
+      await expect(customerPill).toHaveAttribute('data-state', 'fix', { timeout: 30_000 });
+      await expect(main).toContainText('Mobile number: 10 digits starting with 6 to 9.');
       await expect(main.getByLabel('Phone', { exact: true }).first()).toHaveValue('12345');
-      await main.getByLabel('Phone', { exact: true }).first().fill('9876500077');
+      expect((await draftRow())?.phone).toBe('9876500077');
+      await main.getByLabel('Phone', { exact: true }).first().fill('9876500078');
       await main.getByLabel('I confirmed the contact details with the customer').check();
-      await main.getByRole('button', { name: 'Save customer details' }).click();
-      await expect(main.getByRole('status').filter({ hasText: 'Customer details saved.' })).toBeVisible({ timeout: 30_000 });
+      await expect.poll(async () => (await draftRow())?.phone, { timeout: 30_000 }).toBe('9876500078');
+      await expect(customerPill).toHaveAttribute('data-state', 'saved', { timeout: 30_000 });
+    });
+
+    await test.step('passengers: one row per counted traveller; named rows save themselves', async () => {
+      const names = ['Synthetic Form Adult One', 'Synthetic Form Adult Two', 'Synthetic Form Child', 'Synthetic Form Infant'];
+      for (const [i, name] of names.entries()) await main.getByLabel(`Passenger ${i + 1} full name`).fill(name);
+      await expect(main.locator('#bf-pax-named')).toHaveText('4 of 4 named');
+      await expect.poll(async () => db(async (client) => (await client.query<{ n: string }>('select count(*)::text as n from public.deal_travellers where deal_id = $1', [dealId])).rows[0]!.n), { timeout: 30_000 }).toBe('4');
+      await expect(sales.locator('#pill-passengers')).toHaveAttribute('data-state', 'saved', { timeout: 30_000 });
     });
 
     await test.step('step 2: two stays leave one night uncovered; a third stay covers it (an unsaved step-1 value is typed first)', async () => {
-      // Echo B-H2: type on step 1 without saving; the hotel saves below must not wipe it.
+      // Echo B-H2: type on step 1; the hotel saves below must not wipe it (the card saves it itself).
       await main.getByLabel('Destination', { exact: true }).fill('Udaipur and Kumbhalgarh');
       await steps.getByRole('button', { name: /Trip & services/ }).click();
       await main.getByRole('group', { name: 'Choose services' }).getByRole('button', { name: /Hotels/ }).click();
       const addStay = async (checkIn: string, nights: string, hotel: string, rate: string) => {
-        await main.getByRole('button', { name: 'Add stay' }).click();
+        await main.getByRole('button', { name: 'Add hotel', exact: true }).click();
         const d = sales.getByRole('dialog', { name: 'Add hotel stay' });
         await d.getByLabel('City').fill('Udaipur');
         await d.getByLabel('Hotel', { exact: true }).fill(hotel);
         await d.getByLabel('Check-in').fill(checkIn);
         await d.getByLabel('Nights').fill(nights);
-        await d.getByLabel('Room / night, rupees').fill(rate);
+        await d.getByLabel('Rooms: our cost per night').fill(rate);
         await d.getByRole('button', { name: 'Save hotel' }).click();
         await expect(d).toBeHidden({ timeout: 30_000 });
       };
       await addStay('2026-12-01', '3', 'Synthetic Lake Hotel', '10000');
       await addStay('2026-12-05', '2', 'Synthetic Hill Hotel', '8000.50');
-      await expect(main).toContainText('5 / 6 tour nights covered · 1 missing', { timeout: 30_000 });
+      await expect(main.getByRole('status').filter({ hasText: /trip nights/ })).toContainText(/5 \/ 6 trip nights have a hotel ·\s*1 missing/, { timeout: 30_000 });
       await addStay('2026-12-04', '1', 'Synthetic Fort Hotel', '9000');
-      await expect(main).toContainText('6 / 6 tour nights covered', { timeout: 30_000 });
+      await expect(main.getByRole('status').filter({ hasText: /trip nights/ })).toContainText('6 / 6 trip nights have a hotel', { timeout: 30_000 });
       await expect(main).toContainText('₹30,000');
       await expect(main).toContainText('₹16,001');
     });
 
-    await test.step('after the hotel saves, the unsaved step-1 value is still there; save it, edit again and use the footer (no reload)', async () => {
+    await test.step('after the hotel saves, the step-1 value is still there and stored; the footer moves on', async () => {
       await steps.getByRole('button', { name: /Customer & passengers/ }).click();
       await expect(main.getByLabel('Destination', { exact: true })).toHaveValue('Udaipur and Kumbhalgarh');
-      await expect(main).toContainText('Unsaved changes in: Customer & trip');
-      await main.getByRole('button', { name: 'Save customer details' }).click();
-      // The earlier success line is still on screen, so wait for the footer to report nothing unsaved.
+      await expect.poll(async () => (await draftRow())?.destination, { timeout: 30_000 }).toBe('Udaipur and Kumbhalgarh');
       await expect(main).toContainText('All changes saved', { timeout: 30_000 });
-      // Echo B-H1: a second save of the same section, without a reload, is not refused as a replay.
+      // Echo B-H1: a second save of the same card, without a reload, is not refused as a replay.
       await main.getByLabel('Name', { exact: true }).fill('Synthetic Form Customer Two');
-      await main.getByRole('button', { name: 'Save and go to step 2' }).click();
+      await expect(customerPill).toHaveAttribute('data-state', 'saved', { timeout: 30_000 });
+      await expect.poll(() => db(async (client) => (await client.query<{ n: string }>(
+        `select c.contact_name as n from public.booking_version_contacts c join public.booking_versions v on v.id = c.booking_version_id where v.deal_id = $1 and v.status = 'draft'`, [dealId])).rows[0]?.n), { timeout: 30_000 }).toBe('Synthetic Form Customer Two');
+      await main.getByRole('button', { name: 'Go to step 2' }).click();
       await expect(sales).toHaveURL(/\/book\/stay$/, { timeout: 30_000 });
-      await expect(main.locator('#bf-report')).toHaveCount(0);
     });
 
-    await test.step('step 2: a car with a route and an estimate; a flight with a private screenshot', async () => {
+    await test.step('step 2: a car for the whole trip with an estimate; a typed flight with a fare per person; a flight from a private screenshot', async () => {
       await main.getByRole('group', { name: 'Choose services' }).getByRole('button', { name: /Cars/ }).click();
-      await main.getByRole('button', { name: 'Add car' }).click();
+      await main.getByRole('button', { name: 'Add car', exact: true }).click();
       const car = sales.getByRole('dialog', { name: 'Add car' });
-      // Voice-note batch: the vehicle is a list (with "Other (type it)" for anything else).
+      await car.getByRole('radio', { name: 'Full trip' }).click();
       await car.getByLabel('Vehicle', { exact: true }).selectOption('Innova');
       await car.getByLabel('Number of vehicles').fill('2');
       await car.getByLabel(/Rate per vehicle/).fill('25000');
       await car.getByLabel('Route', { exact: true }).fill('Udaipur sightseeing');
-      await expect(car).toContainText('₹50,000');
+      await car.getByLabel('Tour start').fill('2026-12-01');
+      await car.getByLabel('Tour end').fill('2026-12-07');
       await car.getByRole('button', { name: 'Save car' }).click();
       await expect(car).toBeHidden({ timeout: 30_000 });
+      await expect(main.getByRole('region', { name: /^Cars/ })).toContainText('₹50,000', { timeout: 30_000 });
 
       await main.getByRole('group', { name: 'Choose services' }).getByRole('button', { name: /Flights/ }).click();
-      await main.getByRole('button', { name: 'Add flight' }).first().click();
+      await main.getByRole('button', { name: 'Add flight', exact: true }).click();
       const flight = sales.getByRole('dialog', { name: 'Add flight' });
-      await flight.getByLabel('From', { exact: true }).fill('DEL');
-      await flight.getByLabel('To', { exact: true }).fill('UDR');
-      await flight.getByLabel('Arrival date').fill('2026-12-01');
+      await flight.locator('#ap-from').fill('DEL');
+      await flight.locator('#ap-from').press('Enter');
+      await flight.locator('#ap-to').fill('UDR');
+      await flight.locator('#ap-to').press('Enter');
+      await flight.getByLabel(/^Arrival date/).fill('2026-12-01');
       await flight.getByLabel(/^Airline/).fill('Synthetic Air');
-      await flight.getByLabel(/Estimated fare/).fill('15000');
+      await flight.locator('#svc-fare-adult').fill('15000');
       await flight.getByRole('button', { name: 'Save flight' }).click();
       await expect(flight).toBeHidden({ timeout: 30_000 });
-      await main.getByRole('button', { name: /^Edit flight/ }).first().click();
+      await expect(main.getByRole('region', { name: /^Flights/ })).toContainText('Fare per person: Adult ₹15,000', { timeout: 30_000 });
+
+      // Change 19: a flight added from a screenshot saves and uploads in one step.
+      await main.getByRole('button', { name: 'Add flight', exact: true }).click();
+      const shot = sales.getByRole('dialog', { name: 'Add flight' });
+      await shot.getByRole('radio', { name: 'Attach a screenshot' }).click();
+      await shot.locator('#svc-screenshot').setInputFiles({ name: 'synthetic-flight.pdf', mimeType: 'application/pdf', buffer: syntheticPdf(`Synthetic flight ${ref}`) });
+      await shot.locator('#svc-screenshotNote').fill('Book the 08:00 option');
+      await shot.getByRole('button', { name: 'Save flight' }).click();
+      await expect(shot).toBeHidden({ timeout: 60_000 });
+      await expect(main.getByRole('region', { name: /^Flights/ })).toContainText('From screenshot · Book the 08:00 option', { timeout: 30_000 });
+      await main.getByRole('button', { name: 'Edit flight 2' }).click();
       const edit = sales.getByRole('dialog', { name: 'Edit flight' });
-      // Voice-note batch: "Attach ticket screenshot" sits beside the passengers; choosing the file attaches it at once.
-      await expect(edit.getByRole('button', { name: 'Attach ticket screenshot' })).toBeVisible();
-      await edit.locator('#svc-screenshot').setInputFiles({ name: 'synthetic-flight.pdf', mimeType: 'application/pdf', buffer: syntheticPdf(`Synthetic flight ${ref}`) });
       await expect(edit.getByRole('list', { name: 'Flight screenshots' })).toContainText('synthetic-flight.pdf', { timeout: 30_000 });
       const href = await edit.getByRole('link', { name: /synthetic-flight\.pdf/ }).getAttribute('href');
       expect(href).toMatch(new RegExp(`^/app/deals/${dealId}/book/files/`));
@@ -261,7 +304,7 @@ test.describe('Booking form on a real local stack', () => {
       await sales.screenshot({ path: `${shotDir}/02-services.png`, fullPage: true });
     });
 
-    await test.step('step 3: per-person prices in three directions; saved in whole paise; reload shows them', async () => {
+    await test.step('step 3: per-person prices in three directions save themselves in whole paise; reload shows them', async () => {
       await steps.getByRole('button', { name: /Price & Bill To/ }).click();
       const price = main.locator('section#price');
       await price.getByLabel('Child with bed: people').fill('1');
@@ -274,47 +317,49 @@ test.describe('Booking form on a real local stack', () => {
       await price.getByLabel('Infant purchase per person, rupees').fill('0');
       await price.getByLabel('Infant markup per person, rupees').fill('0');
       await expect(price).toContainText('₹54,469.12');
-      await price.getByRole('button', { name: 'Save prices' }).click();
-      await expect(price.getByRole('status').filter({ hasText: 'Prices saved. Package selling total ₹54,469.12.' })).toBeVisible({ timeout: 30_000 });
-      // Echo B-H1: change one amount and save again, without a reload.
+      const sellingTotal = () => db(async (client) => (await client.query<{ t: string | null }>(
+        `select c.selling_total_paise::text as t from public.booking_version_commercials c join public.booking_versions v on v.id = c.version_id where v.deal_id = $1 and v.status = 'draft'`, [dealId])).rows[0]?.t ?? null);
+      await expect.poll(sellingTotal, { timeout: 30_000 }).toBe('5446912');
+      await expect(sales.locator('#pill-price')).toHaveAttribute('data-state', 'saved', { timeout: 30_000 });
+      // Echo B-H1: change one amount; it saves again without a reload.
       await price.getByLabel('Adult markup per person, rupees').fill('1300');
       await expect(price.getByLabel('Adult final sale per person, rupees')).toHaveValue('21300.00');
-      await price.getByRole('button', { name: 'Save prices' }).click();
-      await expect(price.getByRole('status').filter({ hasText: 'Prices saved. Package selling total ₹54,600.' })).toBeVisible({ timeout: 30_000 });
+      await expect.poll(sellingTotal, { timeout: 30_000 }).toBe('5460000');
       await sales.reload();
       await expect(main.locator('section#price').getByLabel('Adult final sale per person, rupees')).toHaveValue(/^21300(\.00)?$/);
     });
 
     await test.step('step 3: Bill To business without GST, with a reason; saved and reloaded', async () => {
       const bill = main.locator('section#billTo');
-      // Voice-note batch: Bill To is search first; the typed form opens with "Type the details instead".
+      // Bill To is search first; the typed form opens with "Type the details instead".
       await bill.getByRole('button', { name: 'Type the details instead' }).click();
-      await bill.getByRole('button', { name: 'Business' }).click();
+      await bill.getByRole('radio', { name: 'Business' }).click();
       await bill.getByLabel('Company name').fill('Synthetic Small Firm');
       await bill.getByLabel('Contact name').fill('Synthetic Contact');
       await bill.getByLabel('Phone').fill('9876500088');
-      await bill.getByText('Billing address').click();
       await bill.getByLabel('Address', { exact: true }).fill('2 Synthetic Road');
       await bill.getByLabel('City').fill('Udaipur');
       await bill.getByLabel('State').selectOption('08');
       await bill.getByLabel('PIN code').fill('313001');
       await bill.getByLabel('GST registration').selectOption('unregistered');
       await bill.getByLabel('Reason for no GSTIN').fill('Turnover below the registration threshold');
-      await bill.getByRole('button', { name: 'Save Bill To' }).click();
-      await expect(bill.getByRole('status').filter({ hasText: 'Bill To saved. Accounts checks it before use.' })).toBeVisible({ timeout: 30_000 });
-      // Echo B-H1: a second Bill To save without a reload.
+      const billRow = () => db(async (client) => (await client.query<{ contact: string | null; reason: string | null }>(
+        'select contact_person as contact, gst_reason as reason from public.customer_billing_profiles where deal_id = $1', [dealId])).rows[0] ?? null);
+      await expect.poll(async () => (await billRow())?.reason ?? null, { timeout: 30_000 }).toBe('Turnover below the registration threshold');
+      await expect(sales.locator('#pill-billTo')).toHaveAttribute('data-state', 'saved', { timeout: 30_000 });
+      // Echo B-H1: a second Bill To save without a reload (a saved Bill To shows as a summary with "Edit details").
+      const editDetails = bill.getByRole('button', { name: 'Edit details' });
+      if (await editDetails.isVisible()) await editDetails.click();
       await bill.getByLabel('Contact name').fill('Synthetic Contact Two');
-      await bill.getByRole('button', { name: 'Save Bill To' }).click();
+      await expect.poll(async () => (await billRow())?.contact ?? null, { timeout: 30_000 }).toBe('Synthetic Contact Two');
       await expect(main).toContainText('All changes saved', { timeout: 30_000 });
-      await expect(bill.getByRole('status').filter({ hasText: 'Bill To saved. Accounts checks it before use.' })).toBeVisible({ timeout: 30_000 });
-      await expect(bill.locator('[data-slot="error-summary"]')).toHaveCount(0);
       await sales.reload();
-      await expect(main.locator('section#billTo').getByLabel('Contact name')).toHaveValue('Synthetic Contact Two');
-      await expect(main.locator('section#billTo').getByLabel('Reason for no GSTIN')).toHaveValue('Turnover below the registration threshold');
-      await expect(main.locator('section#billTo')).toContainText('Waits for Accounts check');
+      const after = main.locator('section#billTo');
+      await expect(after).toContainText('Synthetic Contact Two');
+      await expect(after).toContainText('Turnover below the registration threshold');
+      await expect(after).toContainText('Waits for Accounts check');
       await sales.screenshot({ path: `${shotDir}/03-finish.png`, fullPage: true });
     });
-
     await test.step('the database holds exactly what was typed (paise, estimates, party, Bill To)', async () => {
       const facts = await db(async (client) => {
         const { rows: v } = await client.query<{ id: string; pax: number; children: number; infants: number }>(
@@ -367,19 +412,20 @@ test.describe('Booking form on a real local stack', () => {
       const bill = main.locator('section#billTo');
       // Voice-note batch: Bill To is search first; the typed form opens with "Type the details instead".
       await bill.getByRole('button', { name: 'Type the details instead' }).click();
-      await bill.getByRole('button', { name: 'Business' }).click();
+      await bill.getByRole('radio', { name: 'Business' }).click();
       await bill.getByLabel('Company name').fill('Synthetic Growing Firm');
       await bill.getByLabel('Contact name').fill('Synthetic Contact');
       await bill.getByLabel('Phone').fill('9876500066');
-      await bill.getByText('Billing address').click();
       await bill.getByLabel('Address', { exact: true }).fill('3 Synthetic Road');
       await bill.getByLabel('City').fill('Jodhpur');
       await bill.getByLabel('State').selectOption('08');
       await bill.getByLabel('PIN code').fill('342001');
       await bill.getByLabel('GST registration').selectOption('unregistered');
       await bill.getByLabel('Reason for no GSTIN').fill('Registration applied for, not issued yet');
-      await bill.getByRole('button', { name: 'Save Bill To' }).click();
-      await expect(bill.getByRole('status').filter({ hasText: 'Bill To saved. Accounts checks it before use.' })).toBeVisible({ timeout: 30_000 });
+      // Book now v2 (change 2): Bill To saves itself once every check passes.
+      await expect.poll(() => db(async (client) => (await client.query<{ reason: string | null }>(
+        'select gst_reason as reason from public.customer_billing_profiles where deal_id = $1', [dealId])).rows[0]?.reason ?? null), { timeout: 30_000 }).toBe('Registration applied for, not issued yet');
+      await expect(sales.locator('#pill-billTo')).toHaveAttribute('data-state', 'saved', { timeout: 30_000 });
     });
 
     const aContext = await csp.track(browser, 'accounts-a');

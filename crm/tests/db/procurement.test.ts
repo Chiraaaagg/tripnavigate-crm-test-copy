@@ -184,13 +184,55 @@ const confirmSupplier = (actor: Actor, taskId: string, expected: number, referen
 const workspace = (actor: Actor, taskId: string) =>
   one<Record<string, unknown> | null>(actor, 'select public.purchase_workspace($1) as r', [taskId]);
 
-/** Claimed task with supplier, quote, one proposed cost and stored confirmation proof. */
+const ACCOUNTS: Actor = { userId: U.accountsJodhpur };
+const BOOKING_REQUEST_SQL = 'select public.purchase_booking_request_send($1, $2, $3, $4::text[], $5, $6, $7) as r';
+const GO_AHEAD_DECIDE_SQL = 'select public.purchase_go_ahead_decide($1, $2, $3, $4, $5) as r';
+
+/**
+ * Owner decision 1 (2 Nov 2026, migration 20261130000110): before supplier
+ * confirmation the assignee sends the booking request for the latest final
+ * rate and, for a hotel, Accounts gives the go-ahead. SYNTHETIC FIXTURE: the
+ * Accounts booking review of the task's current version is set to approved
+ * as the database owner; the go-ahead itself goes through the real command.
+ */
+async function bookingRequestAndGoAhead(taskId: string, actor: Actor = PURCHASE): Promise<void> {
+  const [latest] = await db.query<{ n: number }>(
+    'select max(version_no)::int as n from public.purchase_cost_versions where task_id = $1',
+    [taskId],
+  );
+  await one(actor, BOOKING_REQUEST_SQL, [
+    taskId,
+    latest!.n,
+    'desk@example.test',
+    [],
+    'Booking request · SYN-DEL-001 · Synthetic Hotel (fixture)',
+    'Synthetic booking request (fixture).',
+    crypto.randomUUID(),
+  ]);
+  await db.query(
+    `insert into public.accounts_booking_reviews (booking_version_id, deal_id, legal_entity_id, status, reviewed_by, reviewed_at)
+     select v.id, v.deal_id, v.legal_entity_id, 'approved', $2, now()
+     from public.booking_versions v where v.id = authz.task_current_version($1)
+     on conflict (booking_version_id) do update set status = 'approved', reviewed_by = excluded.reviewed_by, reviewed_at = now()`,
+    [taskId, U.accountsJodhpur],
+  );
+  const [pending] = await db.query<{ id: string; row_version: number }>(
+    `select id, row_version from public.purchase_go_ahead_requests where task_id = $1 and status = 'pending'`,
+    [taskId],
+  );
+  if (pending) {
+    await one(ACCOUNTS, GO_AHEAD_DECIDE_SQL, [pending.id, 'approve', null, pending.row_version, crypto.randomUUID()]);
+  }
+}
+
+/** Claimed task with supplier, quote, one proposed cost, stored confirmation proof, booking request and go-ahead. */
 async function readyTask() {
   const taskId = await claimedTask();
   const { supplierId } = await createSupplier();
   const { quoteId } = await addQuote(PURCHASE, taskId, supplierId);
   await propose(PURCHASE, taskId, quoteId, 0);
   const proof = await storeProof(PURCHASE, taskId);
+  await bookingRequestAndGoAhead(taskId);
   return { taskId, supplierId, quoteId, proof };
 }
 
@@ -400,7 +442,8 @@ describe('P4-04 / P4-05 idempotency and concurrency (sequential half)', () => {
         [await entityId(), JSON.stringify({ ...SUPPLIER, name: 'synthetic stays ltd' })], '23505', 'supplier_exists');
       const upd = 'select public.supplier_update($1, $2, $3::jsonb) as r';
       expect(await one(PURCHASE, upd, [supplierId, 1, JSON.stringify({ ...SUPPLIER, city: 'Other Synthetic City' })]))
-        .toEqual({ supplierId, rowVersion: 2 });
+        // Accounts phase 2 (5.5 A2): + near-duplicate warnings.
+        .toEqual({ supplierId, rowVersion: 2, warnings: [] });
       await refused(PURCHASE, upd, [supplierId, 1, JSON.stringify(SUPPLIER)], '40001', 'version_changed');
       await refused(PURCHASE, upd, [supplierId, 2, JSON.stringify({ ...SUPPLIER, unknownKey: 1 })], '22023', 'invalid_input');
       // No command sets verified (P4-D1 open).
@@ -417,6 +460,7 @@ describe('P4-06 / P4-07 supplier confirmation', () => {
       const { quoteId } = await addQuote(PURCHASE, taskId, supplierId);
       expect((await workspace(PURCHASE, taskId))!.issues).toEqual(['missing_cost', 'missing_supplier_confirmation_proof']);
       await propose(PURCHASE, taskId, quoteId, 0);
+      await bookingRequestAndGoAhead(taskId);
       await storeProof(PURCHASE, taskId, 'quote'); // a quote file is not confirmation proof
       await refused(PURCHASE, CONFIRM_SQL, [taskId, 1, 'SYN-1'], '55000', 'not_ready');
       expect((await workspace(PURCHASE, taskId))!.issues).toEqual(['missing_supplier_confirmation_proof']);
@@ -466,6 +510,9 @@ describe('P4-06 / P4-07 supplier confirmation', () => {
       const { taskId, supplierId, quoteId } = await readyTask();
       const alternate = await addQuote(PURCHASE, taskId, supplierId);
       await propose(PURCHASE, taskId, alternate.quoteId, 1, '3900000');
+      // A new final rate needs its own booking request and go-ahead.
+      await refused(PURCHASE, CONFIRM_SQL, [taskId, 2, 'SYN-IDENTITY'], '55000', 'booking_request_not_sent');
+      await bookingRequestAndGoAhead(taskId);
       expect(await confirmSupplier(PURCHASE, taskId, 2, 'SYN-IDENTITY')).toEqual({ outcome: 'created', taskId });
       // Proposal 1 names a different offer. Version 3 is the new committed cost.
       for (const version of [0, 1, 3, 99, null]) {
@@ -769,6 +816,10 @@ describe('A1 P4-D2 over-budget approval', () => {
       await refused(MANAGER, APPROVE_COST_SQL, [taskId, 1], '40001', 'version_changed');
       expect(await one(MANAGER, APPROVE_COST_SQL, [taskId, 2])).toEqual({ taskId, versionNo: 2, outcome: 'created' });
       expect(await one(MANAGER, APPROVE_COST_SQL, [taskId, 2])).toEqual({ taskId, versionNo: 2, outcome: 'existing' });
+      // Owner decision 1: the approved final rate still needs its booking request and the Accounts go-ahead.
+      expect((await workspace(PURCHASE, taskId))!.issues).toEqual(['booking_request_not_sent', 'go_ahead_missing']);
+      await refused(PURCHASE, CONFIRM_SQL, [taskId, 2, 'SYN-1'], '55000', 'booking_request_not_sent');
+      await bookingRequestAndGoAhead(taskId);
       const ws = await workspace(PURCHASE, taskId);
       expect(ws!.issues).toEqual([]);
       const v2 = (ws!.costVersions as Array<Record<string, unknown>>).find((c) => c.versionNo === 2)!;
@@ -797,6 +848,8 @@ describe('A1 P4-D2 over-budget approval', () => {
       expect((await workspace(PURCHASE, taskId))!.issues).toEqual(['over_budget']);
       await refused(PURCHASE, CONFIRM_SQL, [taskId, 3, 'SYN-1'], '55000', 'over_budget');
       await one(MANAGER, APPROVE_COST_SQL, [taskId, 3]);
+      expect((await workspace(PURCHASE, taskId))!.issues).toEqual(['booking_request_not_sent', 'go_ahead_missing']);
+      await bookingRequestAndGoAhead(taskId);
       expect((await workspace(PURCHASE, taskId))!.issues).toEqual([]);
     });
   });
@@ -966,6 +1019,176 @@ describe('Phase 6 F1 / F2: confirmation retries while the gate is closed; one re
         [taskId],
       );
       expect(row).toEqual({ audits: 1, committed: 1, outbox: 1 });
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Purchase build review fixes (F2, F4, F7, F8; migrations 20261130000100..0120)
+// ---------------------------------------------------------------------------
+
+describe('Purchase build: go-ahead validity, e-mail results, cancellation self-approval', () => {
+  const SERVICE: Actor = { userId: null, role: 'service_role' };
+  const MARK_SQL = 'select public.purchase_email_mark_result($1, $2, $3, $4) as r';
+  const PROVIDER_ID = '49a3999c-0ce1-4ea6-ab68-afcd6dc2e794';
+  const versionOf = async (taskId: string) =>
+    (await db.query<{ id: string }>('select authz.task_current_version($1) as id', [taskId]))[0]!.id;
+  const approveReviewAsOwner = async (taskId: string) =>
+    db.query(
+      `insert into public.accounts_booking_reviews (booking_version_id, deal_id, legal_entity_id, status, reviewed_by, reviewed_at)
+       select v.id, v.deal_id, v.legal_entity_id, 'approved', $2, now() from public.booking_versions v where v.id = authz.task_current_version($1)
+       on conflict (booking_version_id) do update set status = 'approved', return_reason = null, reviewed_by = excluded.reviewed_by, reviewed_at = now()`,
+      [taskId, U.accountsJodhpur],
+    );
+  const pendingGoAhead = async (taskId: string) =>
+    (await db.query<{ id: string; row_version: number; email_id: string }>(
+      `select id, row_version, email_id from public.purchase_go_ahead_requests where task_id = $1 and status = 'pending'`, [taskId]))[0];
+  /** Claimed task with supplier, quote, one proposed cost and stored proof; no booking request yet. */
+  async function pricedTask() {
+    const taskId = await claimedTask();
+    const { supplierId } = await createSupplier();
+    const { quoteId } = await addQuote(PURCHASE, taskId, supplierId);
+    await propose(PURCHASE, taskId, quoteId, 0);
+    await storeProof(PURCHASE, taskId);
+    return { taskId, quoteId };
+  }
+  const sendBooking = (taskId: string, versionNo = 1) =>
+    one<{ emailId: string; status: string }>(PURCHASE, BOOKING_REQUEST_SQL, [
+      taskId, versionNo, 'desk@example.test', [], 'Booking request · SYN-DEL-001 · Synthetic Hotel (fixture)',
+      'Synthetic booking request (fixture).', crypto.randomUUID(),
+    ]);
+
+  it('F4/F7: only the server marks a queued e-mail; a fake provider id is refused; a queued or failed booking e-mail blocks the go-ahead', async () => {
+    await asOwner(db, async () => {
+      await db.exec('update public.procurement_settings set supplier_email_sending_enabled = true');
+      const { taskId } = await pricedTask();
+      await approveReviewAsOwner(taskId);
+      const sent = await sendBooking(taskId);
+      expect(sent.status).toBe('queued');
+      const g = (await pendingGoAhead(taskId))!;
+      expect(g.email_id).toBe(sent.emailId);
+
+      // F4: no API role but service_role may record the provider result.
+      for (const actor of [PURCHASE, ACCOUNTS, MANAGER, ADMIN]) {
+        await refused(actor, MARK_SQL, [sent.emailId, 'sent', PROVIDER_ID, null], '42501');
+      }
+      await refused(ANON, MARK_SQL, [sent.emailId, 'sent', PROVIDER_ID, null], '42501');
+      await refused(SERVICE, MARK_SQL, [sent.emailId, 'sent', 'fake-id', null], '22023', 'invalid_input');
+      await refused(SERVICE, MARK_SQL, [sent.emailId, 'sent', null, null], '22023', 'invalid_input');
+
+      // F7: while the booking e-mail is still queued, Accounts cannot give the go-ahead.
+      await refused(ACCOUNTS, GO_AHEAD_DECIDE_SQL, [g.id, 'approve', null, g.row_version, crypto.randomUUID()], '55000', 'booking_request_not_sent');
+      const list = await one<Array<{ requestId: string; canDecide: boolean }>>(ACCOUNTS, 'select public.accounts_go_ahead_list() as r');
+      expect(list.find((r) => r.requestId === g.id)!.canDecide).toBe(false);
+
+      expect(await one(SERVICE, MARK_SQL, [sent.emailId, 'sent', PROVIDER_ID, null])).toEqual({ emailId: sent.emailId, status: 'sent', outcome: 'created' });
+      expect(await one(SERVICE, MARK_SQL, [sent.emailId, 'sent', PROVIDER_ID, null])).toMatchObject({ outcome: 'existing' });
+      await refused(SERVICE, MARK_SQL, [sent.emailId, 'failed', null, 'late'], '55000', 'already_decided');
+      expect(await one(ACCOUNTS, GO_AHEAD_DECIDE_SQL, [g.id, 'approve', null, g.row_version, crypto.randomUUID()])).toMatchObject({ status: 'approved' });
+      const audit = await db.query<{ details: Record<string, unknown> }>(
+        `select details from public.audit_events where action = 'purchase.supplier_email_sent' and target_id = $1`, [taskId]);
+      expect(audit).toHaveLength(1);
+      expect(JSON.stringify(audit)).not.toContain('desk@example.test');
+    });
+  });
+
+  it('F7: a failed booking e-mail does not count; the go-ahead waits for a booking request that went out', async () => {
+    await asOwner(db, async () => {
+      await db.exec('update public.procurement_settings set supplier_email_sending_enabled = true');
+      const { taskId } = await pricedTask();
+      await approveReviewAsOwner(taskId);
+      const sent = await sendBooking(taskId);
+      expect(await one(SERVICE, MARK_SQL, [sent.emailId, 'failed', null, 'provider_error'])).toMatchObject({ status: 'failed' });
+      const g = (await pendingGoAhead(taskId))!;
+      await refused(ACCOUNTS, GO_AHEAD_DECIDE_SQL, [g.id, 'approve', null, g.row_version, crypto.randomUUID()], '55000', 'booking_request_not_sent');
+      expect((await workspace(PURCHASE, taskId))!.issues).toEqual(['booking_request_not_sent', 'go_ahead_missing']);
+      // Sent again with the switch off (marked as sent): the old request is superseded by a new pending
+      // request linked to the e-mail that went out; Accounts may approve that one.
+      await db.exec('update public.procurement_settings set supplier_email_sending_enabled = false');
+      const again = await sendBooking(taskId);
+      expect(again.status).toBe('marked_sent');
+      const next = (await pendingGoAhead(taskId))!;
+      expect(next.id).not.toBe(g.id);
+      expect(next.email_id).toBe(again.emailId);
+      const statuses = await db.query<{ id: string; status: string }>(
+        'select id, status from public.purchase_go_ahead_requests where task_id = $1', [taskId]);
+      expect(statuses.find((r) => r.id === g.id)!.status).toBe('superseded');
+      await refused(ACCOUNTS, GO_AHEAD_DECIDE_SQL, [g.id, 'approve', null, g.row_version, crypto.randomUUID()], '40001', 'version_changed');
+      expect(await one(ACCOUNTS, GO_AHEAD_DECIDE_SQL, [next.id, 'approve', null, next.row_version, crypto.randomUUID()])).toMatchObject({ status: 'approved' });
+      expect((await workspace(PURCHASE, taskId))!.issues).toEqual([]);
+    });
+  });
+
+  it('a booking e-mail still queued is superseded by a re-send; Accounts decides on the e-mail that went out', async () => {
+    await asOwner(db, async () => {
+      await db.exec('update public.procurement_settings set supplier_email_sending_enabled = true');
+      const { taskId } = await pricedTask();
+      await approveReviewAsOwner(taskId);
+      const first = await sendBooking(taskId);
+      expect(first.status).toBe('queued');
+      const g = (await pendingGoAhead(taskId))!;
+      const second = await sendBooking(taskId);
+      const next = (await pendingGoAhead(taskId))!;
+      expect(next.id).not.toBe(g.id);
+      expect(next.email_id).toBe(second.emailId);
+      await one(SERVICE, MARK_SQL, [first.emailId, 'sent', PROVIDER_ID, null]); // the late result of the first send
+      await refused(ACCOUNTS, GO_AHEAD_DECIDE_SQL, [next.id, 'approve', null, next.row_version, crypto.randomUUID()], '55000', 'booking_request_not_sent');
+      await one(SERVICE, MARK_SQL, [second.emailId, 'sent', '59a3999c-0ce1-4ea6-ab68-afcd6dc2e795', null]);
+      expect(await one(ACCOUNTS, GO_AHEAD_DECIDE_SQL, [next.id, 'approve', null, next.row_version, crypto.randomUUID()])).toMatchObject({ status: 'approved' });
+      const audit = await db.query(`select 1 from public.audit_events where action = 'purchase.go_ahead_requested' and target_id = $1`, [taskId]);
+      expect(audit).toHaveLength(2);
+    });
+  });
+
+  it('F2: a booking review returned after the go-ahead voids it until reviewed again and a new go-ahead is given', async () => {
+    await asOwner(db, async () => {
+      const { taskId } = await readyTask();
+      expect(((await workspace(PURCHASE, taskId))!.goAhead as { state: string }).state).toBe('approved');
+      await one(ACCOUNTS, 'select public.accounts_review_return($1, $2, $3) as r', [
+        await versionOf(taskId), 'Synthetic: billing details need a second look', crypto.randomUUID(),
+      ]);
+      const ws = await workspace(PURCHASE, taskId);
+      expect((ws!.goAhead as { state: string }).state).not.toBe('approved');
+      expect(ws!.issues).toEqual(['go_ahead_missing']);
+      await refused(PURCHASE, CONFIRM_SQL, [taskId, 1, 'SYN-F2'], '55000', 'go_ahead_missing');
+      // Sending the booking request again asks Accounts again (the old approval no longer counts).
+      await sendBooking(taskId);
+      const g = (await pendingGoAhead(taskId))!;
+      await refused(ACCOUNTS, GO_AHEAD_DECIDE_SQL, [g.id, 'approve', null, g.row_version, crypto.randomUUID()], '55000', 'booking_not_approved');
+      await approveReviewAsOwner(taskId);
+      await one(ACCOUNTS, GO_AHEAD_DECIDE_SQL, [g.id, 'approve', null, g.row_version, crypto.randomUUID()]);
+      expect(await confirmSupplier(PURCHASE, taskId, 1, 'SYN-F2')).toEqual({ outcome: 'created', taskId });
+    });
+  });
+
+  it('F8: a Manager who entered any charge revision or sent the case cannot decide it', async () => {
+    await asOwner(db, async () => {
+      const { taskId } = await readyTask();
+      // The deal-branch manager also holds Purchase (synthetic membership) and is the task's assignee after reassignment.
+      await db.query(
+        `insert into public.memberships (user_id, legal_entity_id, branch_id, role_code, status)
+         select $1, b.legal_entity_id, b.id, 'purchase', 'active' from public.branches b where b.code = 'DEL'
+         on conflict do nothing`,
+        [U.managerDelhi],
+      );
+      await one(MANAGER, 'select public.purchase_task_reassign($1, $2, $3) as r', [taskId, U.purchaseJodhpur, U.managerDelhi]);
+      const opened = await one<{ cancellationId: string }>(MANAGER, 'select public.deal_cancellation_open($1, $2, $3) as r', [
+        D.del001, 'Synthetic: customer cancelled the trip', crypto.randomUUID(),
+      ]);
+      const CHARGE_SQL = 'select public.purchase_cancellation_charge_set($1, $2::bigint, $3::bigint, $4, $5, $6, $7) as r';
+      // Revision 1 by the Manager (as Purchase), revision 2 by the original Purchase person after reassigning back.
+      await one(MANAGER, CHARGE_SQL, [taskId, '100000', '3900000', null, null, 0, crypto.randomUUID()]);
+      await one(MANAGER, 'select public.purchase_task_reassign($1, $2, $3) as r', [taskId, U.managerDelhi, U.purchaseJodhpur]);
+      await one(PURCHASE, CHARGE_SQL, [taskId, '200000', '3800000', null, null, 1, crypto.randomUUID()]);
+      const [c] = await db.query<{ row_version: number }>('select row_version from public.deal_cancellations where id = $1', [opened.cancellationId]);
+      const sentCase = await one<{ rowVersion: number }>(PURCHASE, 'select public.deal_cancellation_send($1, $2, $3) as r', [
+        opened.cancellationId, c!.row_version, crypto.randomUUID(),
+      ]);
+      // The latest revision is not the Manager's, yet an earlier one is: refused.
+      await refused(MANAGER, 'select public.deal_cancellation_decide($1, $2, $3, $4, $5) as r',
+        [opened.cancellationId, 'approve', null, sentCase.rowVersion, crypto.randomUUID()], '42501', 'not_self_approval');
+      const rows = await one<Array<{ cancellationId: string; canDecide: boolean }>>(MANAGER, 'select public.manager_cancellation_list() as r');
+      expect(rows.find((r) => r.cancellationId === opened.cancellationId)!.canDecide).toBe(false);
     });
   });
 });

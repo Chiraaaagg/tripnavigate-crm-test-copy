@@ -132,7 +132,7 @@ beforeAll(async () => {
   otherSales = await signInActor('salesDelhiB');
 });
 
-afterAll(async () => {
+async function cleanBookingFlowFixtures() {
   if (enabled) {
     if (objectPath) await stack!.admin().storage.from(EVIDENCE_BUCKET).remove([objectPath]).catch(() => undefined);
     const client = new pg.Client({ connectionString: dbUrl });
@@ -144,6 +144,7 @@ afterAll(async () => {
       await client.query(`delete from public.outbox_events where aggregate_id in (
           select id from public.booking_versions where deal_id = $1
           union select id from public.fulfilment_tasks where deal_id = $1)`, [DEAL]);
+      await client.query(`delete from public.purchase_task_basis where deal_id = $1`, [DEAL]);
       await client.query(`delete from public.fulfilment_tasks where deal_id = $1`, [DEAL]);
       // B1 (20261118000100): the hotel confirmation also created the Deal's service item, its facts and the traveller snapshot.
       await client.query(`delete from public.service_item_facts where service_item_id in (select id from public.service_items where deal_id = $1)`, [DEAL]);
@@ -166,7 +167,14 @@ afterAll(async () => {
       await client.end();
     }
   }
-  await stack?.cleanup();
+}
+
+afterAll(async () => {
+  try {
+    await cleanBookingFlowFixtures();
+  } finally {
+    await stack?.cleanup();
+  }
 });
 
 describe.skipIf(!enabled)('Phase 3 booking → Purchase task through Supabase (agent A actions)', () => {

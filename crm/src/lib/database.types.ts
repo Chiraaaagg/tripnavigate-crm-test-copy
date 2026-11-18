@@ -2,7 +2,7 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
 
 export type Database = {
-
+  
   "public": {
           Tables: {
             "access_grants": {
@@ -56,16 +56,28 @@ isOneToOne: false
                   ]
                 },"accounts_booking_reviews": {
                   Row: {
-                    "booking_version_id": string,"created_at": string,"deal_id": string,"id": string,"legal_entity_id": string,"reason_shared_with_sales": boolean,"return_reason": string | null,"reviewed_at": string | null,"reviewed_by": string | null,"row_version": number,"status": string,"updated_at": string
+                    "approval_source": string,"booking_version_id": string,"change_request_id": string | null,"created_at": string,"deal_id": string,"id": string,"last_approved_at": string | null,"last_approved_by": string | null,"legal_entity_id": string,"reason_shared_with_sales": boolean,"return_reason": string | null,"reviewed_at": string | null,"reviewed_by": string | null,"row_version": number,"status": string,"updated_at": string
                   }
                   Insert: {
-                    "booking_version_id": string,"created_at"?: string,"deal_id": string,"id"?: string,"legal_entity_id": string,"reason_shared_with_sales"?: boolean,"return_reason"?: string | null,"reviewed_at"?: string | null,"reviewed_by"?: string | null,"row_version"?: number,"status"?: string,"updated_at"?: string
+                    "approval_source"?: string,"booking_version_id": string,"change_request_id"?: string | null,"created_at"?: string,"deal_id": string,"id"?: string,"last_approved_at"?: string | null,"last_approved_by"?: string | null,"legal_entity_id": string,"reason_shared_with_sales"?: boolean,"return_reason"?: string | null,"reviewed_at"?: string | null,"reviewed_by"?: string | null,"row_version"?: number,"status"?: string,"updated_at"?: string
                   }
                   Update: {
-                    "booking_version_id"?: string,"created_at"?: string,"deal_id"?: string,"id"?: string,"legal_entity_id"?: string,"reason_shared_with_sales"?: boolean,"return_reason"?: string | null,"reviewed_at"?: string | null,"reviewed_by"?: string | null,"row_version"?: number,"status"?: string,"updated_at"?: string
+                    "approval_source"?: string,"booking_version_id"?: string,"change_request_id"?: string | null,"created_at"?: string,"deal_id"?: string,"id"?: string,"last_approved_at"?: string | null,"last_approved_by"?: string | null,"legal_entity_id"?: string,"reason_shared_with_sales"?: boolean,"return_reason"?: string | null,"reviewed_at"?: string | null,"reviewed_by"?: string | null,"row_version"?: number,"status"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     {
+      foreignKeyName: "accounts_booking_reviews_change_request_id_fkey"
+      columns: ["change_request_id"]
+isOneToOne: false
+      referencedRelation: "booking_change_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "accounts_booking_reviews_last_approved_by_fkey"
+      columns: ["last_approved_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
       foreignKeyName: "accounts_booking_reviews_legal_entity_id_deal_id_booking_v_fkey"
       columns: ["legal_entity_id","deal_id","booking_version_id"]
 isOneToOne: false
@@ -74,6 +86,37 @@ isOneToOne: false
     },{
       foreignKeyName: "accounts_booking_reviews_reviewed_by_fkey"
       columns: ["reviewed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"accounts_settings": {
+                  Row: {
+                    "auto_bill_release_enabled": boolean,"auto_bills_enabled": boolean,"auto_bills_since": string | null,"created_at": string,"customer_documents_enabled": boolean,"exception_owner_user_id": string | null,"legal_entity_id": string,"refunds_enabled": boolean,"row_version": number,"tally_company_name": string | null,"tally_export_enabled": boolean,"tally_xml_enabled": boolean,"updated_at": string,"updated_by": string | null,"write_off_enabled": boolean,"write_off_limit_paise": number
+                  }
+                  Insert: {
+                    "auto_bill_release_enabled"?: boolean,"auto_bills_enabled"?: boolean,"auto_bills_since"?: string | null,"created_at"?: string,"customer_documents_enabled"?: boolean,"exception_owner_user_id"?: string | null,"legal_entity_id": string,"refunds_enabled"?: boolean,"row_version"?: number,"tally_company_name"?: string | null,"tally_export_enabled"?: boolean,"tally_xml_enabled"?: boolean,"updated_at"?: string,"updated_by"?: string | null,"write_off_enabled"?: boolean,"write_off_limit_paise"?: number
+                  }
+                  Update: {
+                    "auto_bill_release_enabled"?: boolean,"auto_bills_enabled"?: boolean,"auto_bills_since"?: string | null,"created_at"?: string,"customer_documents_enabled"?: boolean,"exception_owner_user_id"?: string | null,"legal_entity_id"?: string,"refunds_enabled"?: boolean,"row_version"?: number,"tally_company_name"?: string | null,"tally_export_enabled"?: boolean,"tally_xml_enabled"?: boolean,"updated_at"?: string,"updated_by"?: string | null,"write_off_enabled"?: boolean,"write_off_limit_paise"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "accounts_settings_exception_owner_user_id_fkey"
+      columns: ["exception_owner_user_id"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "accounts_settings_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: true
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "accounts_settings_updated_by_fkey"
+      columns: ["updated_by"]
 isOneToOne: false
       referencedRelation: "staff_profiles"
       referencedColumns: ["user_id"]
@@ -109,7 +152,7 @@ isOneToOne: false
                     "code"?: string,"enum_id"?: string,"source_object"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"bitrix_destination_scopes": {
                   Row: {
@@ -209,7 +252,7 @@ isOneToOne: false
                     "code"?: string,"created_at"?: string,"entity_id"?: string,"id"?: string,"kind"?: string | null,"missing_since"?: string | null,"name"?: string,"read_at"?: string,"sort"?: number,"source_portal"?: string,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"bitrix_name_refresh_state": {
                   Row: {
@@ -222,7 +265,7 @@ isOneToOne: false
                     "last_attempt_at"?: string | null,"last_success_at"?: string | null,"source_portal"?: string,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"bitrix_party_snapshots": {
                   Row: {
@@ -280,6 +323,136 @@ isOneToOne: false
       referencedColumns: ["user_id"]
     }
                   ]
+                },"boarding_pass_slot_files": {
+                  Row: {
+                    "created_at": string,"evidence_id": string,"legal_entity_id": string,"linked_by": string,"sector_id": string,"task_id": string,"traveller_seq": number
+                  }
+                  Insert: {
+                    "created_at"?: string,"evidence_id": string,"legal_entity_id": string,"linked_by": string,"sector_id": string,"task_id": string,"traveller_seq": number
+                  }
+                  Update: {
+                    "created_at"?: string,"evidence_id"?: string,"legal_entity_id"?: string,"linked_by"?: string,"sector_id"?: string,"task_id"?: string,"traveller_seq"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "boarding_pass_slot_files_evidence_id_fkey"
+      columns: ["evidence_id"]
+isOneToOne: true
+      referencedRelation: "department_evidence"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "boarding_pass_slot_files_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "boarding_pass_slot_files_linked_by_fkey"
+      columns: ["linked_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "boarding_pass_slot_files_task_id_sector_id_fkey"
+      columns: ["task_id","sector_id"]
+isOneToOne: false
+      referencedRelation: "flight_sectors"
+      referencedColumns: ["task_id","id"]
+    }
+                  ]
+                },"booking_change_counters": {
+                  Row: {
+                    "last_no": number,"legal_entity_id": string,"year": number
+                  }
+                  Insert: {
+                    "last_no"?: number,"legal_entity_id": string,"year": number
+                  }
+                  Update: {
+                    "last_no"?: number,"legal_entity_id"?: string,"year"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "booking_change_counters_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"booking_change_requests": {
+                  Row: {
+                    "applied_at": string | null,"approved_content_hash": string | null,"base_version_id": string,"branch_id": string,"change_class": string | null,"change_summary": string,"change_version_id": string | null,"changed_fields": (string)[] | null,"close_reason": string | null,"closed_at": string | null,"closed_by": string | null,"customer_charge_paise": number | null,"deal_id": string,"decided_at": string | null,"decided_by": string | null,"decision_request_id": string | null,"id": string,"item_ids": (string)[],"kind": string,"legal_entity_id": string,"reason": string,"ref_no": string,"removal_route": string | null,"request_id": string,"requested_as": string,"requested_at": string,"requested_by": string,"return_reason": string | null,"row_version": number,"status": string,"submitted_at": string | null,"submitted_by": string | null,"submitted_content_hash": string | null,"updated_at": string
+                  }
+                  Insert: {
+                    "applied_at"?: string | null,"approved_content_hash"?: string | null,"base_version_id": string,"branch_id": string,"change_class"?: string | null,"change_summary": string,"change_version_id"?: string | null,"changed_fields"?: (string)[] | null,"close_reason"?: string | null,"closed_at"?: string | null,"closed_by"?: string | null,"customer_charge_paise"?: number | null,"deal_id": string,"decided_at"?: string | null,"decided_by"?: string | null,"decision_request_id"?: string | null,"id"?: string,"item_ids"?: (string)[],"kind": string,"legal_entity_id": string,"reason": string,"ref_no": string,"removal_route"?: string | null,"request_id": string,"requested_as": string,"requested_at"?: string,"requested_by": string,"return_reason"?: string | null,"row_version"?: number,"status"?: string,"submitted_at"?: string | null,"submitted_by"?: string | null,"submitted_content_hash"?: string | null,"updated_at"?: string
+                  }
+                  Update: {
+                    "applied_at"?: string | null,"approved_content_hash"?: string | null,"base_version_id"?: string,"branch_id"?: string,"change_class"?: string | null,"change_summary"?: string,"change_version_id"?: string | null,"changed_fields"?: (string)[] | null,"close_reason"?: string | null,"closed_at"?: string | null,"closed_by"?: string | null,"customer_charge_paise"?: number | null,"deal_id"?: string,"decided_at"?: string | null,"decided_by"?: string | null,"decision_request_id"?: string | null,"id"?: string,"item_ids"?: (string)[],"kind"?: string,"legal_entity_id"?: string,"reason"?: string,"ref_no"?: string,"removal_route"?: string | null,"request_id"?: string,"requested_as"?: string,"requested_at"?: string,"requested_by"?: string,"return_reason"?: string | null,"row_version"?: number,"status"?: string,"submitted_at"?: string | null,"submitted_by"?: string | null,"submitted_content_hash"?: string | null,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "booking_change_requests_closed_by_fkey"
+      columns: ["closed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "booking_change_requests_decided_by_fkey"
+      columns: ["decided_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "booking_change_requests_legal_entity_id_branch_id_fkey"
+      columns: ["legal_entity_id","branch_id"]
+isOneToOne: false
+      referencedRelation: "branches"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "booking_change_requests_legal_entity_id_deal_id_base_versi_fkey"
+      columns: ["legal_entity_id","deal_id","base_version_id"]
+isOneToOne: false
+      referencedRelation: "booking_versions"
+      referencedColumns: ["legal_entity_id","deal_id","id"]
+    },{
+      foreignKeyName: "booking_change_requests_legal_entity_id_deal_id_change_ver_fkey"
+      columns: ["legal_entity_id","deal_id","change_version_id"]
+isOneToOne: false
+      referencedRelation: "booking_versions"
+      referencedColumns: ["legal_entity_id","deal_id","id"]
+    },{
+      foreignKeyName: "booking_change_requests_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "booking_change_requests_requested_by_fkey"
+      columns: ["requested_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "booking_change_requests_submitted_by_fkey"
+      columns: ["submitted_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"booking_change_settings": {
+                  Row: {
+                    "changes_enabled": boolean,"id": boolean,"service_changes_enabled": boolean,"updated_at": string
+                  }
+                  Insert: {
+                    "changes_enabled"?: boolean,"id"?: boolean,"service_changes_enabled"?: boolean,"updated_at"?: string
+                  }
+                  Update: {
+                    "changes_enabled"?: boolean,"id"?: boolean,"service_changes_enabled"?: boolean,"updated_at"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"booking_evidence": {
                   Row: {
                     "created_at": string,"deal_id": string,"file_name": string,"id": string,"kind": string,"legal_entity_id": string,"mime": string,"object_path": string,"sha256": string,"size_bytes": number,"status": string,"stored_at": string | null,"updated_at": string,"uploaded_by": string,"version_id": string
@@ -316,7 +489,7 @@ isOneToOne: false
                     "evidence_max_bytes"?: number,"id"?: boolean,"real_booking_enabled"?: boolean,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"booking_version_commercials": {
                   Row: {
@@ -362,6 +535,31 @@ isOneToOne: false
       referencedColumns: ["legal_entity_id","deal_id","id"]
     },{
       foreignKeyName: "booking_version_contacts_updated_by_fkey"
+      columns: ["updated_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"booking_version_flight_fares": {
+                  Row: {
+                    "adult_paise": number | null,"booking_version_id": string,"child_paise": number | null,"created_at": string,"infant_paise": number | null,"legal_entity_id": string,"updated_at": string,"updated_by": string
+                  }
+                  Insert: {
+                    "adult_paise"?: number | null,"booking_version_id": string,"child_paise"?: number | null,"created_at"?: string,"infant_paise"?: number | null,"legal_entity_id": string,"updated_at"?: string,"updated_by": string
+                  }
+                  Update: {
+                    "adult_paise"?: number | null,"booking_version_id"?: string,"child_paise"?: number | null,"created_at"?: string,"infant_paise"?: number | null,"legal_entity_id"?: string,"updated_at"?: string,"updated_by"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "booking_version_flight_fares_legal_entity_id_booking_versi_fkey"
+      columns: ["legal_entity_id","booking_version_id"]
+isOneToOne: false
+      referencedRelation: "booking_versions"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "booking_version_flight_fares_updated_by_fkey"
       columns: ["updated_by"]
 isOneToOne: false
       referencedRelation: "staff_profiles"
@@ -452,13 +650,13 @@ isOneToOne: false
                   ]
                 },"booking_versions": {
                   Row: {
-                    "acceptance_from_version_id": string | null,"adults": number | null,"adults_count": number | null,"branch_id": string,"change_class": string | null,"changed_fields": (string)[] | null,"check_in": string | null,"check_out": string | null,"children": number | null,"children_count": number | null,"city": string | null,"commercial_revision": string,"confirmed_at": string | null,"confirmed_by": string | null,"confirmed_deal_source_modified_at": string | null,"content_hash": string,"created_at": string,"created_by": string,"deal_id": string,"discarded_at": string | null,"discarded_by": string | null,"form_rules": number,"hash_schema": number,"hotel_name": string | null,"id": string,"inclusions": string | null,"infants_count": number | null,"legal_entity_id": string,"meal_plan": string | null,"pax_total": number | null,"purchase_budget_paise": number | null,"revises_version_id": string | null,"room_type": string | null,"rooms": number | null,"row_version": number,"service_type": string,"source_accepted_tier": string | null,"source_quotation_hash": string | null,"source_quotation_version_id": string | null,"special_requests": string | null,"status": string,"superseded_at": string | null,"superseded_by_version_id": string | null,"trip_destination": string | null,"trip_end": string | null,"trip_scope": string | null,"trip_start": string | null,"updated_at": string,"updated_by": string | null,"version_no": number
+                    "acceptance_from_version_id": string | null,"adults": number | null,"adults_count": number | null,"branch_id": string,"change_class": string | null,"change_request_id": string | null,"changed_fields": (string)[] | null,"check_in": string | null,"check_out": string | null,"children": number | null,"children_count": number | null,"city": string | null,"commercial_revision": string,"confirmed_at": string | null,"confirmed_by": string | null,"confirmed_deal_source_modified_at": string | null,"content_hash": string,"created_at": string,"created_by": string,"deal_id": string,"discarded_at": string | null,"discarded_by": string | null,"form_rules": number,"hash_schema": number,"hotel_name": string | null,"id": string,"inclusions": string | null,"infants_count": number | null,"legal_entity_id": string,"meal_plan": string | null,"pax_total": number | null,"purchase_budget_paise": number | null,"revises_version_id": string | null,"room_type": string | null,"rooms": number | null,"row_version": number,"service_type": string,"source_accepted_tier": string | null,"source_quotation_hash": string | null,"source_quotation_version_id": string | null,"special_requests": string | null,"status": string,"superseded_at": string | null,"superseded_by_version_id": string | null,"trip_destination": string | null,"trip_end": string | null,"trip_scope": string | null,"trip_start": string | null,"updated_at": string,"updated_by": string | null,"version_no": number
                   }
                   Insert: {
-                    "acceptance_from_version_id"?: string | null,"adults"?: number | null,"adults_count"?: number | null,"branch_id": string,"change_class"?: string | null,"changed_fields"?: (string)[] | null,"check_in"?: string | null,"check_out"?: string | null,"children"?: number | null,"children_count"?: number | null,"city"?: string | null,"commercial_revision"?: string,"confirmed_at"?: string | null,"confirmed_by"?: string | null,"confirmed_deal_source_modified_at"?: string | null,"content_hash": string,"created_at"?: string,"created_by": string,"deal_id": string,"discarded_at"?: string | null,"discarded_by"?: string | null,"form_rules"?: number,"hash_schema"?: number,"hotel_name"?: string | null,"id"?: string,"inclusions"?: string | null,"infants_count"?: number | null,"legal_entity_id": string,"meal_plan"?: string | null,"pax_total"?: number | null,"purchase_budget_paise"?: number | null,"revises_version_id"?: string | null,"room_type"?: string | null,"rooms"?: number | null,"row_version"?: number,"service_type"?: string,"source_accepted_tier"?: string | null,"source_quotation_hash"?: string | null,"source_quotation_version_id"?: string | null,"special_requests"?: string | null,"status"?: string,"superseded_at"?: string | null,"superseded_by_version_id"?: string | null,"trip_destination"?: string | null,"trip_end"?: string | null,"trip_scope"?: string | null,"trip_start"?: string | null,"updated_at"?: string,"updated_by"?: string | null,"version_no": number
+                    "acceptance_from_version_id"?: string | null,"adults"?: number | null,"adults_count"?: number | null,"branch_id": string,"change_class"?: string | null,"change_request_id"?: string | null,"changed_fields"?: (string)[] | null,"check_in"?: string | null,"check_out"?: string | null,"children"?: number | null,"children_count"?: number | null,"city"?: string | null,"commercial_revision"?: string,"confirmed_at"?: string | null,"confirmed_by"?: string | null,"confirmed_deal_source_modified_at"?: string | null,"content_hash": string,"created_at"?: string,"created_by": string,"deal_id": string,"discarded_at"?: string | null,"discarded_by"?: string | null,"form_rules"?: number,"hash_schema"?: number,"hotel_name"?: string | null,"id"?: string,"inclusions"?: string | null,"infants_count"?: number | null,"legal_entity_id": string,"meal_plan"?: string | null,"pax_total"?: number | null,"purchase_budget_paise"?: number | null,"revises_version_id"?: string | null,"room_type"?: string | null,"rooms"?: number | null,"row_version"?: number,"service_type"?: string,"source_accepted_tier"?: string | null,"source_quotation_hash"?: string | null,"source_quotation_version_id"?: string | null,"special_requests"?: string | null,"status"?: string,"superseded_at"?: string | null,"superseded_by_version_id"?: string | null,"trip_destination"?: string | null,"trip_end"?: string | null,"trip_scope"?: string | null,"trip_start"?: string | null,"updated_at"?: string,"updated_by"?: string | null,"version_no": number
                   }
                   Update: {
-                    "acceptance_from_version_id"?: string | null,"adults"?: number | null,"adults_count"?: number | null,"branch_id"?: string,"change_class"?: string | null,"changed_fields"?: (string)[] | null,"check_in"?: string | null,"check_out"?: string | null,"children"?: number | null,"children_count"?: number | null,"city"?: string | null,"commercial_revision"?: string,"confirmed_at"?: string | null,"confirmed_by"?: string | null,"confirmed_deal_source_modified_at"?: string | null,"content_hash"?: string,"created_at"?: string,"created_by"?: string,"deal_id"?: string,"discarded_at"?: string | null,"discarded_by"?: string | null,"form_rules"?: number,"hash_schema"?: number,"hotel_name"?: string | null,"id"?: string,"inclusions"?: string | null,"infants_count"?: number | null,"legal_entity_id"?: string,"meal_plan"?: string | null,"pax_total"?: number | null,"purchase_budget_paise"?: number | null,"revises_version_id"?: string | null,"room_type"?: string | null,"rooms"?: number | null,"row_version"?: number,"service_type"?: string,"source_accepted_tier"?: string | null,"source_quotation_hash"?: string | null,"source_quotation_version_id"?: string | null,"special_requests"?: string | null,"status"?: string,"superseded_at"?: string | null,"superseded_by_version_id"?: string | null,"trip_destination"?: string | null,"trip_end"?: string | null,"trip_scope"?: string | null,"trip_start"?: string | null,"updated_at"?: string,"updated_by"?: string | null,"version_no"?: number
+                    "acceptance_from_version_id"?: string | null,"adults"?: number | null,"adults_count"?: number | null,"branch_id"?: string,"change_class"?: string | null,"change_request_id"?: string | null,"changed_fields"?: (string)[] | null,"check_in"?: string | null,"check_out"?: string | null,"children"?: number | null,"children_count"?: number | null,"city"?: string | null,"commercial_revision"?: string,"confirmed_at"?: string | null,"confirmed_by"?: string | null,"confirmed_deal_source_modified_at"?: string | null,"content_hash"?: string,"created_at"?: string,"created_by"?: string,"deal_id"?: string,"discarded_at"?: string | null,"discarded_by"?: string | null,"form_rules"?: number,"hash_schema"?: number,"hotel_name"?: string | null,"id"?: string,"inclusions"?: string | null,"infants_count"?: number | null,"legal_entity_id"?: string,"meal_plan"?: string | null,"pax_total"?: number | null,"purchase_budget_paise"?: number | null,"revises_version_id"?: string | null,"room_type"?: string | null,"rooms"?: number | null,"row_version"?: number,"service_type"?: string,"source_accepted_tier"?: string | null,"source_quotation_hash"?: string | null,"source_quotation_version_id"?: string | null,"special_requests"?: string | null,"status"?: string,"superseded_at"?: string | null,"superseded_by_version_id"?: string | null,"trip_destination"?: string | null,"trip_end"?: string | null,"trip_scope"?: string | null,"trip_start"?: string | null,"updated_at"?: string,"updated_by"?: string | null,"version_no"?: number
                   }
                   Relationships: [
                     {
@@ -467,6 +665,12 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "booking_versions"
       referencedColumns: ["legal_entity_id","deal_id","id"]
+    },{
+      foreignKeyName: "booking_versions_change_request_id_fkey"
+      columns: ["change_request_id"]
+isOneToOne: false
+      referencedRelation: "booking_change_requests"
+      referencedColumns: ["id"]
     },{
       foreignKeyName: "booking_versions_confirmed_by_fkey"
       columns: ["confirmed_by"]
@@ -629,6 +833,25 @@ isOneToOne: false
       referencedColumns: ["user_id"]
     }
                   ]
+                },"cdoc_auto_pending": {
+                  Row: {
+                    "attempts": number,"created_at": string,"deal_id": string,"reason_code": string,"updated_at": string
+                  }
+                  Insert: {
+                    "attempts"?: number,"created_at"?: string,"deal_id": string,"reason_code": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "attempts"?: number,"created_at"?: string,"deal_id"?: string,"reason_code"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "cdoc_auto_pending_deal_id_fkey"
+      columns: ["deal_id"]
+isOneToOne: true
+      referencedRelation: "deals"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"company_destination_versions": {
                   Row: {
                     "account_number": string | null,"bank_name": string | null,"created_at": string,"decided_at": string | null,"decided_by": string | null,"decision_reason": string | null,"destination_id": string,"holder_name": string | null,"id": string,"ifsc": string | null,"legal_entity_id": string,"maker": string,"payee_name": string | null,"predecessor_version_id": string | null,"request_id": string,"status": string,"upi_id": string | null,"version_no": number
@@ -698,6 +921,55 @@ isOneToOne: false
     },{
       foreignKeyName: "company_destinations_retired_by_fkey"
       columns: ["retired_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"company_funding_requests": {
+                  Row: {
+                    "amount_paise": number,"branch_id": string,"deal_id": string,"decided_at": string | null,"decided_by": string | null,"id": string,"legal_entity_id": string,"payment_request_id": string,"reason": string,"recovered_at": string | null,"recovered_by": string | null,"recovery_note": string | null,"requested_at": string,"requested_by": string,"return_reason": string | null,"route": string,"row_version": number,"status": string,"updated_at": string
+                  }
+                  Insert: {
+                    "amount_paise": number,"branch_id": string,"deal_id": string,"decided_at"?: string | null,"decided_by"?: string | null,"id"?: string,"legal_entity_id": string,"payment_request_id": string,"reason": string,"recovered_at"?: string | null,"recovered_by"?: string | null,"recovery_note"?: string | null,"requested_at"?: string,"requested_by": string,"return_reason"?: string | null,"route": string,"row_version"?: number,"status"?: string,"updated_at"?: string
+                  }
+                  Update: {
+                    "amount_paise"?: number,"branch_id"?: string,"deal_id"?: string,"decided_at"?: string | null,"decided_by"?: string | null,"id"?: string,"legal_entity_id"?: string,"payment_request_id"?: string,"reason"?: string,"recovered_at"?: string | null,"recovered_by"?: string | null,"recovery_note"?: string | null,"requested_at"?: string,"requested_by"?: string,"return_reason"?: string | null,"route"?: string,"row_version"?: number,"status"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "company_funding_requests_decided_by_fkey"
+      columns: ["decided_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "company_funding_requests_legal_entity_id_branch_id_fkey"
+      columns: ["legal_entity_id","branch_id"]
+isOneToOne: false
+      referencedRelation: "branches"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "company_funding_requests_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "company_funding_requests_payment_request_id_fkey"
+      columns: ["payment_request_id"]
+isOneToOne: true
+      referencedRelation: "supplier_payment_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "company_funding_requests_recovered_by_fkey"
+      columns: ["recovered_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "company_funding_requests_requested_by_fkey"
+      columns: ["requested_by"]
 isOneToOne: false
       referencedRelation: "staff_profiles"
       referencedColumns: ["user_id"]
@@ -777,15 +1049,332 @@ isOneToOne: false
       referencedColumns: ["user_id"]
     }
                   ]
-                },"customer_parties": {
+                },"customer_document_counters": {
                   Row: {
-                    "address_line1": string | null,"address_line2": string | null,"branch_id": string | null,"check_reason": string | null,"check_status": string,"checked_at": string | null,"checked_by": string | null,"city": string | null,"contact_person": string | null,"created_at": string,"created_by": string,"email": string | null,"gst_reason": string | null,"gst_status": string | null,"gstin": string | null,"id": string,"import_batch_id": string | null,"legal_entity_id": string,"name": string,"name_key": string | null,"party_type": string,"phone": string | null,"phone_digits": string | null,"postal_code": string | null,"row_version": number,"source_ref": string | null,"state_code": string | null,"updated_at": string,"updated_by": string
+                    "deal_id": string,"kind": string,"last_no": number,"prefix": string | null
                   }
                   Insert: {
-                    "address_line1"?: string | null,"address_line2"?: string | null,"branch_id"?: string | null,"check_reason"?: string | null,"check_status"?: string,"checked_at"?: string | null,"checked_by"?: string | null,"city"?: string | null,"contact_person"?: string | null,"created_at"?: string,"created_by": string,"email"?: string | null,"gst_reason"?: string | null,"gst_status"?: string | null,"gstin"?: string | null,"id"?: string,"import_batch_id"?: string | null,"legal_entity_id": string,"name": string,"name_key"?: never,"party_type": string,"phone"?: string | null,"phone_digits"?: never,"postal_code"?: string | null,"row_version"?: number,"source_ref"?: string | null,"state_code"?: string | null,"updated_at"?: string,"updated_by": string
+                    "deal_id": string,"kind": string,"last_no"?: number,"prefix"?: string | null
                   }
                   Update: {
-                    "address_line1"?: string | null,"address_line2"?: string | null,"branch_id"?: string | null,"check_reason"?: string | null,"check_status"?: string,"checked_at"?: string | null,"checked_by"?: string | null,"city"?: string | null,"contact_person"?: string | null,"created_at"?: string,"created_by"?: string,"email"?: string | null,"gst_reason"?: string | null,"gst_status"?: string | null,"gstin"?: string | null,"id"?: string,"import_batch_id"?: string | null,"legal_entity_id"?: string,"name"?: string,"name_key"?: never,"party_type"?: string,"phone"?: string | null,"phone_digits"?: never,"postal_code"?: string | null,"row_version"?: number,"source_ref"?: string | null,"state_code"?: string | null,"updated_at"?: string,"updated_by"?: string
+                    "deal_id"?: string,"kind"?: string,"last_no"?: number,"prefix"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_document_counters_deal_id_fkey"
+      columns: ["deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"customer_document_files": {
+                  Row: {
+                    "created_at": string,"document_id": string,"id": string,"legal_entity_id": string,"object_path": string,"page_count": number,"render_job_id": string,"sha256": string,"size_bytes": number
+                  }
+                  Insert: {
+                    "created_at"?: string,"document_id": string,"id"?: string,"legal_entity_id": string,"object_path": string,"page_count": number,"render_job_id": string,"sha256": string,"size_bytes": number
+                  }
+                  Update: {
+                    "created_at"?: string,"document_id"?: string,"id"?: string,"legal_entity_id"?: string,"object_path"?: string,"page_count"?: number,"render_job_id"?: string,"sha256"?: string,"size_bytes"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_document_files_legal_entity_id_document_id_fkey"
+      columns: ["legal_entity_id","document_id"]
+isOneToOne: false
+      referencedRelation: "customer_documents"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "customer_document_files_legal_entity_id_render_job_id_fkey"
+      columns: ["legal_entity_id","render_job_id"]
+isOneToOne: false
+      referencedRelation: "customer_document_render_jobs"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"customer_document_render_jobs": {
+                  Row: {
+                    "attempts": number,"available_at": string,"content_sha256": string,"created_at": string,"document_id": string,"finished_at": string | null,"id": string,"last_error_code": string | null,"lease_owner": string | null,"lease_until": string | null,"legal_entity_id": string,"max_attempts": number,"priority": number,"requested_by": string | null,"started_at": string | null,"status": string,"template_version": string
+                  }
+                  Insert: {
+                    "attempts"?: number,"available_at"?: string,"content_sha256": string,"created_at"?: string,"document_id": string,"finished_at"?: string | null,"id"?: string,"last_error_code"?: string | null,"lease_owner"?: string | null,"lease_until"?: string | null,"legal_entity_id": string,"max_attempts"?: number,"priority"?: number,"requested_by"?: string | null,"started_at"?: string | null,"status"?: string,"template_version": string
+                  }
+                  Update: {
+                    "attempts"?: number,"available_at"?: string,"content_sha256"?: string,"created_at"?: string,"document_id"?: string,"finished_at"?: string | null,"id"?: string,"last_error_code"?: string | null,"lease_owner"?: string | null,"lease_until"?: string | null,"legal_entity_id"?: string,"max_attempts"?: number,"priority"?: number,"requested_by"?: string | null,"started_at"?: string | null,"status"?: string,"template_version"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_document_render_jobs_legal_entity_id_document_id_fkey"
+      columns: ["legal_entity_id","document_id"]
+isOneToOne: false
+      referencedRelation: "customer_documents"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "customer_document_render_jobs_requested_by_fkey"
+      columns: ["requested_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"customer_documents": {
+                  Row: {
+                    "auto_rule": string | null,"auto_state": string | null,"basis_version_id": string | null,"branch_id": string,"content": NonNullable<Json>,"content_sha256": string,"created_at": string,"created_by": string | null,"credits_document_id": string | null,"deal_id": string,"end_reason": string | null,"end_rule": string | null,"ended_at": string | null,"ended_by": string | null,"evaluated_at": string | null,"hold_reasons": (string)[],"id": string,"issue_date": string | null,"kind": string,"legal_entity_id": string,"number": string | null,"receipt_id": string | null,"refreshed_at": string | null,"refund_request_id": string | null,"release_request_id": string | null,"release_rule": string | null,"released_at": string | null,"released_by": string | null,"replace_reason": string | null,"replaces_document_id": string | null,"request_id": string,"row_version": number,"seq": number | null,"source_hash": string,"status": string,"tally_invoice_id": string | null,"total_paise": number,"updated_at": string,"warnings": (string)[]
+                  }
+                  Insert: {
+                    "auto_rule"?: string | null,"auto_state"?: string | null,"basis_version_id"?: string | null,"branch_id": string,"content": NonNullable<Json>,"content_sha256": string,"created_at"?: string,"created_by"?: string | null,"credits_document_id"?: string | null,"deal_id": string,"end_reason"?: string | null,"end_rule"?: string | null,"ended_at"?: string | null,"ended_by"?: string | null,"evaluated_at"?: string | null,"hold_reasons"?: (string)[],"id"?: string,"issue_date"?: string | null,"kind": string,"legal_entity_id": string,"number"?: string | null,"receipt_id"?: string | null,"refreshed_at"?: string | null,"refund_request_id"?: string | null,"release_request_id"?: string | null,"release_rule"?: string | null,"released_at"?: string | null,"released_by"?: string | null,"replace_reason"?: string | null,"replaces_document_id"?: string | null,"request_id": string,"row_version"?: number,"seq"?: number | null,"source_hash": string,"status"?: string,"tally_invoice_id"?: string | null,"total_paise": number,"updated_at"?: string,"warnings"?: (string)[]
+                  }
+                  Update: {
+                    "auto_rule"?: string | null,"auto_state"?: string | null,"basis_version_id"?: string | null,"branch_id"?: string,"content"?: NonNullable<Json>,"content_sha256"?: string,"created_at"?: string,"created_by"?: string | null,"credits_document_id"?: string | null,"deal_id"?: string,"end_reason"?: string | null,"end_rule"?: string | null,"ended_at"?: string | null,"ended_by"?: string | null,"evaluated_at"?: string | null,"hold_reasons"?: (string)[],"id"?: string,"issue_date"?: string | null,"kind"?: string,"legal_entity_id"?: string,"number"?: string | null,"receipt_id"?: string | null,"refreshed_at"?: string | null,"refund_request_id"?: string | null,"release_request_id"?: string | null,"release_rule"?: string | null,"released_at"?: string | null,"released_by"?: string | null,"replace_reason"?: string | null,"replaces_document_id"?: string | null,"request_id"?: string,"row_version"?: number,"seq"?: number | null,"source_hash"?: string,"status"?: string,"tally_invoice_id"?: string | null,"total_paise"?: number,"updated_at"?: string,"warnings"?: (string)[]
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_documents_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "customer_documents_credits_fk"
+      columns: ["legal_entity_id","deal_id","credits_document_id"]
+isOneToOne: false
+      referencedRelation: "customer_documents"
+      referencedColumns: ["legal_entity_id","deal_id","id"]
+    },{
+      foreignKeyName: "customer_documents_ended_by_fkey"
+      columns: ["ended_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "customer_documents_legal_entity_id_branch_id_deal_id_fkey"
+      columns: ["legal_entity_id","branch_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","branch_id","id"]
+    },{
+      foreignKeyName: "customer_documents_legal_entity_id_deal_id_basis_version_i_fkey"
+      columns: ["legal_entity_id","deal_id","basis_version_id"]
+isOneToOne: false
+      referencedRelation: "booking_versions"
+      referencedColumns: ["legal_entity_id","deal_id","id"]
+    },{
+      foreignKeyName: "customer_documents_receipt_id_fkey"
+      columns: ["receipt_id"]
+isOneToOne: false
+      referencedRelation: "customer_receipts"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_documents_refund_request_fk"
+      columns: ["refund_request_id"]
+isOneToOne: false
+      referencedRelation: "customer_refund_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_documents_released_by_fkey"
+      columns: ["released_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "customer_documents_replaces_fk"
+      columns: ["legal_entity_id","deal_id","replaces_document_id"]
+isOneToOne: false
+      referencedRelation: "customer_documents"
+      referencedColumns: ["legal_entity_id","deal_id","id"]
+    },{
+      foreignKeyName: "customer_documents_tally_invoice_id_fkey"
+      columns: ["tally_invoice_id"]
+isOneToOne: false
+      referencedRelation: "deal_tally_invoices"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"customer_message_alerts": {
+                  Row: {
+                    "branch_id": string,"created_at": string,"deal_id": string,"event_id": string | null,"id": string,"kind": string,"legal_entity_id": string,"message_id": string | null
+                  }
+                  Insert: {
+                    "branch_id": string,"created_at"?: string,"deal_id": string,"event_id"?: string | null,"id"?: string,"kind": string,"legal_entity_id": string,"message_id"?: string | null
+                  }
+                  Update: {
+                    "branch_id"?: string,"created_at"?: string,"deal_id"?: string,"event_id"?: string | null,"id"?: string,"kind"?: string,"legal_entity_id"?: string,"message_id"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_message_alerts_event_id_fkey"
+      columns: ["event_id"]
+isOneToOne: false
+      referencedRelation: "customer_message_events"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_message_alerts_legal_entity_id_branch_id_deal_id_fkey"
+      columns: ["legal_entity_id","branch_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","branch_id","id"]
+    },{
+      foreignKeyName: "customer_message_alerts_message_id_fkey"
+      columns: ["message_id"]
+isOneToOne: false
+      referencedRelation: "customer_messages"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"customer_message_enqueue_failures": {
+                  Row: {
+                    "error_code": string,"failed_at": string,"id": number,"message_type": string | null
+                  }
+                  Insert: {
+                    "error_code": string,"failed_at"?: string,"id"?: never,"message_type"?: string | null
+                  }
+                  Update: {
+                    "error_code"?: string,"failed_at"?: string,"id"?: never,"message_type"?: string | null
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"customer_message_events": {
+                  Row: {
+                    "error_code": string | null,"id": string,"kind": string,"message_id": string | null,"provider": string,"provider_event_id": string,"received_at": string
+                  }
+                  Insert: {
+                    "error_code"?: string | null,"id"?: string,"kind": string,"message_id"?: string | null,"provider": string,"provider_event_id": string,"received_at"?: string
+                  }
+                  Update: {
+                    "error_code"?: string | null,"id"?: string,"kind"?: string,"message_id"?: string | null,"provider"?: string,"provider_event_id"?: string,"received_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_message_events_message_id_fkey"
+      columns: ["message_id"]
+isOneToOne: false
+      referencedRelation: "customer_messages"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"customer_message_pilot": {
+                  Row: {
+                    "added_at": string,"added_by": string,"deal_id": string,"id": string,"legal_entity_id": string,"removed_at": string | null,"removed_by": string | null
+                  }
+                  Insert: {
+                    "added_at"?: string,"added_by": string,"deal_id": string,"id"?: string,"legal_entity_id": string,"removed_at"?: string | null,"removed_by"?: string | null
+                  }
+                  Update: {
+                    "added_at"?: string,"added_by"?: string,"deal_id"?: string,"id"?: string,"legal_entity_id"?: string,"removed_at"?: string | null,"removed_by"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_message_pilot_added_by_fkey"
+      columns: ["added_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "customer_message_pilot_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "customer_message_pilot_removed_by_fkey"
+      columns: ["removed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"customer_message_settings": {
+                  Row: {
+                    "legal_entity_id": string,"pilot_only": boolean,"updated_at": string,"updated_by": string | null
+                  }
+                  Insert: {
+                    "legal_entity_id": string,"pilot_only"?: boolean,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Update: {
+                    "legal_entity_id"?: string,"pilot_only"?: boolean,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_message_settings_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: true
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_message_settings_updated_by_fkey"
+      columns: ["updated_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"customer_message_switches": {
+                  Row: {
+                    "channel": string,"enabled": boolean,"legal_entity_id": string,"message_type": string,"row_version": number,"updated_at": string,"updated_by": string | null
+                  }
+                  Insert: {
+                    "channel": string,"enabled"?: boolean,"legal_entity_id": string,"message_type": string,"row_version"?: number,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Update: {
+                    "channel"?: string,"enabled"?: boolean,"legal_entity_id"?: string,"message_type"?: string,"row_version"?: number,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_message_switches_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_message_switches_updated_by_fkey"
+      columns: ["updated_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"customer_messages": {
+                  Row: {
+                    "attachment": Json | null,"attempts": number,"branch_id": string,"channel": string,"created_at": string,"deal_id": string,"delivered_at": string | null,"event_key": string,"failed_at": string | null,"id": string,"language": string,"last_error_code": string | null,"lease_owner": string | null,"lease_until": string | null,"legal_entity_id": string,"message_type": string,"next_attempt_at": string | null,"not_before": string,"params": NonNullable<Json>,"provider_message_id": string | null,"read_at": string | null,"request_id": string | null,"requested_by": string | null,"resend_of": string | null,"row_version": number,"rule": string,"sent_at": string | null,"skip_reason": string | null,"status": string,"template_code": string,"to_masked": string | null,"updated_at": string
+                  }
+                  Insert: {
+                    "attachment"?: Json | null,"attempts"?: number,"branch_id": string,"channel": string,"created_at"?: string,"deal_id": string,"delivered_at"?: string | null,"event_key": string,"failed_at"?: string | null,"id"?: string,"language": string,"last_error_code"?: string | null,"lease_owner"?: string | null,"lease_until"?: string | null,"legal_entity_id": string,"message_type": string,"next_attempt_at"?: string | null,"not_before"?: string,"params"?: NonNullable<Json>,"provider_message_id"?: string | null,"read_at"?: string | null,"request_id"?: string | null,"requested_by"?: string | null,"resend_of"?: string | null,"row_version"?: number,"rule": string,"sent_at"?: string | null,"skip_reason"?: string | null,"status": string,"template_code": string,"to_masked"?: string | null,"updated_at"?: string
+                  }
+                  Update: {
+                    "attachment"?: Json | null,"attempts"?: number,"branch_id"?: string,"channel"?: string,"created_at"?: string,"deal_id"?: string,"delivered_at"?: string | null,"event_key"?: string,"failed_at"?: string | null,"id"?: string,"language"?: string,"last_error_code"?: string | null,"lease_owner"?: string | null,"lease_until"?: string | null,"legal_entity_id"?: string,"message_type"?: string,"next_attempt_at"?: string | null,"not_before"?: string,"params"?: NonNullable<Json>,"provider_message_id"?: string | null,"read_at"?: string | null,"request_id"?: string | null,"requested_by"?: string | null,"resend_of"?: string | null,"row_version"?: number,"rule"?: string,"sent_at"?: string | null,"skip_reason"?: string | null,"status"?: string,"template_code"?: string,"to_masked"?: string | null,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_messages_legal_entity_id_branch_id_deal_id_fkey"
+      columns: ["legal_entity_id","branch_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","branch_id","id"]
+    },{
+      foreignKeyName: "customer_messages_requested_by_fkey"
+      columns: ["requested_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "customer_messages_resend_of_fkey"
+      columns: ["resend_of"]
+isOneToOne: false
+      referencedRelation: "customer_messages"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"customer_parties": {
+                  Row: {
+                    "address_line1": string | null,"address_line2": string | null,"branch_id": string | null,"check_reason": string | null,"check_status": string,"checked_at": string | null,"checked_by": string | null,"city": string | null,"contact_person": string | null,"created_at": string,"created_by": string,"email": string | null,"gst_reason": string | null,"gst_status": string | null,"gstin": string | null,"id": string,"import_batch_id": string | null,"legal_entity_id": string,"name": string,"name_key": string | null,"party_type": string,"phone": string | null,"phone_digits": string | null,"postal_code": string | null,"row_version": number,"source_ref": string | null,"state_code": string | null,"tally_ledger_name": string | null,"updated_at": string,"updated_by": string
+                  }
+                  Insert: {
+                    "address_line1"?: string | null,"address_line2"?: string | null,"branch_id"?: string | null,"check_reason"?: string | null,"check_status"?: string,"checked_at"?: string | null,"checked_by"?: string | null,"city"?: string | null,"contact_person"?: string | null,"created_at"?: string,"created_by": string,"email"?: string | null,"gst_reason"?: string | null,"gst_status"?: string | null,"gstin"?: string | null,"id"?: string,"import_batch_id"?: string | null,"legal_entity_id": string,"name": string,"name_key"?: never,"party_type": string,"phone"?: string | null,"phone_digits"?: never,"postal_code"?: string | null,"row_version"?: number,"source_ref"?: string | null,"state_code"?: string | null,"tally_ledger_name"?: string | null,"updated_at"?: string,"updated_by": string
+                  }
+                  Update: {
+                    "address_line1"?: string | null,"address_line2"?: string | null,"branch_id"?: string | null,"check_reason"?: string | null,"check_status"?: string,"checked_at"?: string | null,"checked_by"?: string | null,"city"?: string | null,"contact_person"?: string | null,"created_at"?: string,"created_by"?: string,"email"?: string | null,"gst_reason"?: string | null,"gst_status"?: string | null,"gstin"?: string | null,"id"?: string,"import_batch_id"?: string | null,"legal_entity_id"?: string,"name"?: string,"name_key"?: never,"party_type"?: string,"phone"?: string | null,"phone_digits"?: never,"postal_code"?: string | null,"row_version"?: number,"source_ref"?: string | null,"state_code"?: string | null,"tally_ledger_name"?: string | null,"updated_at"?: string,"updated_by"?: string
                   }
                   Relationships: [
                     {
@@ -1021,6 +1610,166 @@ isOneToOne: false
       referencedColumns: ["user_id"]
     }
                   ]
+                },"customer_refund_counters": {
+                  Row: {
+                    "last_no": number,"legal_entity_id": string,"year": number
+                  }
+                  Insert: {
+                    "last_no"?: number,"legal_entity_id": string,"year": number
+                  }
+                  Update: {
+                    "last_no"?: number,"legal_entity_id"?: string,"year"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_refund_counters_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"customer_refund_payouts": {
+                  Row: {
+                    "amount_paise": number,"branch_id": string,"deal_id": string,"evidence_id": string,"id": string,"journal_entry_id": string,"legal_entity_id": string,"mode": string,"paid_on": string,"recorded_at": string,"recorded_by": string,"reference": string | null,"refund_request_id": string,"request_id": string
+                  }
+                  Insert: {
+                    "amount_paise": number,"branch_id": string,"deal_id": string,"evidence_id": string,"id"?: string,"journal_entry_id": string,"legal_entity_id": string,"mode": string,"paid_on": string,"recorded_at"?: string,"recorded_by": string,"reference"?: string | null,"refund_request_id": string,"request_id": string
+                  }
+                  Update: {
+                    "amount_paise"?: number,"branch_id"?: string,"deal_id"?: string,"evidence_id"?: string,"id"?: string,"journal_entry_id"?: string,"legal_entity_id"?: string,"mode"?: string,"paid_on"?: string,"recorded_at"?: string,"recorded_by"?: string,"reference"?: string | null,"refund_request_id"?: string,"request_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_refund_payouts_evidence_id_fkey"
+      columns: ["evidence_id"]
+isOneToOne: true
+      referencedRelation: "refund_evidence"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_refund_payouts_journal_entry_id_fkey"
+      columns: ["journal_entry_id"]
+isOneToOne: true
+      referencedRelation: "finance_journal_entries"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_refund_payouts_legal_entity_id_branch_id_fkey"
+      columns: ["legal_entity_id","branch_id"]
+isOneToOne: false
+      referencedRelation: "branches"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "customer_refund_payouts_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "customer_refund_payouts_legal_entity_id_refund_request_id_fkey"
+      columns: ["legal_entity_id","refund_request_id"]
+isOneToOne: false
+      referencedRelation: "customer_refund_requests"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "customer_refund_payouts_recorded_by_fkey"
+      columns: ["recorded_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"customer_refund_requests": {
+                  Row: {
+                    "amount_paise": number,"branch_id": string,"cancellation_id": string | null,"customer_charge_paise": number,"deal_id": string,"decided_at": string | null,"decided_by": string | null,"decision_request_id": string | null,"held_at_request_paise": number,"id": string,"kind": string,"legal_entity_id": string,"outcome": string,"paid_at": string | null,"payee_kind": string | null,"payee_name": string | null,"payee_reason": string | null,"payee_receipt_id": string | null,"reason": string,"ref_no": string,"request_id": string,"requested_as": string,"requested_at": string,"requested_by": string,"resubmitted_at": string | null,"return_reason": string | null,"row_version": number,"status": string,"updated_at": string,"use_kept_credit": boolean,"withdraw_reason": string | null,"withdrawn_at": string | null,"withdrawn_by": string | null
+                  }
+                  Insert: {
+                    "amount_paise": number,"branch_id": string,"cancellation_id"?: string | null,"customer_charge_paise"?: number,"deal_id": string,"decided_at"?: string | null,"decided_by"?: string | null,"decision_request_id"?: string | null,"held_at_request_paise": number,"id"?: string,"kind": string,"legal_entity_id": string,"outcome": string,"paid_at"?: string | null,"payee_kind"?: string | null,"payee_name"?: string | null,"payee_reason"?: string | null,"payee_receipt_id"?: string | null,"reason": string,"ref_no": string,"request_id": string,"requested_as": string,"requested_at"?: string,"requested_by": string,"resubmitted_at"?: string | null,"return_reason"?: string | null,"row_version"?: number,"status"?: string,"updated_at"?: string,"use_kept_credit"?: boolean,"withdraw_reason"?: string | null,"withdrawn_at"?: string | null,"withdrawn_by"?: string | null
+                  }
+                  Update: {
+                    "amount_paise"?: number,"branch_id"?: string,"cancellation_id"?: string | null,"customer_charge_paise"?: number,"deal_id"?: string,"decided_at"?: string | null,"decided_by"?: string | null,"decision_request_id"?: string | null,"held_at_request_paise"?: number,"id"?: string,"kind"?: string,"legal_entity_id"?: string,"outcome"?: string,"paid_at"?: string | null,"payee_kind"?: string | null,"payee_name"?: string | null,"payee_reason"?: string | null,"payee_receipt_id"?: string | null,"reason"?: string,"ref_no"?: string,"request_id"?: string,"requested_as"?: string,"requested_at"?: string,"requested_by"?: string,"resubmitted_at"?: string | null,"return_reason"?: string | null,"row_version"?: number,"status"?: string,"updated_at"?: string,"use_kept_credit"?: boolean,"withdraw_reason"?: string | null,"withdrawn_at"?: string | null,"withdrawn_by"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_refund_requests_cancellation_id_fkey"
+      columns: ["cancellation_id"]
+isOneToOne: false
+      referencedRelation: "deal_cancellations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_refund_requests_decided_by_fkey"
+      columns: ["decided_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "customer_refund_requests_legal_entity_id_branch_id_fkey"
+      columns: ["legal_entity_id","branch_id"]
+isOneToOne: false
+      referencedRelation: "branches"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "customer_refund_requests_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "customer_refund_requests_legal_entity_id_payee_receipt_id_fkey"
+      columns: ["legal_entity_id","payee_receipt_id"]
+isOneToOne: false
+      referencedRelation: "customer_receipts"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "customer_refund_requests_requested_by_fkey"
+      columns: ["requested_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "customer_refund_requests_withdrawn_by_fkey"
+      columns: ["withdrawn_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"customer_whatsapp_optouts": {
+                  Row: {
+                    "event_id": string | null,"id": string,"legal_entity_id": string,"mobile": string,"opted_out_at": string,"restart_event_id": string | null,"restart_source": string | null,"restarted_at": string | null,"restarted_by": string | null,"source": string,"updated_at": string
+                  }
+                  Insert: {
+                    "event_id"?: string | null,"id"?: string,"legal_entity_id": string,"mobile": string,"opted_out_at"?: string,"restart_event_id"?: string | null,"restart_source"?: string | null,"restarted_at"?: string | null,"restarted_by"?: string | null,"source": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "event_id"?: string | null,"id"?: string,"legal_entity_id"?: string,"mobile"?: string,"opted_out_at"?: string,"restart_event_id"?: string | null,"restart_source"?: string | null,"restarted_at"?: string | null,"restarted_by"?: string | null,"source"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_whatsapp_optouts_event_id_fkey"
+      columns: ["event_id"]
+isOneToOne: false
+      referencedRelation: "customer_message_events"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_whatsapp_optouts_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_whatsapp_optouts_restart_event_id_fkey"
+      columns: ["restart_event_id"]
+isOneToOne: false
+      referencedRelation: "customer_message_events"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_whatsapp_optouts_restarted_by_fkey"
+      columns: ["restarted_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
                 },"deal_assignments": {
                   Row: {
                     "assigned_by": string | null,"assignment_kind": string,"created_at": string,"deal_id": string,"ended_at": string | null,"id": string,"legal_entity_id": string,"user_id": string
@@ -1047,6 +1796,80 @@ isOneToOne: false
     },{
       foreignKeyName: "deal_assignments_user_id_fkey"
       columns: ["user_id"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"deal_bitrix_refresh_state": {
+                  Row: {
+                    "deal_id": string,"last_request_id": string,"last_requested_at": string,"last_requested_by": string,"legal_entity_id": string
+                  }
+                  Insert: {
+                    "deal_id": string,"last_request_id": string,"last_requested_at": string,"last_requested_by": string,"legal_entity_id": string
+                  }
+                  Update: {
+                    "deal_id"?: string,"last_request_id"?: string,"last_requested_at"?: string,"last_requested_by"?: string,"legal_entity_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "deal_bitrix_refresh_state_deal_id_fkey"
+      columns: ["deal_id"]
+isOneToOne: true
+      referencedRelation: "deals"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "deal_bitrix_refresh_state_last_requested_by_fkey"
+      columns: ["last_requested_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "deal_bitrix_refresh_state_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"deal_cancellations": {
+                  Row: {
+                    "branch_id": string,"deal_id": string,"decided_at": string | null,"decided_by": string | null,"decision_request_id": string | null,"id": string,"legal_entity_id": string,"opened_at": string,"opened_by": string,"reason": string,"request_id": string,"return_reason": string | null,"row_version": number,"sent_at": string | null,"sent_by": string | null,"sent_request_id": string | null,"status": string,"updated_at": string
+                  }
+                  Insert: {
+                    "branch_id": string,"deal_id": string,"decided_at"?: string | null,"decided_by"?: string | null,"decision_request_id"?: string | null,"id"?: string,"legal_entity_id": string,"opened_at"?: string,"opened_by": string,"reason": string,"request_id": string,"return_reason"?: string | null,"row_version"?: number,"sent_at"?: string | null,"sent_by"?: string | null,"sent_request_id"?: string | null,"status"?: string,"updated_at"?: string
+                  }
+                  Update: {
+                    "branch_id"?: string,"deal_id"?: string,"decided_at"?: string | null,"decided_by"?: string | null,"decision_request_id"?: string | null,"id"?: string,"legal_entity_id"?: string,"opened_at"?: string,"opened_by"?: string,"reason"?: string,"request_id"?: string,"return_reason"?: string | null,"row_version"?: number,"sent_at"?: string | null,"sent_by"?: string | null,"sent_request_id"?: string | null,"status"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "deal_cancellations_decided_by_fkey"
+      columns: ["decided_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "deal_cancellations_legal_entity_id_branch_id_fkey"
+      columns: ["legal_entity_id","branch_id"]
+isOneToOne: false
+      referencedRelation: "branches"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "deal_cancellations_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "deal_cancellations_opened_by_fkey"
+      columns: ["opened_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "deal_cancellations_sent_by_fkey"
+      columns: ["sent_by"]
 isOneToOne: false
       referencedRelation: "staff_profiles"
       referencedColumns: ["user_id"]
@@ -1094,6 +1917,31 @@ isOneToOne: false
 isOneToOne: true
       referencedRelation: "legal_entities"
       referencedColumns: ["id"]
+    }
+                  ]
+                },"deal_message_prefs": {
+                  Row: {
+                    "branch_id": string,"created_at": string,"deal_id": string,"email_off": boolean,"email_override": string | null,"language": string,"last_request_id": string | null,"legal_entity_id": string,"off_reason": string | null,"row_version": number,"updated_at": string,"updated_by": string | null,"whatsapp_mobile": string | null,"whatsapp_off": boolean
+                  }
+                  Insert: {
+                    "branch_id": string,"created_at"?: string,"deal_id": string,"email_off"?: boolean,"email_override"?: string | null,"language"?: string,"last_request_id"?: string | null,"legal_entity_id": string,"off_reason"?: string | null,"row_version"?: number,"updated_at"?: string,"updated_by"?: string | null,"whatsapp_mobile"?: string | null,"whatsapp_off"?: boolean
+                  }
+                  Update: {
+                    "branch_id"?: string,"created_at"?: string,"deal_id"?: string,"email_off"?: boolean,"email_override"?: string | null,"language"?: string,"last_request_id"?: string | null,"legal_entity_id"?: string,"off_reason"?: string | null,"row_version"?: number,"updated_at"?: string,"updated_by"?: string | null,"whatsapp_mobile"?: string | null,"whatsapp_off"?: boolean
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "deal_message_prefs_legal_entity_id_branch_id_deal_id_fkey"
+      columns: ["legal_entity_id","branch_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","branch_id","id"]
+    },{
+      foreignKeyName: "deal_message_prefs_updated_by_fkey"
+      columns: ["updated_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
     }
                   ]
                 },"deal_removal_participants": {
@@ -1146,6 +1994,68 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"deal_tally_invoices": {
+                  Row: {
+                    "branch_id": string,"created_at": string,"created_by": string,"deal_id": string,"fiscal_year": string | null,"id": string,"invoice_date": string,"invoice_ref": string,"legal_entity_id": string,"note": string | null,"ref_norm": string | null,"request_id": string,"row_version": number,"status": string,"updated_at": string,"withdraw_reason": string | null,"withdrawn_at": string | null,"withdrawn_by": string | null
+                  }
+                  Insert: {
+                    "branch_id": string,"created_at"?: string,"created_by": string,"deal_id": string,"fiscal_year"?: never,"id"?: string,"invoice_date": string,"invoice_ref": string,"legal_entity_id": string,"note"?: string | null,"ref_norm"?: never,"request_id": string,"row_version"?: number,"status"?: string,"updated_at"?: string,"withdraw_reason"?: string | null,"withdrawn_at"?: string | null,"withdrawn_by"?: string | null
+                  }
+                  Update: {
+                    "branch_id"?: string,"created_at"?: string,"created_by"?: string,"deal_id"?: string,"fiscal_year"?: never,"id"?: string,"invoice_date"?: string,"invoice_ref"?: string,"legal_entity_id"?: string,"note"?: string | null,"ref_norm"?: never,"request_id"?: string,"row_version"?: number,"status"?: string,"updated_at"?: string,"withdraw_reason"?: string | null,"withdrawn_at"?: string | null,"withdrawn_by"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "deal_tally_invoices_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "deal_tally_invoices_legal_entity_id_branch_id_deal_id_fkey"
+      columns: ["legal_entity_id","branch_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","branch_id","id"]
+    },{
+      foreignKeyName: "deal_tally_invoices_withdrawn_by_fkey"
+      columns: ["withdrawn_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"deal_traveller_fills": {
+                  Row: {
+                    "booking_version_id": string,"deal_id": string,"filled_at": string,"filled_by": string,"id": string,"legal_entity_id": string,"request_id": string,"traveller_seq": number,"traveller_type": string
+                  }
+                  Insert: {
+                    "booking_version_id": string,"deal_id": string,"filled_at"?: string,"filled_by": string,"id"?: string,"legal_entity_id": string,"request_id": string,"traveller_seq": number,"traveller_type": string
+                  }
+                  Update: {
+                    "booking_version_id"?: string,"deal_id"?: string,"filled_at"?: string,"filled_by"?: string,"id"?: string,"legal_entity_id"?: string,"request_id"?: string,"traveller_seq"?: number,"traveller_type"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "deal_traveller_fills_filled_by_fkey"
+      columns: ["filled_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "deal_traveller_fills_legal_entity_id_deal_id_booking_versi_fkey"
+      columns: ["legal_entity_id","deal_id","booking_version_id"]
+isOneToOne: false
+      referencedRelation: "booking_versions"
+      referencedColumns: ["legal_entity_id","deal_id","id"]
+    },{
+      foreignKeyName: "deal_traveller_fills_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
                 },"deal_travellers": {
                   Row: {
                     "age_years": number | null,"created_at": string,"deal_id": string,"full_name": string,"id": string,"legal_entity_id": string,"seq": number,"special_needs": string | null,"special_requests": (string)[],"traveller_type": string,"updated_at": string
@@ -1163,6 +2073,43 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "deals"
       referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"deal_write_offs": {
+                  Row: {
+                    "amount_paise": number,"branch_id": string,"deal_id": string,"decided_at": string | null,"decided_by": string | null,"decision_request_id": string | null,"direction": string,"id": string,"legal_entity_id": string,"proposed_at": string,"proposed_by": string,"reason": string,"ref_no": string,"request_id": string,"return_reason": string | null,"row_version": number,"status": string,"undo_reason": string | null,"undone_at": string | null,"undone_by": string | null,"updated_at": string
+                  }
+                  Insert: {
+                    "amount_paise": number,"branch_id": string,"deal_id": string,"decided_at"?: string | null,"decided_by"?: string | null,"decision_request_id"?: string | null,"direction": string,"id"?: string,"legal_entity_id": string,"proposed_at"?: string,"proposed_by": string,"reason": string,"ref_no": string,"request_id": string,"return_reason"?: string | null,"row_version"?: number,"status"?: string,"undo_reason"?: string | null,"undone_at"?: string | null,"undone_by"?: string | null,"updated_at"?: string
+                  }
+                  Update: {
+                    "amount_paise"?: number,"branch_id"?: string,"deal_id"?: string,"decided_at"?: string | null,"decided_by"?: string | null,"decision_request_id"?: string | null,"direction"?: string,"id"?: string,"legal_entity_id"?: string,"proposed_at"?: string,"proposed_by"?: string,"reason"?: string,"ref_no"?: string,"request_id"?: string,"return_reason"?: string | null,"row_version"?: number,"status"?: string,"undo_reason"?: string | null,"undone_at"?: string | null,"undone_by"?: string | null,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "deal_write_offs_decided_by_fkey"
+      columns: ["decided_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "deal_write_offs_legal_entity_id_branch_id_deal_id_fkey"
+      columns: ["legal_entity_id","branch_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","branch_id","id"]
+    },{
+      foreignKeyName: "deal_write_offs_proposed_by_fkey"
+      columns: ["proposed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "deal_write_offs_undone_by_fkey"
+      columns: ["undone_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
     }
                   ]
                 },"deals": {
@@ -1198,21 +2145,33 @@ isOneToOne: false
                   ]
                 },"department_cost_entries": {
                   Row: {
-                    "amount_paise": number,"branch_id": string,"cost_kind": string,"created_at": string,"created_by": string,"currency": string,"deal_id": string,"department": string,"expense_status": string | null,"id": string,"legal_entity_id": string,"paid_by": string,"paid_on": string | null,"payment_mode": string | null,"receipt_evidence_id": string | null,"reference": string | null,"request_id": string,"return_reason": string | null,"reviewed_at": string | null,"reviewed_by": string | null,"row_version": number,"submitted_at": string | null,"submitted_by": string | null,"task_id": string,"updated_at": string
+                    "amount_paise": number,"application_id": string | null,"branch_id": string,"cost_kind": string,"created_at": string,"created_by": string,"currency": string,"deal_id": string,"department": string,"expense_status": string | null,"flight_batch_id": string | null,"id": string,"legal_entity_id": string,"paid_by": string,"paid_on": string | null,"payment_mode": string | null,"receipt_evidence_id": string | null,"reference": string | null,"request_id": string,"return_reason": string | null,"reviewed_at": string | null,"reviewed_by": string | null,"row_version": number,"submitted_at": string | null,"submitted_by": string | null,"supplier_id": string | null,"task_id": string,"updated_at": string
                   }
                   Insert: {
-                    "amount_paise": number,"branch_id": string,"cost_kind": string,"created_at"?: string,"created_by": string,"currency"?: string,"deal_id": string,"department": string,"expense_status"?: string | null,"id"?: string,"legal_entity_id": string,"paid_by": string,"paid_on"?: string | null,"payment_mode"?: string | null,"receipt_evidence_id"?: string | null,"reference"?: string | null,"request_id": string,"return_reason"?: string | null,"reviewed_at"?: string | null,"reviewed_by"?: string | null,"row_version"?: number,"submitted_at"?: string | null,"submitted_by"?: string | null,"task_id": string,"updated_at"?: string
+                    "amount_paise": number,"application_id"?: string | null,"branch_id": string,"cost_kind": string,"created_at"?: string,"created_by": string,"currency"?: string,"deal_id": string,"department": string,"expense_status"?: string | null,"flight_batch_id"?: string | null,"id"?: string,"legal_entity_id": string,"paid_by": string,"paid_on"?: string | null,"payment_mode"?: string | null,"receipt_evidence_id"?: string | null,"reference"?: string | null,"request_id": string,"return_reason"?: string | null,"reviewed_at"?: string | null,"reviewed_by"?: string | null,"row_version"?: number,"submitted_at"?: string | null,"submitted_by"?: string | null,"supplier_id"?: string | null,"task_id": string,"updated_at"?: string
                   }
                   Update: {
-                    "amount_paise"?: number,"branch_id"?: string,"cost_kind"?: string,"created_at"?: string,"created_by"?: string,"currency"?: string,"deal_id"?: string,"department"?: string,"expense_status"?: string | null,"id"?: string,"legal_entity_id"?: string,"paid_by"?: string,"paid_on"?: string | null,"payment_mode"?: string | null,"receipt_evidence_id"?: string | null,"reference"?: string | null,"request_id"?: string,"return_reason"?: string | null,"reviewed_at"?: string | null,"reviewed_by"?: string | null,"row_version"?: number,"submitted_at"?: string | null,"submitted_by"?: string | null,"task_id"?: string,"updated_at"?: string
+                    "amount_paise"?: number,"application_id"?: string | null,"branch_id"?: string,"cost_kind"?: string,"created_at"?: string,"created_by"?: string,"currency"?: string,"deal_id"?: string,"department"?: string,"expense_status"?: string | null,"flight_batch_id"?: string | null,"id"?: string,"legal_entity_id"?: string,"paid_by"?: string,"paid_on"?: string | null,"payment_mode"?: string | null,"receipt_evidence_id"?: string | null,"reference"?: string | null,"request_id"?: string,"return_reason"?: string | null,"reviewed_at"?: string | null,"reviewed_by"?: string | null,"row_version"?: number,"submitted_at"?: string | null,"submitted_by"?: string | null,"supplier_id"?: string | null,"task_id"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     {
+      foreignKeyName: "department_cost_entries_application_fk"
+      columns: ["legal_entity_id","application_id"]
+isOneToOne: false
+      referencedRelation: "visa_applications"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
       foreignKeyName: "department_cost_entries_created_by_fkey"
       columns: ["created_by"]
 isOneToOne: false
       referencedRelation: "staff_profiles"
       referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "department_cost_entries_flight_batch_fk"
+      columns: ["legal_entity_id","flight_batch_id"]
+isOneToOne: false
+      referencedRelation: "flight_ticket_batches"
+      referencedColumns: ["legal_entity_id","id"]
     },{
       foreignKeyName: "department_cost_entries_legal_entity_id_branch_id_deal_id_fkey"
       columns: ["legal_entity_id","branch_id","deal_id"]
@@ -1243,17 +2202,23 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "staff_profiles"
       referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "department_cost_entries_supplier_fk"
+      columns: ["legal_entity_id","supplier_id"]
+isOneToOne: false
+      referencedRelation: "suppliers"
+      referencedColumns: ["legal_entity_id","id"]
     }
                   ]
                 },"department_evidence": {
                   Row: {
-                    "application_id": string | null,"created_at": string,"file_name": string,"id": string,"kind": string,"legal_entity_id": string,"mime": string,"object_path": string,"sha256": string,"size_bytes": number,"status": string,"stored_at": string | null,"task_id": string,"updated_at": string,"uploaded_by": string
+                    "application_id": string | null,"created_at": string,"file_name": string,"id": string,"kind": string,"legal_entity_id": string,"mime": string,"object_path": string,"sha256": string,"size_bytes": number,"status": string,"stored_at": string | null,"task_id": string,"updated_at": string,"uploaded_by": string,"visa_document_id": string | null
                   }
                   Insert: {
-                    "application_id"?: string | null,"created_at"?: string,"file_name": string,"id"?: string,"kind": string,"legal_entity_id": string,"mime": string,"object_path": string,"sha256": string,"size_bytes": number,"status"?: string,"stored_at"?: string | null,"task_id": string,"updated_at"?: string,"uploaded_by": string
+                    "application_id"?: string | null,"created_at"?: string,"file_name": string,"id"?: string,"kind": string,"legal_entity_id": string,"mime": string,"object_path": string,"sha256": string,"size_bytes": number,"status"?: string,"stored_at"?: string | null,"task_id": string,"updated_at"?: string,"uploaded_by": string,"visa_document_id"?: string | null
                   }
                   Update: {
-                    "application_id"?: string | null,"created_at"?: string,"file_name"?: string,"id"?: string,"kind"?: string,"legal_entity_id"?: string,"mime"?: string,"object_path"?: string,"sha256"?: string,"size_bytes"?: number,"status"?: string,"stored_at"?: string | null,"task_id"?: string,"updated_at"?: string,"uploaded_by"?: string
+                    "application_id"?: string | null,"created_at"?: string,"file_name"?: string,"id"?: string,"kind"?: string,"legal_entity_id"?: string,"mime"?: string,"object_path"?: string,"sha256"?: string,"size_bytes"?: number,"status"?: string,"stored_at"?: string | null,"task_id"?: string,"updated_at"?: string,"uploaded_by"?: string,"visa_document_id"?: string | null
                   }
                   Relationships: [
                     {
@@ -1274,6 +2239,12 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "staff_profiles"
       referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "department_evidence_visa_document_id_fkey"
+      columns: ["visa_document_id"]
+isOneToOne: false
+      referencedRelation: "visa_application_documents"
+      referencedColumns: ["id"]
     }
                   ]
                 },"deployment_settings": {
@@ -1287,7 +2258,7 @@ isOneToOne: false
                     "environment"?: string,"id"?: boolean,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"finance_command_results": {
                   Row: {
@@ -1378,13 +2349,13 @@ isOneToOne: false
                   ]
                 },"finance_journal_entries": {
                   Row: {
-                    "branch_id": string,"business_date": string,"deal_id": string | null,"deposit_id": string | null,"id": string,"kind": string,"legal_entity_id": string,"posted_at": string,"posted_by": string,"receipt_id": string | null,"reverses_entry_id": string | null
+                    "branch_id": string,"business_date": string,"deal_id": string | null,"deposit_id": string | null,"id": string,"kind": string,"legal_entity_id": string,"posted_at": string,"posted_by": string,"receipt_id": string | null,"refund_payout_id": string | null,"reverses_entry_id": string | null
                   }
                   Insert: {
-                    "branch_id": string,"business_date": string,"deal_id"?: string | null,"deposit_id"?: string | null,"id"?: string,"kind": string,"legal_entity_id": string,"posted_at"?: string,"posted_by": string,"receipt_id"?: string | null,"reverses_entry_id"?: string | null
+                    "branch_id": string,"business_date": string,"deal_id"?: string | null,"deposit_id"?: string | null,"id"?: string,"kind": string,"legal_entity_id": string,"posted_at"?: string,"posted_by": string,"receipt_id"?: string | null,"refund_payout_id"?: string | null,"reverses_entry_id"?: string | null
                   }
                   Update: {
-                    "branch_id"?: string,"business_date"?: string,"deal_id"?: string | null,"deposit_id"?: string | null,"id"?: string,"kind"?: string,"legal_entity_id"?: string,"posted_at"?: string,"posted_by"?: string,"receipt_id"?: string | null,"reverses_entry_id"?: string | null
+                    "branch_id"?: string,"business_date"?: string,"deal_id"?: string | null,"deposit_id"?: string | null,"id"?: string,"kind"?: string,"legal_entity_id"?: string,"posted_at"?: string,"posted_by"?: string,"receipt_id"?: string | null,"refund_payout_id"?: string | null,"reverses_entry_id"?: string | null
                   }
                   Relationships: [
                     {
@@ -1422,6 +2393,12 @@ isOneToOne: false
       columns: ["receipt_id"]
 isOneToOne: false
       referencedRelation: "customer_receipts"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "finance_journal_entries_refund_payout_id_fkey"
+      columns: ["refund_payout_id"]
+isOneToOne: true
+      referencedRelation: "customer_refund_payouts"
       referencedColumns: ["id"]
     },{
       foreignKeyName: "finance_journal_entries_reverses_entry_id_fkey"
@@ -1563,15 +2540,525 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
-                },"fulfilment_tasks": {
+                },"flight_batch_fares": {
                   Row: {
-                    "assignee_user_id": string | null,"booking_version_id": string,"branch_id": string,"completed_at": string | null,"completed_by": string | null,"created_at": string,"created_by": string,"deal_id": string,"department": string,"id": string,"legal_entity_id": string,"selected_quote_id": string | null,"service_item_id": string,"service_purpose": string,"status": string,"supplier_confirmed_at": string | null,"supplier_confirmed_by": string | null,"supplier_reference": string | null,"task_key": string,"updated_at": string
+                    "basic_paise": number,"batch_id": string,"created_at": string,"discount_paise": number | null,"k_paise": number,"legal_entity_id": string,"markup_paise": number | null,"other_paise": number,"pax_count": number,"pax_type": string,"supplier_per_person_paise": number | null,"total_per_person_paise": number | null,"yq_paise": number,"yr_paise": number
                   }
                   Insert: {
-                    "assignee_user_id"?: string | null,"booking_version_id": string,"branch_id": string,"completed_at"?: string | null,"completed_by"?: string | null,"created_at"?: string,"created_by": string,"deal_id": string,"department"?: string,"id"?: string,"legal_entity_id": string,"selected_quote_id"?: string | null,"service_item_id": string,"service_purpose"?: string,"status"?: string,"supplier_confirmed_at"?: string | null,"supplier_confirmed_by"?: string | null,"supplier_reference"?: string | null,"task_key": string,"updated_at"?: string
+                    "basic_paise": number,"batch_id": string,"created_at"?: string,"discount_paise"?: number | null,"k_paise": number,"legal_entity_id": string,"markup_paise"?: number | null,"other_paise": number,"pax_count": number,"pax_type": string,"supplier_per_person_paise"?: never,"total_per_person_paise"?: never,"yq_paise": number,"yr_paise": number
                   }
                   Update: {
-                    "assignee_user_id"?: string | null,"booking_version_id"?: string,"branch_id"?: string,"completed_at"?: string | null,"completed_by"?: string | null,"created_at"?: string,"created_by"?: string,"deal_id"?: string,"department"?: string,"id"?: string,"legal_entity_id"?: string,"selected_quote_id"?: string | null,"service_item_id"?: string,"service_purpose"?: string,"status"?: string,"supplier_confirmed_at"?: string | null,"supplier_confirmed_by"?: string | null,"supplier_reference"?: string | null,"task_key"?: string,"updated_at"?: string
+                    "basic_paise"?: number,"batch_id"?: string,"created_at"?: string,"discount_paise"?: number | null,"k_paise"?: number,"legal_entity_id"?: string,"markup_paise"?: number | null,"other_paise"?: number,"pax_count"?: number,"pax_type"?: string,"supplier_per_person_paise"?: never,"total_per_person_paise"?: never,"yq_paise"?: number,"yr_paise"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "flight_batch_fares_legal_entity_id_batch_id_fkey"
+      columns: ["legal_entity_id","batch_id"]
+isOneToOne: false
+      referencedRelation: "flight_ticket_batches"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"flight_batch_legacy_costs": {
+                  Row: {
+                    "batch_id": string,"deal_id": string,"entry_id": string,"legal_entity_id": string,"linked_at": string,"linked_by": string
+                  }
+                  Insert: {
+                    "batch_id": string,"deal_id": string,"entry_id": string,"legal_entity_id": string,"linked_at"?: string,"linked_by": string
+                  }
+                  Update: {
+                    "batch_id"?: string,"deal_id"?: string,"entry_id"?: string,"legal_entity_id"?: string,"linked_at"?: string,"linked_by"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "flight_batch_legacy_costs_entry_id_fkey"
+      columns: ["entry_id"]
+isOneToOne: true
+      referencedRelation: "department_cost_entries"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "flight_batch_legacy_costs_legal_entity_id_batch_id_fkey"
+      columns: ["legal_entity_id","batch_id"]
+isOneToOne: false
+      referencedRelation: "flight_ticket_batches"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_batch_legacy_costs_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_batch_legacy_costs_linked_by_fkey"
+      columns: ["linked_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"flight_boarding_pass_alerts": {
+                  Row: {
+                    "branch_id": string,"created_at": string,"deal_id": string,"departure_date": string,"id": string,"legal_entity_id": string,"sector_id": string,"task_id": string
+                  }
+                  Insert: {
+                    "branch_id": string,"created_at"?: string,"deal_id": string,"departure_date": string,"id"?: string,"legal_entity_id": string,"sector_id": string,"task_id": string
+                  }
+                  Update: {
+                    "branch_id"?: string,"created_at"?: string,"deal_id"?: string,"departure_date"?: string,"id"?: string,"legal_entity_id"?: string,"sector_id"?: string,"task_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "flight_boarding_pass_alerts_legal_entity_id_branch_id_deal_fkey"
+      columns: ["legal_entity_id","branch_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","branch_id","id"]
+    },{
+      foreignKeyName: "flight_boarding_pass_alerts_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_boarding_pass_alerts_task_id_sector_id_fkey"
+      columns: ["task_id","sector_id"]
+isOneToOne: false
+      referencedRelation: "flight_sectors"
+      referencedColumns: ["task_id","id"]
+    }
+                  ]
+                },"flight_cancellation_charges": {
+                  Row: {
+                    "airline_charge_paise": number,"batch_id": string,"cancellation_id": string | null,"change_request_id": string | null,"cost_task_id": string,"deal_id": string,"entered_at": string,"entered_by": string,"id": string,"legal_entity_id": string,"note": string | null,"refund_expected_paise": number,"refund_reported_paise": number | null,"request_id": string,"revision_no": number,"supplier_cost_paise": number,"supplier_id": string
+                  }
+                  Insert: {
+                    "airline_charge_paise": number,"batch_id": string,"cancellation_id"?: string | null,"change_request_id"?: string | null,"cost_task_id": string,"deal_id": string,"entered_at"?: string,"entered_by": string,"id"?: string,"legal_entity_id": string,"note"?: string | null,"refund_expected_paise": number,"refund_reported_paise"?: number | null,"request_id": string,"revision_no": number,"supplier_cost_paise": number,"supplier_id": string
+                  }
+                  Update: {
+                    "airline_charge_paise"?: number,"batch_id"?: string,"cancellation_id"?: string | null,"change_request_id"?: string | null,"cost_task_id"?: string,"deal_id"?: string,"entered_at"?: string,"entered_by"?: string,"id"?: string,"legal_entity_id"?: string,"note"?: string | null,"refund_expected_paise"?: number,"refund_reported_paise"?: number | null,"request_id"?: string,"revision_no"?: number,"supplier_cost_paise"?: number,"supplier_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "flight_cancellation_charges_cancellation_id_fkey"
+      columns: ["cancellation_id"]
+isOneToOne: false
+      referencedRelation: "deal_cancellations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "flight_cancellation_charges_change_request_fk"
+      columns: ["legal_entity_id","change_request_id"]
+isOneToOne: false
+      referencedRelation: "booking_change_requests"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_cancellation_charges_entered_by_fkey"
+      columns: ["entered_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "flight_cancellation_charges_legal_entity_id_batch_id_fkey"
+      columns: ["legal_entity_id","batch_id"]
+isOneToOne: false
+      referencedRelation: "flight_ticket_batches"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_cancellation_charges_legal_entity_id_cost_task_id_fkey"
+      columns: ["legal_entity_id","cost_task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_cancellation_charges_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_cancellation_charges_legal_entity_id_supplier_id_fkey"
+      columns: ["legal_entity_id","supplier_id"]
+isOneToOne: false
+      referencedRelation: "suppliers"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"flight_changes": {
+                  Row: {
+                    "basis_version_id": string,"branch_id": string,"change_no": number,"created_at": string,"deal_id": string,"deal_kind": string,"decided_at": string | null,"decided_by": string | null,"decider_kind": string,"ended_at": string | null,"ended_by": string | null,"flight_seen_at": string | null,"from_sector_ids": (string)[],"id": string,"kind": string,"legal_entity_id": string,"reject_reason": string | null,"remark": string,"request_id": string,"requested_at": string,"requested_by": string,"row_version": number,"service_item_id": string,"status": string,"task_id": string,"traveller_seqs": (number)[],"updated_at": string
+                  }
+                  Insert: {
+                    "basis_version_id": string,"branch_id": string,"change_no": number,"created_at"?: string,"deal_id": string,"deal_kind": string,"decided_at"?: string | null,"decided_by"?: string | null,"decider_kind": string,"ended_at"?: string | null,"ended_by"?: string | null,"flight_seen_at"?: string | null,"from_sector_ids": (string)[],"id"?: string,"kind": string,"legal_entity_id": string,"reject_reason"?: string | null,"remark": string,"request_id": string,"requested_at"?: string,"requested_by": string,"row_version"?: number,"service_item_id": string,"status"?: string,"task_id": string,"traveller_seqs": (number)[],"updated_at"?: string
+                  }
+                  Update: {
+                    "basis_version_id"?: string,"branch_id"?: string,"change_no"?: number,"created_at"?: string,"deal_id"?: string,"deal_kind"?: string,"decided_at"?: string | null,"decided_by"?: string | null,"decider_kind"?: string,"ended_at"?: string | null,"ended_by"?: string | null,"flight_seen_at"?: string | null,"from_sector_ids"?: (string)[],"id"?: string,"kind"?: string,"legal_entity_id"?: string,"reject_reason"?: string | null,"remark"?: string,"request_id"?: string,"requested_at"?: string,"requested_by"?: string,"row_version"?: number,"service_item_id"?: string,"status"?: string,"task_id"?: string,"traveller_seqs"?: (number)[],"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "flight_changes_decided_by_fkey"
+      columns: ["decided_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "flight_changes_ended_by_fkey"
+      columns: ["ended_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "flight_changes_legal_entity_id_branch_id_deal_id_fkey"
+      columns: ["legal_entity_id","branch_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","branch_id","id"]
+    },{
+      foreignKeyName: "flight_changes_legal_entity_id_deal_id_basis_version_id_fkey"
+      columns: ["legal_entity_id","deal_id","basis_version_id"]
+isOneToOne: false
+      referencedRelation: "booking_versions"
+      referencedColumns: ["legal_entity_id","deal_id","id"]
+    },{
+      foreignKeyName: "flight_changes_legal_entity_id_service_item_id_fkey"
+      columns: ["legal_entity_id","service_item_id"]
+isOneToOne: false
+      referencedRelation: "service_items"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_changes_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_changes_requested_by_fkey"
+      columns: ["requested_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"flight_fare_approvals": {
+                  Row: {
+                    "approval_no": number,"batch_supplier_cost_paise": number,"branch_id": string,"budget_paise": number | null,"created_at": string,"deal_id": string,"decided_at": string | null,"decided_by": string | null,"fare_hash": string,"id": string,"legal_entity_id": string,"payload": NonNullable<Json>,"projected_supplier_cost_paise": number,"request_id": string,"requested_at": string,"requested_by": string,"return_reason": string | null,"row_version": number,"status": string,"updated_at": string,"used_by_batch_id": string | null
+                  }
+                  Insert: {
+                    "approval_no": number,"batch_supplier_cost_paise": number,"branch_id": string,"budget_paise"?: number | null,"created_at"?: string,"deal_id": string,"decided_at"?: string | null,"decided_by"?: string | null,"fare_hash": string,"id"?: string,"legal_entity_id": string,"payload": NonNullable<Json>,"projected_supplier_cost_paise": number,"request_id": string,"requested_at"?: string,"requested_by": string,"return_reason"?: string | null,"row_version"?: number,"status"?: string,"updated_at"?: string,"used_by_batch_id"?: string | null
+                  }
+                  Update: {
+                    "approval_no"?: number,"batch_supplier_cost_paise"?: number,"branch_id"?: string,"budget_paise"?: number | null,"created_at"?: string,"deal_id"?: string,"decided_at"?: string | null,"decided_by"?: string | null,"fare_hash"?: string,"id"?: string,"legal_entity_id"?: string,"payload"?: NonNullable<Json>,"projected_supplier_cost_paise"?: number,"request_id"?: string,"requested_at"?: string,"requested_by"?: string,"return_reason"?: string | null,"row_version"?: number,"status"?: string,"updated_at"?: string,"used_by_batch_id"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "flight_fare_approvals_decided_by_fkey"
+      columns: ["decided_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "flight_fare_approvals_legal_entity_id_branch_id_deal_id_fkey"
+      columns: ["legal_entity_id","branch_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","branch_id","id"]
+    },{
+      foreignKeyName: "flight_fare_approvals_requested_by_fkey"
+      columns: ["requested_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "flight_fare_approvals_used_by_fk"
+      columns: ["used_by_batch_id"]
+isOneToOne: false
+      referencedRelation: "flight_ticket_batches"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"flight_sector_passengers": {
+                  Row: {
+                    "added_by_change_id": string | null,"created_at": string,"created_by": string,"deal_id": string,"ended_at": string | null,"ended_by": string | null,"ended_by_change_id": string | null,"ended_reason": string | null,"held_by_change_id": string | null,"id": string,"legal_entity_id": string,"sector_id": string,"task_id": string,"traveller_seq": number
+                  }
+                  Insert: {
+                    "added_by_change_id"?: string | null,"created_at"?: string,"created_by": string,"deal_id": string,"ended_at"?: string | null,"ended_by"?: string | null,"ended_by_change_id"?: string | null,"ended_reason"?: string | null,"held_by_change_id"?: string | null,"id"?: string,"legal_entity_id": string,"sector_id": string,"task_id": string,"traveller_seq": number
+                  }
+                  Update: {
+                    "added_by_change_id"?: string | null,"created_at"?: string,"created_by"?: string,"deal_id"?: string,"ended_at"?: string | null,"ended_by"?: string | null,"ended_by_change_id"?: string | null,"ended_reason"?: string | null,"held_by_change_id"?: string | null,"id"?: string,"legal_entity_id"?: string,"sector_id"?: string,"task_id"?: string,"traveller_seq"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "flight_sector_passengers_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "flight_sector_passengers_ended_by_fkey"
+      columns: ["ended_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "flight_sector_passengers_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_sector_passengers_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_sector_passengers_task_id_added_by_change_id_fkey"
+      columns: ["task_id","added_by_change_id"]
+isOneToOne: false
+      referencedRelation: "flight_changes"
+      referencedColumns: ["task_id","id"]
+    },{
+      foreignKeyName: "flight_sector_passengers_task_id_ended_by_change_id_fkey"
+      columns: ["task_id","ended_by_change_id"]
+isOneToOne: false
+      referencedRelation: "flight_changes"
+      referencedColumns: ["task_id","id"]
+    },{
+      foreignKeyName: "flight_sector_passengers_task_id_held_by_change_id_fkey"
+      columns: ["task_id","held_by_change_id"]
+isOneToOne: false
+      referencedRelation: "flight_changes"
+      referencedColumns: ["task_id","id"]
+    },{
+      foreignKeyName: "flight_sector_passengers_task_id_sector_id_fkey"
+      columns: ["task_id","sector_id"]
+isOneToOne: false
+      referencedRelation: "flight_sectors"
+      referencedColumns: ["task_id","id"]
+    }
+                  ]
+                },"flight_sectors": {
+                  Row: {
+                    "airline": string | null,"arrive_date": string | null,"arrive_time": string | null,"basis_version_id": string,"booking_leg_no": number | null,"branch_id": string,"cabin": string | null,"change_id": string | null,"created_at": string,"created_by": string,"deal_id": string,"depart_date": string,"depart_time": string | null,"ended_at": string | null,"ended_by": string | null,"flight_no": string | null,"from_place": string,"id": string,"legal_entity_id": string,"origin": string,"row_version": number,"service_item_id": string,"status": string,"task_id": string,"to_place": string,"updated_at": string
+                  }
+                  Insert: {
+                    "airline"?: string | null,"arrive_date"?: string | null,"arrive_time"?: string | null,"basis_version_id": string,"booking_leg_no"?: number | null,"branch_id": string,"cabin"?: string | null,"change_id"?: string | null,"created_at"?: string,"created_by": string,"deal_id": string,"depart_date": string,"depart_time"?: string | null,"ended_at"?: string | null,"ended_by"?: string | null,"flight_no"?: string | null,"from_place": string,"id"?: string,"legal_entity_id": string,"origin": string,"row_version"?: number,"service_item_id": string,"status": string,"task_id": string,"to_place": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "airline"?: string | null,"arrive_date"?: string | null,"arrive_time"?: string | null,"basis_version_id"?: string,"booking_leg_no"?: number | null,"branch_id"?: string,"cabin"?: string | null,"change_id"?: string | null,"created_at"?: string,"created_by"?: string,"deal_id"?: string,"depart_date"?: string,"depart_time"?: string | null,"ended_at"?: string | null,"ended_by"?: string | null,"flight_no"?: string | null,"from_place"?: string,"id"?: string,"legal_entity_id"?: string,"origin"?: string,"row_version"?: number,"service_item_id"?: string,"status"?: string,"task_id"?: string,"to_place"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "flight_sectors_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "flight_sectors_ended_by_fkey"
+      columns: ["ended_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "flight_sectors_legal_entity_id_branch_id_deal_id_fkey"
+      columns: ["legal_entity_id","branch_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","branch_id","id"]
+    },{
+      foreignKeyName: "flight_sectors_legal_entity_id_deal_id_basis_version_id_fkey"
+      columns: ["legal_entity_id","deal_id","basis_version_id"]
+isOneToOne: false
+      referencedRelation: "booking_versions"
+      referencedColumns: ["legal_entity_id","deal_id","id"]
+    },{
+      foreignKeyName: "flight_sectors_legal_entity_id_service_item_id_fkey"
+      columns: ["legal_entity_id","service_item_id"]
+isOneToOne: false
+      referencedRelation: "service_items"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_sectors_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_sectors_task_id_change_id_fkey"
+      columns: ["task_id","change_id"]
+isOneToOne: false
+      referencedRelation: "flight_changes"
+      referencedColumns: ["task_id","id"]
+    }
+                  ]
+                },"flight_task_state": {
+                  Row: {
+                    "basis_version_id": string,"built_at": string,"built_by": string,"created_at": string,"deal_id": string,"legal_entity_id": string,"row_version": number,"service_item_id": string,"task_id": string,"updated_at": string
+                  }
+                  Insert: {
+                    "basis_version_id": string,"built_at"?: string,"built_by": string,"created_at"?: string,"deal_id": string,"legal_entity_id": string,"row_version"?: number,"service_item_id": string,"task_id": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "basis_version_id"?: string,"built_at"?: string,"built_by"?: string,"created_at"?: string,"deal_id"?: string,"legal_entity_id"?: string,"row_version"?: number,"service_item_id"?: string,"task_id"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "flight_task_state_built_by_fkey"
+      columns: ["built_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "flight_task_state_legal_entity_id_deal_id_basis_version_id_fkey"
+      columns: ["legal_entity_id","deal_id","basis_version_id"]
+isOneToOne: false
+      referencedRelation: "booking_versions"
+      referencedColumns: ["legal_entity_id","deal_id","id"]
+    },{
+      foreignKeyName: "flight_task_state_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_task_state_legal_entity_id_service_item_id_fkey"
+      columns: ["legal_entity_id","service_item_id"]
+isOneToOne: false
+      referencedRelation: "service_items"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_task_state_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"flight_ticket_batches": {
+                  Row: {
+                    "batch_no": number,"branch_id": string,"budget_paise": number | null,"confirmed_at": string,"confirmed_by": string,"cost_task_id": string,"created_at": string,"customer_total_paise": number | null,"deal_id": string,"deal_kind": string,"fare_approval_id": string | null,"id": string,"legal_entity_id": string,"over_budget": boolean,"request_id": string,"sector_ids": (string)[],"supplier_cost_paise": number,"supplier_id": string
+                  }
+                  Insert: {
+                    "batch_no": number,"branch_id": string,"budget_paise"?: number | null,"confirmed_at"?: string,"confirmed_by": string,"cost_task_id": string,"created_at"?: string,"customer_total_paise"?: number | null,"deal_id": string,"deal_kind": string,"fare_approval_id"?: string | null,"id"?: string,"legal_entity_id": string,"over_budget": boolean,"request_id": string,"sector_ids": (string)[],"supplier_cost_paise": number,"supplier_id": string
+                  }
+                  Update: {
+                    "batch_no"?: number,"branch_id"?: string,"budget_paise"?: number | null,"confirmed_at"?: string,"confirmed_by"?: string,"cost_task_id"?: string,"created_at"?: string,"customer_total_paise"?: number | null,"deal_id"?: string,"deal_kind"?: string,"fare_approval_id"?: string | null,"id"?: string,"legal_entity_id"?: string,"over_budget"?: boolean,"request_id"?: string,"sector_ids"?: (string)[],"supplier_cost_paise"?: number,"supplier_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "flight_ticket_batches_confirmed_by_fkey"
+      columns: ["confirmed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "flight_ticket_batches_fare_approval_id_fkey"
+      columns: ["fare_approval_id"]
+isOneToOne: false
+      referencedRelation: "flight_fare_approvals"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "flight_ticket_batches_legal_entity_id_branch_id_deal_id_fkey"
+      columns: ["legal_entity_id","branch_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","branch_id","id"]
+    },{
+      foreignKeyName: "flight_ticket_batches_legal_entity_id_cost_task_id_fkey"
+      columns: ["legal_entity_id","cost_task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_ticket_batches_legal_entity_id_supplier_id_fkey"
+      columns: ["legal_entity_id","supplier_id"]
+isOneToOne: false
+      referencedRelation: "suppliers"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"flight_ticket_numbers": {
+                  Row: {
+                    "created_at": string,"deal_id": string,"first_revision_id": string,"legal_entity_id": string,"ticket_digits": string,"traveller_seq": number
+                  }
+                  Insert: {
+                    "created_at"?: string,"deal_id": string,"first_revision_id": string,"legal_entity_id": string,"ticket_digits": string,"traveller_seq": number
+                  }
+                  Update: {
+                    "created_at"?: string,"deal_id"?: string,"first_revision_id"?: string,"legal_entity_id"?: string,"ticket_digits"?: string,"traveller_seq"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "flight_ticket_numbers_first_revision_id_fkey"
+      columns: ["first_revision_id"]
+isOneToOne: false
+      referencedRelation: "flight_ticket_revisions"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "flight_ticket_numbers_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_ticket_numbers_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"flight_ticket_revisions": {
+                  Row: {
+                    "airline_pnr": string,"batch_id": string,"created_at": string,"created_by": string,"crs_pnr": string | null,"crs_type": string,"deal_id": string,"id": string,"legal_entity_id": string,"reason": string | null,"request_id": string,"revision_no": number,"sector_id": string,"task_id": string,"ticket_digits": string | null,"ticket_number": string,"traveller_name": string,"traveller_seq": number,"traveller_type": string
+                  }
+                  Insert: {
+                    "airline_pnr": string,"batch_id": string,"created_at"?: string,"created_by": string,"crs_pnr"?: string | null,"crs_type": string,"deal_id": string,"id"?: string,"legal_entity_id": string,"reason"?: string | null,"request_id": string,"revision_no": number,"sector_id": string,"task_id": string,"ticket_digits"?: never,"ticket_number": string,"traveller_name": string,"traveller_seq": number,"traveller_type": string
+                  }
+                  Update: {
+                    "airline_pnr"?: string,"batch_id"?: string,"created_at"?: string,"created_by"?: string,"crs_pnr"?: string | null,"crs_type"?: string,"deal_id"?: string,"id"?: string,"legal_entity_id"?: string,"reason"?: string | null,"request_id"?: string,"revision_no"?: number,"sector_id"?: string,"task_id"?: string,"ticket_digits"?: never,"ticket_number"?: string,"traveller_name"?: string,"traveller_seq"?: number,"traveller_type"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "flight_ticket_revisions_batch_fk"
+      columns: ["legal_entity_id","batch_id"]
+isOneToOne: false
+      referencedRelation: "flight_ticket_batches"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_ticket_revisions_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "flight_ticket_revisions_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_ticket_revisions_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "flight_ticket_revisions_task_id_sector_id_fkey"
+      columns: ["task_id","sector_id"]
+isOneToOne: false
+      referencedRelation: "flight_sectors"
+      referencedColumns: ["task_id","id"]
+    }
+                  ]
+                },"fulfilment_tasks": {
+                  Row: {
+                    "assignee_user_id": string | null,"booking_version_id": string,"branch_id": string,"closed_at": string | null,"closed_by": string | null,"closed_change_request_id": string | null,"closed_state": string | null,"completed_at": string | null,"completed_by": string | null,"created_at": string,"created_by": string,"deal_id": string,"department": string,"id": string,"legal_entity_id": string,"selected_quote_id": string | null,"service_item_id": string,"service_purpose": string,"status": string,"supplier_confirmed_at": string | null,"supplier_confirmed_by": string | null,"supplier_reference": string | null,"task_key": string,"updated_at": string
+                  }
+                  Insert: {
+                    "assignee_user_id"?: string | null,"booking_version_id": string,"branch_id": string,"closed_at"?: string | null,"closed_by"?: string | null,"closed_change_request_id"?: string | null,"closed_state"?: string | null,"completed_at"?: string | null,"completed_by"?: string | null,"created_at"?: string,"created_by": string,"deal_id": string,"department"?: string,"id"?: string,"legal_entity_id": string,"selected_quote_id"?: string | null,"service_item_id": string,"service_purpose"?: string,"status"?: string,"supplier_confirmed_at"?: string | null,"supplier_confirmed_by"?: string | null,"supplier_reference"?: string | null,"task_key": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "assignee_user_id"?: string | null,"booking_version_id"?: string,"branch_id"?: string,"closed_at"?: string | null,"closed_by"?: string | null,"closed_change_request_id"?: string | null,"closed_state"?: string | null,"completed_at"?: string | null,"completed_by"?: string | null,"created_at"?: string,"created_by"?: string,"deal_id"?: string,"department"?: string,"id"?: string,"legal_entity_id"?: string,"selected_quote_id"?: string | null,"service_item_id"?: string,"service_purpose"?: string,"status"?: string,"supplier_confirmed_at"?: string | null,"supplier_confirmed_by"?: string | null,"supplier_reference"?: string | null,"task_key"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     {
@@ -1580,6 +3067,18 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "staff_profiles"
       referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "fulfilment_tasks_closed_by_fkey"
+      columns: ["closed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "fulfilment_tasks_closed_change_request_fk"
+      columns: ["legal_entity_id","closed_change_request_id"]
+isOneToOne: false
+      referencedRelation: "booking_change_requests"
+      referencedColumns: ["legal_entity_id","id"]
     },{
       foreignKeyName: "fulfilment_tasks_completed_by_fkey"
       columns: ["completed_by"]
@@ -1661,6 +3160,49 @@ isOneToOne: false
       referencedColumns: ["id"]
     },{
       foreignKeyName: "hotel_catalogue_updated_by_fkey"
+      columns: ["updated_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"hotel_room_types": {
+                  Row: {
+                    "created_at": string,"created_by": string,"hotel_id": string,"id": string,"import_batch_id": string | null,"legal_entity_id": string,"name": string,"name_key": string | null,"remove_reason": string | null,"removed_at": string | null,"removed_by": string | null,"row_version": number,"status": string,"updated_at": string,"updated_by": string
+                  }
+                  Insert: {
+                    "created_at"?: string,"created_by": string,"hotel_id": string,"id"?: string,"import_batch_id"?: string | null,"legal_entity_id": string,"name": string,"name_key"?: never,"remove_reason"?: string | null,"removed_at"?: string | null,"removed_by"?: string | null,"row_version"?: number,"status"?: string,"updated_at"?: string,"updated_by": string
+                  }
+                  Update: {
+                    "created_at"?: string,"created_by"?: string,"hotel_id"?: string,"id"?: string,"import_batch_id"?: string | null,"legal_entity_id"?: string,"name"?: string,"name_key"?: never,"remove_reason"?: string | null,"removed_at"?: string | null,"removed_by"?: string | null,"row_version"?: number,"status"?: string,"updated_at"?: string,"updated_by"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "hotel_room_types_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "hotel_room_types_import_batch_id_fkey"
+      columns: ["import_batch_id"]
+isOneToOne: false
+      referencedRelation: "import_batches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "hotel_room_types_legal_entity_id_hotel_id_fkey"
+      columns: ["legal_entity_id","hotel_id"]
+isOneToOne: false
+      referencedRelation: "hotel_catalogue"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "hotel_room_types_removed_by_fkey"
+      columns: ["removed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "hotel_room_types_updated_by_fkey"
       columns: ["updated_by"]
 isOneToOne: false
       referencedRelation: "staff_profiles"
@@ -1840,7 +3382,7 @@ isOneToOne: false
                     "active"?: boolean,"created_at"?: string,"credential_sha256"?: string,"id"?: string,"note"?: string | null,"revoked_at"?: string | null,"slot"?: number
                   }
                   Relationships: [
-
+                    
                   ]
                 },"integration_resync_jobs": {
                   Row: {
@@ -1897,7 +3439,7 @@ isOneToOne: false
                     "answered_at"?: string | null,"dispatched_at"?: string,"ok"?: boolean | null,"reason"?: string | null,"request_id"?: number,"status_code"?: number | null
                   }
                   Relationships: [
-
+                    
                   ]
                 },"integration_sync_incidents": {
                   Row: {
@@ -1954,7 +3496,7 @@ isOneToOne: false
                     "enabled"?: boolean,"id"?: boolean,"last_dispatched_at"?: string | null,"last_request_id"?: number | null,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"integration_worker_runs": {
                   Row: {
@@ -1967,7 +3509,7 @@ isOneToOne: false
                     "claimed"?: number,"created"?: number,"dead_lettered"?: number,"enqueued"?: number,"failed"?: number,"finished_at"?: string,"id"?: string,"ignored"?: number,"kind"?: string,"needs_review"?: number,"outcome"?: string,"recorded_at"?: string,"run_trigger"?: string | null,"started_at"?: string,"updated"?: number
                   }
                   Relationships: [
-
+                    
                   ]
                 },"itinerary_difference_runs": {
                   Row: {
@@ -2216,7 +3758,7 @@ isOneToOne: false
                     "code"?: string,"created_at"?: string,"id"?: string,"is_synthetic"?: boolean,"legal_name"?: string,"status"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"memberships": {
                   Row: {
@@ -2292,6 +3834,25 @@ isOneToOne: false
       referencedColumns: ["code"]
     }
                   ]
+                },"notice_settings": {
+                  Row: {
+                    "id": boolean,"notices_enabled": boolean,"push_enabled": boolean,"updated_at": string,"updated_by": string | null
+                  }
+                  Insert: {
+                    "id"?: boolean,"notices_enabled"?: boolean,"push_enabled"?: boolean,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Update: {
+                    "id"?: boolean,"notices_enabled"?: boolean,"push_enabled"?: boolean,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "notice_settings_updated_by_fkey"
+      columns: ["updated_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
                 },"outbox_events": {
                   Row: {
                     "aggregate_id": string,"aggregate_type": string,"attempts": number,"created_at": string,"event_type": string,"id": string,"legal_entity_id": string,"payload": NonNullable<Json>,"status": string
@@ -2322,7 +3883,7 @@ isOneToOne: false
                     "code"?: string,"description"?: string,"is_grantable"?: boolean
                   }
                   Relationships: [
-
+                    
                   ]
                 },"prefill_field_history": {
                   Row: {
@@ -2373,7 +3934,7 @@ isOneToOne: false
                     "id"?: boolean,"started_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"prefill_marks": {
                   Row: {
@@ -2427,26 +3988,69 @@ isOneToOne: false
                   ]
                 },"procurement_settings": {
                   Row: {
-                    "id": boolean,"live_supplier_confirmation_enabled": boolean,"updated_at": string
+                    "id": boolean,"live_supplier_confirmation_enabled": boolean,"rate_contracts_enabled": boolean,"supplier_email_sending_enabled": boolean,"updated_at": string
                   }
                   Insert: {
-                    "id"?: boolean,"live_supplier_confirmation_enabled"?: boolean,"updated_at"?: string
+                    "id"?: boolean,"live_supplier_confirmation_enabled"?: boolean,"rate_contracts_enabled"?: boolean,"supplier_email_sending_enabled"?: boolean,"updated_at"?: string
                   }
                   Update: {
-                    "id"?: boolean,"live_supplier_confirmation_enabled"?: boolean,"updated_at"?: string
+                    "id"?: boolean,"live_supplier_confirmation_enabled"?: boolean,"rate_contracts_enabled"?: boolean,"supplier_email_sending_enabled"?: boolean,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
+                  ]
+                },"purchase_cancellation_charges": {
+                  Row: {
+                    "cancellation_id": string | null,"change_request_id": string | null,"committed_cost_paise": number,"credit_note_evidence_id": string | null,"entered_at": string,"entered_by": string,"id": string,"legal_entity_id": string,"note": string | null,"request_id": string,"revision_no": number,"supplier_id": string,"supplier_keeps_paise": number,"supplier_refund_paise": number,"task_id": string
+                  }
+                  Insert: {
+                    "cancellation_id"?: string | null,"change_request_id"?: string | null,"committed_cost_paise": number,"credit_note_evidence_id"?: string | null,"entered_at"?: string,"entered_by": string,"id"?: string,"legal_entity_id": string,"note"?: string | null,"request_id": string,"revision_no": number,"supplier_id": string,"supplier_keeps_paise": number,"supplier_refund_paise": number,"task_id": string
+                  }
+                  Update: {
+                    "cancellation_id"?: string | null,"change_request_id"?: string | null,"committed_cost_paise"?: number,"credit_note_evidence_id"?: string | null,"entered_at"?: string,"entered_by"?: string,"id"?: string,"legal_entity_id"?: string,"note"?: string | null,"request_id"?: string,"revision_no"?: number,"supplier_id"?: string,"supplier_keeps_paise"?: number,"supplier_refund_paise"?: number,"task_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "purchase_cancellation_charges_cancellation_id_fkey"
+      columns: ["cancellation_id"]
+isOneToOne: false
+      referencedRelation: "deal_cancellations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "purchase_cancellation_charges_change_request_fk"
+      columns: ["legal_entity_id","change_request_id"]
+isOneToOne: false
+      referencedRelation: "booking_change_requests"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "purchase_cancellation_charges_entered_by_fkey"
+      columns: ["entered_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "purchase_cancellation_charges_legal_entity_id_supplier_id_fkey"
+      columns: ["legal_entity_id","supplier_id"]
+isOneToOne: false
+      referencedRelation: "suppliers"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "purchase_cancellation_charges_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    }
                   ]
                 },"purchase_cost_approvals": {
                   Row: {
-                    "approved_at": string,"approved_by": string,"id": string,"legal_entity_id": string,"task_id": string,"version_no": number
+                    "approved_at": string,"approved_by": string,"booking_version_id": string | null,"id": string,"legal_entity_id": string,"reconfirmation_id": string | null,"task_id": string,"version_no": number
                   }
                   Insert: {
-                    "approved_at"?: string,"approved_by": string,"id"?: string,"legal_entity_id": string,"task_id": string,"version_no": number
+                    "approved_at"?: string,"approved_by": string,"booking_version_id"?: string | null,"id"?: string,"legal_entity_id": string,"reconfirmation_id"?: string | null,"task_id": string,"version_no": number
                   }
                   Update: {
-                    "approved_at"?: string,"approved_by"?: string,"id"?: string,"legal_entity_id"?: string,"task_id"?: string,"version_no"?: number
+                    "approved_at"?: string,"approved_by"?: string,"booking_version_id"?: string | null,"id"?: string,"legal_entity_id"?: string,"reconfirmation_id"?: string | null,"task_id"?: string,"version_no"?: number
                   }
                   Relationships: [
                     {
@@ -2456,28 +4060,40 @@ isOneToOne: false
       referencedRelation: "staff_profiles"
       referencedColumns: ["user_id"]
     },{
+      foreignKeyName: "purchase_cost_approvals_booking_version_id_fkey"
+      columns: ["booking_version_id"]
+isOneToOne: false
+      referencedRelation: "booking_versions"
+      referencedColumns: ["id"]
+    },{
       foreignKeyName: "purchase_cost_approvals_legal_entity_id_task_id_fkey"
       columns: ["legal_entity_id","task_id"]
 isOneToOne: false
       referencedRelation: "fulfilment_tasks"
       referencedColumns: ["legal_entity_id","id"]
     },{
+      foreignKeyName: "purchase_cost_approvals_reconfirmation_fk"
+      columns: ["reconfirmation_id"]
+isOneToOne: false
+      referencedRelation: "task_reconfirmations"
+      referencedColumns: ["id"]
+    },{
       foreignKeyName: "purchase_cost_approvals_task_id_version_no_fkey"
       columns: ["task_id","version_no"]
-isOneToOne: true
+isOneToOne: false
       referencedRelation: "purchase_cost_versions"
       referencedColumns: ["task_id","version_no"]
     }
                   ]
                 },"purchase_cost_versions": {
                   Row: {
-                    "amount_paise": number,"created_at": string,"created_by": string,"currency": string,"due_date": string | null,"id": string,"legal_entity_id": string,"note": string | null,"payable_status": string,"quote_id": string,"request_id": string,"stage": string,"task_id": string,"version_no": number
+                    "amount_paise": number,"change_fee_paise": number | null,"confirmation_no": number,"created_at": string,"created_by": string,"currency": string,"due_date": string | null,"id": string,"legal_entity_id": string,"note": string | null,"payable_status": string,"quote_id": string,"request_id": string,"stage": string,"task_id": string,"version_no": number
                   }
                   Insert: {
-                    "amount_paise": number,"created_at"?: string,"created_by": string,"currency"?: string,"due_date"?: string | null,"id"?: string,"legal_entity_id": string,"note"?: string | null,"payable_status"?: string,"quote_id": string,"request_id": string,"stage": string,"task_id": string,"version_no": number
+                    "amount_paise": number,"change_fee_paise"?: number | null,"confirmation_no"?: number,"created_at"?: string,"created_by": string,"currency"?: string,"due_date"?: string | null,"id"?: string,"legal_entity_id": string,"note"?: string | null,"payable_status"?: string,"quote_id": string,"request_id": string,"stage": string,"task_id": string,"version_no": number
                   }
                   Update: {
-                    "amount_paise"?: number,"created_at"?: string,"created_by"?: string,"currency"?: string,"due_date"?: string | null,"id"?: string,"legal_entity_id"?: string,"note"?: string | null,"payable_status"?: string,"quote_id"?: string,"request_id"?: string,"stage"?: string,"task_id"?: string,"version_no"?: number
+                    "amount_paise"?: number,"change_fee_paise"?: number | null,"confirmation_no"?: number,"created_at"?: string,"created_by"?: string,"currency"?: string,"due_date"?: string | null,"id"?: string,"legal_entity_id"?: string,"note"?: string | null,"payable_status"?: string,"quote_id"?: string,"request_id"?: string,"stage"?: string,"task_id"?: string,"version_no"?: number
                   }
                   Relationships: [
                     {
@@ -2502,21 +4118,33 @@ isOneToOne: false
                   ]
                 },"purchase_evidence": {
                   Row: {
-                    "created_at": string,"file_name": string,"id": string,"kind": string,"legal_entity_id": string,"mime": string,"object_path": string,"sha256": string,"size_bytes": number,"status": string,"stored_at": string | null,"task_id": string,"updated_at": string,"uploaded_by": string
+                    "created_at": string,"customer_ready_at": string | null,"customer_ready_by": string | null,"file_name": string,"id": string,"kind": string,"legal_entity_id": string,"mime": string,"object_path": string,"reconfirmation_id": string | null,"sha256": string,"size_bytes": number,"status": string,"stored_at": string | null,"task_id": string,"updated_at": string,"uploaded_by": string
                   }
                   Insert: {
-                    "created_at"?: string,"file_name": string,"id"?: string,"kind": string,"legal_entity_id": string,"mime": string,"object_path": string,"sha256": string,"size_bytes": number,"status"?: string,"stored_at"?: string | null,"task_id": string,"updated_at"?: string,"uploaded_by": string
+                    "created_at"?: string,"customer_ready_at"?: string | null,"customer_ready_by"?: string | null,"file_name": string,"id"?: string,"kind": string,"legal_entity_id": string,"mime": string,"object_path": string,"reconfirmation_id"?: string | null,"sha256": string,"size_bytes": number,"status"?: string,"stored_at"?: string | null,"task_id": string,"updated_at"?: string,"uploaded_by": string
                   }
                   Update: {
-                    "created_at"?: string,"file_name"?: string,"id"?: string,"kind"?: string,"legal_entity_id"?: string,"mime"?: string,"object_path"?: string,"sha256"?: string,"size_bytes"?: number,"status"?: string,"stored_at"?: string | null,"task_id"?: string,"updated_at"?: string,"uploaded_by"?: string
+                    "created_at"?: string,"customer_ready_at"?: string | null,"customer_ready_by"?: string | null,"file_name"?: string,"id"?: string,"kind"?: string,"legal_entity_id"?: string,"mime"?: string,"object_path"?: string,"reconfirmation_id"?: string | null,"sha256"?: string,"size_bytes"?: number,"status"?: string,"stored_at"?: string | null,"task_id"?: string,"updated_at"?: string,"uploaded_by"?: string
                   }
                   Relationships: [
                     {
+      foreignKeyName: "purchase_evidence_customer_ready_by_fkey"
+      columns: ["customer_ready_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
       foreignKeyName: "purchase_evidence_legal_entity_id_task_id_fkey"
       columns: ["legal_entity_id","task_id"]
 isOneToOne: false
       referencedRelation: "fulfilment_tasks"
       referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "purchase_evidence_reconfirmation_id_fkey"
+      columns: ["reconfirmation_id"]
+isOneToOne: false
+      referencedRelation: "task_reconfirmations"
+      referencedColumns: ["id"]
     },{
       foreignKeyName: "purchase_evidence_uploaded_by_fkey"
       columns: ["uploaded_by"]
@@ -2525,18 +4153,85 @@ isOneToOne: false
       referencedColumns: ["user_id"]
     }
                   ]
-                },"purchase_quotes": {
+                },"purchase_go_ahead_requests": {
                   Row: {
-                    "cancellation_terms": string | null,"created_at": string,"created_by": string,"currency": string,"hold_until": string | null,"hotel_name": string,"id": string,"legal_entity_id": string,"meal_plan": string | null,"quoted_cost_paise": number,"request_id": string,"room_type": string | null,"status": string,"supplier_id": string,"task_id": string,"updated_at": string
+                    "amount_paise": number,"booking_version_id": string,"branch_id": string,"cost_version_no": number,"deal_id": string,"decided_at": string | null,"decided_by": string | null,"decision_request_id": string | null,"email_id": string,"id": string,"legal_entity_id": string,"quote_id": string,"request_id": string,"requested_at": string,"requested_by": string,"return_reason": string | null,"row_version": number,"status": string,"task_id": string
                   }
                   Insert: {
-                    "cancellation_terms"?: string | null,"created_at"?: string,"created_by": string,"currency"?: string,"hold_until"?: string | null,"hotel_name": string,"id"?: string,"legal_entity_id": string,"meal_plan"?: string | null,"quoted_cost_paise": number,"request_id": string,"room_type"?: string | null,"status"?: string,"supplier_id": string,"task_id": string,"updated_at"?: string
+                    "amount_paise": number,"booking_version_id": string,"branch_id": string,"cost_version_no": number,"deal_id": string,"decided_at"?: string | null,"decided_by"?: string | null,"decision_request_id"?: string | null,"email_id": string,"id"?: string,"legal_entity_id": string,"quote_id": string,"request_id": string,"requested_at"?: string,"requested_by": string,"return_reason"?: string | null,"row_version"?: number,"status"?: string,"task_id": string
                   }
                   Update: {
-                    "cancellation_terms"?: string | null,"created_at"?: string,"created_by"?: string,"currency"?: string,"hold_until"?: string | null,"hotel_name"?: string,"id"?: string,"legal_entity_id"?: string,"meal_plan"?: string | null,"quoted_cost_paise"?: number,"request_id"?: string,"room_type"?: string | null,"status"?: string,"supplier_id"?: string,"task_id"?: string,"updated_at"?: string
+                    "amount_paise"?: number,"booking_version_id"?: string,"branch_id"?: string,"cost_version_no"?: number,"deal_id"?: string,"decided_at"?: string | null,"decided_by"?: string | null,"decision_request_id"?: string | null,"email_id"?: string,"id"?: string,"legal_entity_id"?: string,"quote_id"?: string,"request_id"?: string,"requested_at"?: string,"requested_by"?: string,"return_reason"?: string | null,"row_version"?: number,"status"?: string,"task_id"?: string
                   }
                   Relationships: [
                     {
+      foreignKeyName: "purchase_go_ahead_requests_booking_version_id_fkey"
+      columns: ["booking_version_id"]
+isOneToOne: false
+      referencedRelation: "booking_versions"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "purchase_go_ahead_requests_deal_id_fkey"
+      columns: ["deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "purchase_go_ahead_requests_decided_by_fkey"
+      columns: ["decided_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "purchase_go_ahead_requests_email_id_fkey"
+      columns: ["email_id"]
+isOneToOne: false
+      referencedRelation: "purchase_supplier_emails"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "purchase_go_ahead_requests_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "purchase_go_ahead_requests_requested_by_fkey"
+      columns: ["requested_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "purchase_go_ahead_requests_task_id_cost_version_no_fkey"
+      columns: ["task_id","cost_version_no"]
+isOneToOne: false
+      referencedRelation: "purchase_cost_versions"
+      referencedColumns: ["task_id","version_no"]
+    },{
+      foreignKeyName: "purchase_go_ahead_requests_task_id_quote_id_fkey"
+      columns: ["task_id","quote_id"]
+isOneToOne: false
+      referencedRelation: "purchase_quotes"
+      referencedColumns: ["task_id","id"]
+    }
+                  ]
+                },"purchase_quotes": {
+                  Row: {
+                    "cancellation_terms": string | null,"catalogue_hotel_id": string | null,"contract_deviation_reason": string | null,"contract_state": string,"contract_total_paise": number | null,"created_at": string,"created_by": string,"currency": string,"hold_until": string | null,"hotel_name": string,"id": string,"legal_entity_id": string,"meal_plan": string | null,"meal_plan_code": string | null,"note": string | null,"per_room_night_paise": number | null,"quoted_cost_paise": number,"rate_contract_id": string | null,"request_id": string,"room_type": string | null,"room_type_id": string | null,"status": string,"supplier_id": string,"task_id": string,"updated_at": string
+                  }
+                  Insert: {
+                    "cancellation_terms"?: string | null,"catalogue_hotel_id"?: string | null,"contract_deviation_reason"?: string | null,"contract_state"?: string,"contract_total_paise"?: number | null,"created_at"?: string,"created_by": string,"currency"?: string,"hold_until"?: string | null,"hotel_name": string,"id"?: string,"legal_entity_id": string,"meal_plan"?: string | null,"meal_plan_code"?: string | null,"note"?: string | null,"per_room_night_paise"?: number | null,"quoted_cost_paise": number,"rate_contract_id"?: string | null,"request_id": string,"room_type"?: string | null,"room_type_id"?: string | null,"status"?: string,"supplier_id": string,"task_id": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "cancellation_terms"?: string | null,"catalogue_hotel_id"?: string | null,"contract_deviation_reason"?: string | null,"contract_state"?: string,"contract_total_paise"?: number | null,"created_at"?: string,"created_by"?: string,"currency"?: string,"hold_until"?: string | null,"hotel_name"?: string,"id"?: string,"legal_entity_id"?: string,"meal_plan"?: string | null,"meal_plan_code"?: string | null,"note"?: string | null,"per_room_night_paise"?: number | null,"quoted_cost_paise"?: number,"rate_contract_id"?: string | null,"request_id"?: string,"room_type"?: string | null,"room_type_id"?: string | null,"status"?: string,"supplier_id"?: string,"task_id"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "purchase_quotes_catalogue_hotel_fkey"
+      columns: ["legal_entity_id","catalogue_hotel_id"]
+isOneToOne: false
+      referencedRelation: "hotel_catalogue"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
       foreignKeyName: "purchase_quotes_created_by_fkey"
       columns: ["created_by"]
 isOneToOne: false
@@ -2554,7 +4249,118 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "fulfilment_tasks"
       referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "purchase_quotes_rate_contract_fkey"
+      columns: ["legal_entity_id","rate_contract_id"]
+isOneToOne: false
+      referencedRelation: "rate_contracts"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "purchase_quotes_room_type_fkey"
+      columns: ["legal_entity_id","room_type_id"]
+isOneToOne: false
+      referencedRelation: "hotel_room_types"
+      referencedColumns: ["legal_entity_id","id"]
     }
+                  ]
+                },"purchase_supplier_emails": {
+                  Row: {
+                    "amount_paise": number | null,"body": string,"cc_emails": (string)[],"cost_version_no": number | null,"deal_id": string,"failure": string | null,"id": string,"kind": string,"legal_entity_id": string,"provider_message_id": string | null,"quote_id": string | null,"request_id": string,"result_at": string | null,"sent_at": string,"sent_by": string,"status": string,"subject": string,"supplier_id": string,"task_id": string,"to_email": string
+                  }
+                  Insert: {
+                    "amount_paise"?: number | null,"body": string,"cc_emails"?: (string)[],"cost_version_no"?: number | null,"deal_id": string,"failure"?: string | null,"id"?: string,"kind": string,"legal_entity_id": string,"provider_message_id"?: string | null,"quote_id"?: string | null,"request_id": string,"result_at"?: string | null,"sent_at"?: string,"sent_by": string,"status": string,"subject": string,"supplier_id": string,"task_id": string,"to_email": string
+                  }
+                  Update: {
+                    "amount_paise"?: number | null,"body"?: string,"cc_emails"?: (string)[],"cost_version_no"?: number | null,"deal_id"?: string,"failure"?: string | null,"id"?: string,"kind"?: string,"legal_entity_id"?: string,"provider_message_id"?: string | null,"quote_id"?: string | null,"request_id"?: string,"result_at"?: string | null,"sent_at"?: string,"sent_by"?: string,"status"?: string,"subject"?: string,"supplier_id"?: string,"task_id"?: string,"to_email"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "purchase_supplier_emails_deal_id_fkey"
+      columns: ["deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "purchase_supplier_emails_legal_entity_id_supplier_id_fkey"
+      columns: ["legal_entity_id","supplier_id"]
+isOneToOne: false
+      referencedRelation: "suppliers"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "purchase_supplier_emails_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "purchase_supplier_emails_sent_by_fkey"
+      columns: ["sent_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "purchase_supplier_emails_task_id_cost_version_no_fkey"
+      columns: ["task_id","cost_version_no"]
+isOneToOne: false
+      referencedRelation: "purchase_cost_versions"
+      referencedColumns: ["task_id","version_no"]
+    },{
+      foreignKeyName: "purchase_supplier_emails_task_id_quote_id_fkey"
+      columns: ["task_id","quote_id"]
+isOneToOne: false
+      referencedRelation: "purchase_quotes"
+      referencedColumns: ["task_id","id"]
+    }
+                  ]
+                },"purchase_task_basis": {
+                  Row: {
+                    "basis_version_id": string,"created_at": string,"deal_id": string,"legal_entity_id": string,"row_version": number,"seen_at": string | null,"seen_by": string | null,"task_id": string,"updated_at": string
+                  }
+                  Insert: {
+                    "basis_version_id": string,"created_at"?: string,"deal_id": string,"legal_entity_id": string,"row_version"?: number,"seen_at"?: string | null,"seen_by"?: string | null,"task_id": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "basis_version_id"?: string,"created_at"?: string,"deal_id"?: string,"legal_entity_id"?: string,"row_version"?: number,"seen_at"?: string | null,"seen_by"?: string | null,"task_id"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "purchase_task_basis_legal_entity_id_deal_id_basis_version__fkey"
+      columns: ["legal_entity_id","deal_id","basis_version_id"]
+isOneToOne: false
+      referencedRelation: "booking_versions"
+      referencedColumns: ["legal_entity_id","deal_id","id"]
+    },{
+      foreignKeyName: "purchase_task_basis_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "purchase_task_basis_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "purchase_task_basis_seen_by_fkey"
+      columns: ["seen_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"push_kick_state": {
+                  Row: {
+                    "id": boolean,"last_kick_at": string | null,"last_request_id": number | null
+                  }
+                  Insert: {
+                    "id"?: boolean,"last_kick_at"?: string | null,"last_request_id"?: number | null
+                  }
+                  Update: {
+                    "id"?: boolean,"last_kick_at"?: string | null,"last_request_id"?: number | null
+                  }
+                  Relationships: [
+                    
                   ]
                 },"quotation_conversion_items": {
                   Row: {
@@ -2952,6 +4758,180 @@ isOneToOne: false
       referencedColumns: ["legal_entity_id","id"]
     }
                   ]
+                },"rate_contract_alerts": {
+                  Row: {
+                    "contract_id": string,"created_at": string,"days_left": number,"id": string,"legal_entity_id": string
+                  }
+                  Insert: {
+                    "contract_id": string,"created_at"?: string,"days_left": number,"id"?: string,"legal_entity_id": string
+                  }
+                  Update: {
+                    "contract_id"?: string,"created_at"?: string,"days_left"?: number,"id"?: string,"legal_entity_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "rate_contract_alerts_legal_entity_id_contract_id_fkey"
+      columns: ["legal_entity_id","contract_id"]
+isOneToOne: false
+      referencedRelation: "rate_contracts"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"rate_contract_blackouts": {
+                  Row: {
+                    "contract_id": string,"created_at": string,"from_date": string,"id": string,"legal_entity_id": string,"to_date": string
+                  }
+                  Insert: {
+                    "contract_id": string,"created_at"?: string,"from_date": string,"id"?: string,"legal_entity_id": string,"to_date": string
+                  }
+                  Update: {
+                    "contract_id"?: string,"created_at"?: string,"from_date"?: string,"id"?: string,"legal_entity_id"?: string,"to_date"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "rate_contract_blackouts_legal_entity_id_contract_id_fkey"
+      columns: ["legal_entity_id","contract_id"]
+isOneToOne: false
+      referencedRelation: "rate_contracts"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"rate_contract_counters": {
+                  Row: {
+                    "last_no": number,"legal_entity_id": string,"year": number
+                  }
+                  Insert: {
+                    "last_no": number,"legal_entity_id": string,"year": number
+                  }
+                  Update: {
+                    "last_no"?: number,"legal_entity_id"?: string,"year"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "rate_contract_counters_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"rate_contract_files": {
+                  Row: {
+                    "contract_id": string,"created_at": string,"file_name": string,"id": string,"legal_entity_id": string,"mime": string,"object_path": string,"sha256": string,"size_bytes": number,"status": string,"stored_at": string | null,"updated_at": string,"uploaded_by": string
+                  }
+                  Insert: {
+                    "contract_id": string,"created_at"?: string,"file_name": string,"id"?: string,"legal_entity_id": string,"mime": string,"object_path": string,"sha256": string,"size_bytes": number,"status"?: string,"stored_at"?: string | null,"updated_at"?: string,"uploaded_by": string
+                  }
+                  Update: {
+                    "contract_id"?: string,"created_at"?: string,"file_name"?: string,"id"?: string,"legal_entity_id"?: string,"mime"?: string,"object_path"?: string,"sha256"?: string,"size_bytes"?: number,"status"?: string,"stored_at"?: string | null,"updated_at"?: string,"uploaded_by"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "rate_contract_files_legal_entity_id_contract_id_fkey"
+      columns: ["legal_entity_id","contract_id"]
+isOneToOne: false
+      referencedRelation: "rate_contracts"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "rate_contract_files_uploaded_by_fkey"
+      columns: ["uploaded_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"rate_contract_lines": {
+                  Row: {
+                    "child_with_bed_paise": number | null,"child_without_bed_paise": number | null,"contract_id": string,"created_at": string,"extra_adult_paise": number | null,"id": string,"legal_entity_id": string,"line_no": number,"meal_plan": string,"note": string | null,"rate_paise": number,"room_type_id": string,"season_from": string,"season_to": string,"weekend_rate_paise": number | null
+                  }
+                  Insert: {
+                    "child_with_bed_paise"?: number | null,"child_without_bed_paise"?: number | null,"contract_id": string,"created_at"?: string,"extra_adult_paise"?: number | null,"id"?: string,"legal_entity_id": string,"line_no": number,"meal_plan": string,"note"?: string | null,"rate_paise": number,"room_type_id": string,"season_from": string,"season_to": string,"weekend_rate_paise"?: number | null
+                  }
+                  Update: {
+                    "child_with_bed_paise"?: number | null,"child_without_bed_paise"?: number | null,"contract_id"?: string,"created_at"?: string,"extra_adult_paise"?: number | null,"id"?: string,"legal_entity_id"?: string,"line_no"?: number,"meal_plan"?: string,"note"?: string | null,"rate_paise"?: number,"room_type_id"?: string,"season_from"?: string,"season_to"?: string,"weekend_rate_paise"?: number | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "rate_contract_lines_legal_entity_id_contract_id_fkey"
+      columns: ["legal_entity_id","contract_id"]
+isOneToOne: false
+      referencedRelation: "rate_contracts"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "rate_contract_lines_legal_entity_id_room_type_id_fkey"
+      columns: ["legal_entity_id","room_type_id"]
+isOneToOne: false
+      referencedRelation: "hotel_room_types"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"rate_contracts": {
+                  Row: {
+                    "cancellation_terms": string | null,"contract_no": string,"decided_at": string | null,"decided_by": string | null,"end_reason": string | null,"ended_at": string | null,"ended_by": string | null,"entered_at": string,"entered_by": string,"hotel_id": string,"id": string,"import_batch_id": string | null,"last_edited_by": string | null,"legal_entity_id": string,"note": string | null,"return_reason": string | null,"row_version": number,"source": string,"status": string,"submitted_at": string | null,"submitted_by": string | null,"supplier_id": string,"updated_at": string,"valid_from": string,"valid_to": string,"version_no": number
+                  }
+                  Insert: {
+                    "cancellation_terms"?: string | null,"contract_no": string,"decided_at"?: string | null,"decided_by"?: string | null,"end_reason"?: string | null,"ended_at"?: string | null,"ended_by"?: string | null,"entered_at"?: string,"entered_by": string,"hotel_id": string,"id"?: string,"import_batch_id"?: string | null,"last_edited_by"?: string | null,"legal_entity_id": string,"note"?: string | null,"return_reason"?: string | null,"row_version"?: number,"source"?: string,"status"?: string,"submitted_at"?: string | null,"submitted_by"?: string | null,"supplier_id": string,"updated_at"?: string,"valid_from": string,"valid_to": string,"version_no": number
+                  }
+                  Update: {
+                    "cancellation_terms"?: string | null,"contract_no"?: string,"decided_at"?: string | null,"decided_by"?: string | null,"end_reason"?: string | null,"ended_at"?: string | null,"ended_by"?: string | null,"entered_at"?: string,"entered_by"?: string,"hotel_id"?: string,"id"?: string,"import_batch_id"?: string | null,"last_edited_by"?: string | null,"legal_entity_id"?: string,"note"?: string | null,"return_reason"?: string | null,"row_version"?: number,"source"?: string,"status"?: string,"submitted_at"?: string | null,"submitted_by"?: string | null,"supplier_id"?: string,"updated_at"?: string,"valid_from"?: string,"valid_to"?: string,"version_no"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "rate_contracts_decided_by_fkey"
+      columns: ["decided_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "rate_contracts_ended_by_fkey"
+      columns: ["ended_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "rate_contracts_entered_by_fkey"
+      columns: ["entered_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "rate_contracts_import_batch_id_fkey"
+      columns: ["import_batch_id"]
+isOneToOne: false
+      referencedRelation: "import_batches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "rate_contracts_last_edited_by_fkey"
+      columns: ["last_edited_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "rate_contracts_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "rate_contracts_legal_entity_id_hotel_id_fkey"
+      columns: ["legal_entity_id","hotel_id"]
+isOneToOne: false
+      referencedRelation: "hotel_catalogue"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "rate_contracts_legal_entity_id_supplier_id_fkey"
+      columns: ["legal_entity_id","supplier_id"]
+isOneToOne: false
+      referencedRelation: "suppliers"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "rate_contracts_submitted_by_fkey"
+      columns: ["submitted_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
                 },"recovery_verification_methods": {
                   Row: {
                     "active": boolean,"code": string,"created_at": string,"label": string
@@ -2963,7 +4943,7 @@ isOneToOne: false
                     "active"?: boolean,"code"?: string,"created_at"?: string,"label"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"referral_draft_counters": {
                   Row: {
@@ -3064,6 +5044,37 @@ isOneToOne: false
       referencedColumns: ["user_id"]
     }
                   ]
+                },"refund_evidence": {
+                  Row: {
+                    "created_at": string,"deal_id": string,"file_name": string,"id": string,"legal_entity_id": string,"mime": string,"object_path": string,"request_id": string,"sha256": string,"size_bytes": number,"status": string,"stored_at": string | null,"subject_id": string,"subject_kind": string,"updated_at": string,"uploaded_by": string
+                  }
+                  Insert: {
+                    "created_at"?: string,"deal_id": string,"file_name": string,"id"?: string,"legal_entity_id": string,"mime": string,"object_path": string,"request_id": string,"sha256": string,"size_bytes": number,"status"?: string,"stored_at"?: string | null,"subject_id": string,"subject_kind": string,"updated_at"?: string,"uploaded_by": string
+                  }
+                  Update: {
+                    "created_at"?: string,"deal_id"?: string,"file_name"?: string,"id"?: string,"legal_entity_id"?: string,"mime"?: string,"object_path"?: string,"request_id"?: string,"sha256"?: string,"size_bytes"?: number,"status"?: string,"stored_at"?: string | null,"subject_id"?: string,"subject_kind"?: string,"updated_at"?: string,"uploaded_by"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "refund_evidence_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "refund_evidence_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "refund_evidence_uploaded_by_fkey"
+      columns: ["uploaded_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
                 },"role_permissions": {
                   Row: {
                     "note": string | null,"permission_code": string,"policy_status": string,"role_code": string,"scope": string
@@ -3100,7 +5111,7 @@ isOneToOne: false
                     "code"?: string,"description"?: string,"name"?: string,"policy_status"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"security_policy": {
                   Row: {
@@ -3113,17 +5124,17 @@ isOneToOne: false
                     "id"?: boolean,"policy_status"?: string,"session_max_age_seconds"?: number,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"service_item_cost_estimates": {
                   Row: {
-                    "booking_version_id": string,"created_at": string,"extra_bed_rate_paise": number | null,"fare_total_paise": number | null,"legal_entity_id": string,"no_bed_rate_paise": number | null,"room_rate_paise": number | null,"service_item_id": string,"updated_at": string,"updated_by": string,"vehicle_rate_paise": number | null
+                    "booking_version_id": string,"created_at": string,"extra_bed_rate_paise": number | null,"fare_adult_paise": number | null,"fare_child_paise": number | null,"fare_infant_paise": number | null,"fare_total_paise": number | null,"legal_entity_id": string,"no_bed_rate_paise": number | null,"room_rate_paise": number | null,"service_item_id": string,"updated_at": string,"updated_by": string,"vehicle_rate_paise": number | null
                   }
                   Insert: {
-                    "booking_version_id": string,"created_at"?: string,"extra_bed_rate_paise"?: number | null,"fare_total_paise"?: number | null,"legal_entity_id": string,"no_bed_rate_paise"?: number | null,"room_rate_paise"?: number | null,"service_item_id": string,"updated_at"?: string,"updated_by": string,"vehicle_rate_paise"?: number | null
+                    "booking_version_id": string,"created_at"?: string,"extra_bed_rate_paise"?: number | null,"fare_adult_paise"?: number | null,"fare_child_paise"?: number | null,"fare_infant_paise"?: number | null,"fare_total_paise"?: number | null,"legal_entity_id": string,"no_bed_rate_paise"?: number | null,"room_rate_paise"?: number | null,"service_item_id": string,"updated_at"?: string,"updated_by": string,"vehicle_rate_paise"?: number | null
                   }
                   Update: {
-                    "booking_version_id"?: string,"created_at"?: string,"extra_bed_rate_paise"?: number | null,"fare_total_paise"?: number | null,"legal_entity_id"?: string,"no_bed_rate_paise"?: number | null,"room_rate_paise"?: number | null,"service_item_id"?: string,"updated_at"?: string,"updated_by"?: string,"vehicle_rate_paise"?: number | null
+                    "booking_version_id"?: string,"created_at"?: string,"extra_bed_rate_paise"?: number | null,"fare_adult_paise"?: number | null,"fare_child_paise"?: number | null,"fare_infant_paise"?: number | null,"fare_total_paise"?: number | null,"legal_entity_id"?: string,"no_bed_rate_paise"?: number | null,"room_rate_paise"?: number | null,"service_item_id"?: string,"updated_at"?: string,"updated_by"?: string,"vehicle_rate_paise"?: number | null
                   }
                   Relationships: [
                     {
@@ -3148,16 +5159,22 @@ isOneToOne: false
                   ]
                 },"service_item_facts": {
                   Row: {
-                    "adults_from_booking": boolean,"booking_version_id": string,"created_at": string,"facts": NonNullable<Json>,"facts_hash": string,"id": string,"legal_entity_id": string,"purchase_budget_paise": number,"service_item_id": string,"updated_at": string
+                    "adults_from_booking": boolean,"booking_version_id": string,"catalogue_hotel_id": string | null,"created_at": string,"facts": NonNullable<Json>,"facts_hash": string,"id": string,"legal_entity_id": string,"purchase_budget_auto": boolean,"purchase_budget_paise": number,"service_item_id": string,"updated_at": string
                   }
                   Insert: {
-                    "adults_from_booking"?: boolean,"booking_version_id": string,"created_at"?: string,"facts": NonNullable<Json>,"facts_hash": string,"id"?: string,"legal_entity_id": string,"purchase_budget_paise"?: number,"service_item_id": string,"updated_at"?: string
+                    "adults_from_booking"?: boolean,"booking_version_id": string,"catalogue_hotel_id"?: string | null,"created_at"?: string,"facts": NonNullable<Json>,"facts_hash": string,"id"?: string,"legal_entity_id": string,"purchase_budget_auto"?: boolean,"purchase_budget_paise"?: number,"service_item_id": string,"updated_at"?: string
                   }
                   Update: {
-                    "adults_from_booking"?: boolean,"booking_version_id"?: string,"created_at"?: string,"facts"?: NonNullable<Json>,"facts_hash"?: string,"id"?: string,"legal_entity_id"?: string,"purchase_budget_paise"?: number,"service_item_id"?: string,"updated_at"?: string
+                    "adults_from_booking"?: boolean,"booking_version_id"?: string,"catalogue_hotel_id"?: string | null,"created_at"?: string,"facts"?: NonNullable<Json>,"facts_hash"?: string,"id"?: string,"legal_entity_id"?: string,"purchase_budget_auto"?: boolean,"purchase_budget_paise"?: number,"service_item_id"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     {
+      foreignKeyName: "service_item_facts_catalogue_hotel_fkey"
+      columns: ["legal_entity_id","catalogue_hotel_id"]
+isOneToOne: false
+      referencedRelation: "hotel_catalogue"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
       foreignKeyName: "service_item_facts_legal_entity_id_booking_version_id_fkey"
       columns: ["legal_entity_id","booking_version_id"]
 isOneToOne: false
@@ -3264,6 +5281,25 @@ isOneToOne: false
       referencedColumns: ["legal_entity_id","branch_id","id"]
     }
                   ]
+                },"staff_bitrix_refresh_rate": {
+                  Row: {
+                    "recent_at": (string)[],"updated_at": string,"user_id": string
+                  }
+                  Insert: {
+                    "recent_at"?: (string)[],"updated_at"?: string,"user_id": string
+                  }
+                  Update: {
+                    "recent_at"?: (string)[],"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "staff_bitrix_refresh_rate_user_id_fkey"
+      columns: ["user_id"]
+isOneToOne: true
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
                 },"staff_email_deliveries": {
                   Row: {
                     "attempt_no": number,"completed_at": string | null,"created_at": string,"created_by": string | null,"error_code": string | null,"id": string,"invitation_id": string | null,"kind": string,"status": string,"user_id": string | null
@@ -3332,6 +5368,74 @@ isOneToOne: false
       referencedColumns: ["user_id"]
     }
                   ]
+                },"staff_notice_preferences": {
+                  Row: {
+                    "popups_on": boolean,"sound_on": boolean,"updated_at": string,"user_id": string
+                  }
+                  Insert: {
+                    "popups_on"?: boolean,"sound_on"?: boolean,"updated_at"?: string,"user_id": string
+                  }
+                  Update: {
+                    "popups_on"?: boolean,"sound_on"?: boolean,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "staff_notice_preferences_user_id_fkey"
+      columns: ["user_id"]
+isOneToOne: true
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"staff_notices": {
+                  Row: {
+                    "actor_user_id": string | null,"branch_id": string | null,"created_at": string,"deal_id": string | null,"dedup_key": string,"done_at": string | null,"id": string,"kind": string,"legal_entity_id": string,"params": NonNullable<Json>,"priority": string,"read_at": string | null,"recipient_user_id": string,"resolved_at": string | null,"resolved_reason": string | null,"seq": number,"shared_key": string | null,"subject_id": string,"subject_kind": string,"task_id": string | null
+                  }
+                  Insert: {
+                    "actor_user_id"?: string | null,"branch_id"?: string | null,"created_at"?: string,"deal_id"?: string | null,"dedup_key": string,"done_at"?: string | null,"id"?: string,"kind": string,"legal_entity_id": string,"params"?: NonNullable<Json>,"priority": string,"read_at"?: string | null,"recipient_user_id": string,"resolved_at"?: string | null,"resolved_reason"?: string | null,"seq"?: never,"shared_key"?: string | null,"subject_id": string,"subject_kind": string,"task_id"?: string | null
+                  }
+                  Update: {
+                    "actor_user_id"?: string | null,"branch_id"?: string | null,"created_at"?: string,"deal_id"?: string | null,"dedup_key"?: string,"done_at"?: string | null,"id"?: string,"kind"?: string,"legal_entity_id"?: string,"params"?: NonNullable<Json>,"priority"?: string,"read_at"?: string | null,"recipient_user_id"?: string,"resolved_at"?: string | null,"resolved_reason"?: string | null,"seq"?: never,"shared_key"?: string | null,"subject_id"?: string,"subject_kind"?: string,"task_id"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "staff_notices_actor_user_id_fkey"
+      columns: ["actor_user_id"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "staff_notices_legal_entity_id_branch_id_fkey"
+      columns: ["legal_entity_id","branch_id"]
+isOneToOne: false
+      referencedRelation: "branches"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "staff_notices_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "staff_notices_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "staff_notices_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "staff_notices_recipient_user_id_fkey"
+      columns: ["recipient_user_id"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
                 },"staff_profiles": {
                   Row: {
                     "activated_at": string | null,"created_at": string,"deactivated_at": string | null,"deactivation_reason": string | null,"display_name": string,"status": string,"user_id": string,"work_email": string
@@ -3343,7 +5447,57 @@ isOneToOne: false
                     "activated_at"?: string | null,"created_at"?: string,"deactivated_at"?: string | null,"deactivation_reason"?: string | null,"display_name"?: string,"status"?: string,"user_id"?: string,"work_email"?: string
                   }
                   Relationships: [
-
+                    
+                  ]
+                },"staff_push_devices": {
+                  Row: {
+                    "auth_key": string,"created_at": string,"endpoint": string,"endpoint_hash": string,"id": string,"label": string,"last_used_at": string | null,"p256dh": string,"removed_at": string | null,"removed_reason": string | null,"request_id": string,"status": string,"user_id": string
+                  }
+                  Insert: {
+                    "auth_key": string,"created_at"?: string,"endpoint": string,"endpoint_hash": string,"id"?: string,"label": string,"last_used_at"?: string | null,"p256dh": string,"removed_at"?: string | null,"removed_reason"?: string | null,"request_id": string,"status"?: string,"user_id": string
+                  }
+                  Update: {
+                    "auth_key"?: string,"created_at"?: string,"endpoint"?: string,"endpoint_hash"?: string,"id"?: string,"label"?: string,"last_used_at"?: string | null,"p256dh"?: string,"removed_at"?: string | null,"removed_reason"?: string | null,"request_id"?: string,"status"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "staff_push_devices_user_id_fkey"
+      columns: ["user_id"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"staff_push_jobs": {
+                  Row: {
+                    "attempts": number,"available_at": string,"created_at": string,"device_id": string,"id": string,"is_test": boolean,"last_error_code": string | null,"lease_owner": string | null,"lease_until": string | null,"notice_id": string | null,"request_id": string | null,"sent_at": string | null,"status": string,"urgent": boolean,"user_id": string
+                  }
+                  Insert: {
+                    "attempts"?: number,"available_at"?: string,"created_at"?: string,"device_id": string,"id"?: string,"is_test"?: boolean,"last_error_code"?: string | null,"lease_owner"?: string | null,"lease_until"?: string | null,"notice_id"?: string | null,"request_id"?: string | null,"sent_at"?: string | null,"status"?: string,"urgent"?: boolean,"user_id": string
+                  }
+                  Update: {
+                    "attempts"?: number,"available_at"?: string,"created_at"?: string,"device_id"?: string,"id"?: string,"is_test"?: boolean,"last_error_code"?: string | null,"lease_owner"?: string | null,"lease_until"?: string | null,"notice_id"?: string | null,"request_id"?: string | null,"sent_at"?: string | null,"status"?: string,"urgent"?: boolean,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "staff_push_jobs_device_id_fkey"
+      columns: ["device_id"]
+isOneToOne: false
+      referencedRelation: "staff_push_devices"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "staff_push_jobs_notice_id_fkey"
+      columns: ["notice_id"]
+isOneToOne: false
+      referencedRelation: "staff_notices"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "staff_push_jobs_user_id_fkey"
+      columns: ["user_id"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
                   ]
                 },"staff_security_state": {
                   Row: {
@@ -3395,15 +5549,444 @@ isOneToOne: false
       referencedColumns: ["legal_entity_id","id"]
     }
                   ]
-                },"suppliers": {
+                },"supplier_changes": {
                   Row: {
-                    "city": string | null,"contact_email": string | null,"contact_name": string | null,"contact_phone": string | null,"created_at": string,"created_by": string,"id": string,"legal_entity_id": string,"name": string,"payment_terms": string | null,"row_version": number,"service_types": (string)[],"status": string,"updated_at": string,"updated_by": string,"verification_status": string,"verified_at": string | null,"verified_by": string | null
+                    "changed_at": string,"changed_by": string,"field": string,"id": number,"legal_entity_id": string,"new_value": string | null,"old_value": string | null,"request_id": string | null,"source": string,"supplier_id": string
                   }
                   Insert: {
-                    "city"?: string | null,"contact_email"?: string | null,"contact_name"?: string | null,"contact_phone"?: string | null,"created_at"?: string,"created_by": string,"id"?: string,"legal_entity_id": string,"name": string,"payment_terms"?: string | null,"row_version"?: number,"service_types": (string)[],"status"?: string,"updated_at"?: string,"updated_by": string,"verification_status"?: string,"verified_at"?: string | null,"verified_by"?: string | null
+                    "changed_at"?: string,"changed_by": string,"field": string,"id"?: never,"legal_entity_id": string,"new_value"?: string | null,"old_value"?: string | null,"request_id"?: string | null,"source": string,"supplier_id": string
                   }
                   Update: {
-                    "city"?: string | null,"contact_email"?: string | null,"contact_name"?: string | null,"contact_phone"?: string | null,"created_at"?: string,"created_by"?: string,"id"?: string,"legal_entity_id"?: string,"name"?: string,"payment_terms"?: string | null,"row_version"?: number,"service_types"?: (string)[],"status"?: string,"updated_at"?: string,"updated_by"?: string,"verification_status"?: string,"verified_at"?: string | null,"verified_by"?: string | null
+                    "changed_at"?: string,"changed_by"?: string,"field"?: string,"id"?: never,"legal_entity_id"?: string,"new_value"?: string | null,"old_value"?: string | null,"request_id"?: string | null,"source"?: string,"supplier_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "supplier_changes_changed_by_fkey"
+      columns: ["changed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "supplier_changes_legal_entity_id_supplier_id_fkey"
+      columns: ["legal_entity_id","supplier_id"]
+isOneToOne: false
+      referencedRelation: "suppliers"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"supplier_contacts": {
+                  Row: {
+                    "created_at": string,"created_by": string,"email": string | null,"id": string,"is_primary": boolean,"legal_entity_id": string,"name": string,"phone": string | null,"remove_reason": string | null,"removed_at": string | null,"removed_by": string | null,"role_label": string | null,"row_version": number,"status": string,"supplier_id": string,"updated_at": string,"updated_by": string
+                  }
+                  Insert: {
+                    "created_at"?: string,"created_by": string,"email"?: string | null,"id"?: string,"is_primary"?: boolean,"legal_entity_id": string,"name": string,"phone"?: string | null,"remove_reason"?: string | null,"removed_at"?: string | null,"removed_by"?: string | null,"role_label"?: string | null,"row_version"?: number,"status"?: string,"supplier_id": string,"updated_at"?: string,"updated_by": string
+                  }
+                  Update: {
+                    "created_at"?: string,"created_by"?: string,"email"?: string | null,"id"?: string,"is_primary"?: boolean,"legal_entity_id"?: string,"name"?: string,"phone"?: string | null,"remove_reason"?: string | null,"removed_at"?: string | null,"removed_by"?: string | null,"role_label"?: string | null,"row_version"?: number,"status"?: string,"supplier_id"?: string,"updated_at"?: string,"updated_by"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "supplier_contacts_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "supplier_contacts_legal_entity_id_supplier_id_fkey"
+      columns: ["legal_entity_id","supplier_id"]
+isOneToOne: false
+      referencedRelation: "suppliers"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_contacts_removed_by_fkey"
+      columns: ["removed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "supplier_contacts_updated_by_fkey"
+      columns: ["updated_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"supplier_document_tasks": {
+                  Row: {
+                    "branch_id": string,"created_at": string,"deal_id": string,"document_id": string,"id": string,"legal_entity_id": string,"linked_at": string,"linked_by": string,"request_id": string,"task_id": string,"unlink_reason": string | null,"unlinked_at": string | null,"unlinked_by": string | null
+                  }
+                  Insert: {
+                    "branch_id": string,"created_at"?: string,"deal_id": string,"document_id": string,"id"?: string,"legal_entity_id": string,"linked_at"?: string,"linked_by": string,"request_id": string,"task_id": string,"unlink_reason"?: string | null,"unlinked_at"?: string | null,"unlinked_by"?: string | null
+                  }
+                  Update: {
+                    "branch_id"?: string,"created_at"?: string,"deal_id"?: string,"document_id"?: string,"id"?: string,"legal_entity_id"?: string,"linked_at"?: string,"linked_by"?: string,"request_id"?: string,"task_id"?: string,"unlink_reason"?: string | null,"unlinked_at"?: string | null,"unlinked_by"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "supplier_document_tasks_document_id_fkey"
+      columns: ["document_id"]
+isOneToOne: false
+      referencedRelation: "supplier_documents"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "supplier_document_tasks_legal_entity_id_branch_id_deal_id_fkey"
+      columns: ["legal_entity_id","branch_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","branch_id","id"]
+    },{
+      foreignKeyName: "supplier_document_tasks_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_document_tasks_linked_by_fkey"
+      columns: ["linked_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "supplier_document_tasks_unlinked_by_fkey"
+      columns: ["unlinked_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"supplier_documents": {
+                  Row: {
+                    "branch_id": string,"credits_document_id": string | null,"deal_id": string,"doc_date": string,"evidence_id": string,"fiscal_year": string | null,"gst_included": boolean,"id": string,"kind": string,"legal_entity_id": string,"number": string,"number_norm": string | null,"request_id": string,"return_reason": string | null,"reviewed_at": string | null,"reviewed_by": string | null,"row_version": number,"status": string,"supplier_id": string,"task_id": string,"total_paise": number,"updated_at": string,"uploaded_at": string,"uploaded_by": string
+                  }
+                  Insert: {
+                    "branch_id": string,"credits_document_id"?: string | null,"deal_id": string,"doc_date": string,"evidence_id": string,"fiscal_year"?: never,"gst_included": boolean,"id"?: string,"kind": string,"legal_entity_id": string,"number": string,"number_norm"?: never,"request_id": string,"return_reason"?: string | null,"reviewed_at"?: string | null,"reviewed_by"?: string | null,"row_version"?: number,"status"?: string,"supplier_id": string,"task_id": string,"total_paise": number,"updated_at"?: string,"uploaded_at"?: string,"uploaded_by": string
+                  }
+                  Update: {
+                    "branch_id"?: string,"credits_document_id"?: string | null,"deal_id"?: string,"doc_date"?: string,"evidence_id"?: string,"fiscal_year"?: never,"gst_included"?: boolean,"id"?: string,"kind"?: string,"legal_entity_id"?: string,"number"?: string,"number_norm"?: never,"request_id"?: string,"return_reason"?: string | null,"reviewed_at"?: string | null,"reviewed_by"?: string | null,"row_version"?: number,"status"?: string,"supplier_id"?: string,"task_id"?: string,"total_paise"?: number,"updated_at"?: string,"uploaded_at"?: string,"uploaded_by"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "supplier_documents_credits_document_id_fkey"
+      columns: ["credits_document_id"]
+isOneToOne: false
+      referencedRelation: "supplier_documents"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "supplier_documents_evidence_id_fkey"
+      columns: ["evidence_id"]
+isOneToOne: true
+      referencedRelation: "supplier_money_evidence"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "supplier_documents_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_documents_legal_entity_id_supplier_id_fkey"
+      columns: ["legal_entity_id","supplier_id"]
+isOneToOne: false
+      referencedRelation: "suppliers"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_documents_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_documents_reviewed_by_fkey"
+      columns: ["reviewed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "supplier_documents_uploaded_by_fkey"
+      columns: ["uploaded_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"supplier_hotels": {
+                  Row: {
+                    "created_at": string,"created_by": string,"first_quote_id": string | null,"hotel_id": string,"id": string,"legal_entity_id": string,"remove_reason": string | null,"removed_at": string | null,"removed_by": string | null,"source": string,"status": string,"supplier_id": string
+                  }
+                  Insert: {
+                    "created_at"?: string,"created_by": string,"first_quote_id"?: string | null,"hotel_id": string,"id"?: string,"legal_entity_id": string,"remove_reason"?: string | null,"removed_at"?: string | null,"removed_by"?: string | null,"source": string,"status"?: string,"supplier_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"created_by"?: string,"first_quote_id"?: string | null,"hotel_id"?: string,"id"?: string,"legal_entity_id"?: string,"remove_reason"?: string | null,"removed_at"?: string | null,"removed_by"?: string | null,"source"?: string,"status"?: string,"supplier_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "supplier_hotels_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "supplier_hotels_first_quote_id_fkey"
+      columns: ["first_quote_id"]
+isOneToOne: false
+      referencedRelation: "purchase_quotes"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "supplier_hotels_legal_entity_id_hotel_id_fkey"
+      columns: ["legal_entity_id","hotel_id"]
+isOneToOne: false
+      referencedRelation: "hotel_catalogue"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_hotels_legal_entity_id_supplier_id_fkey"
+      columns: ["legal_entity_id","supplier_id"]
+isOneToOne: false
+      referencedRelation: "suppliers"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_hotels_removed_by_fkey"
+      columns: ["removed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"supplier_money_evidence": {
+                  Row: {
+                    "created_at": string,"file_name": string,"id": string,"kind": string,"legal_entity_id": string,"mime": string,"object_path": string,"payment_request_id": string | null,"request_id": string,"sha256": string,"size_bytes": number,"status": string,"stored_at": string | null,"task_id": string,"updated_at": string,"uploaded_by": string
+                  }
+                  Insert: {
+                    "created_at"?: string,"file_name": string,"id"?: string,"kind": string,"legal_entity_id": string,"mime": string,"object_path": string,"payment_request_id"?: string | null,"request_id": string,"sha256": string,"size_bytes": number,"status"?: string,"stored_at"?: string | null,"task_id": string,"updated_at"?: string,"uploaded_by": string
+                  }
+                  Update: {
+                    "created_at"?: string,"file_name"?: string,"id"?: string,"kind"?: string,"legal_entity_id"?: string,"mime"?: string,"object_path"?: string,"payment_request_id"?: string | null,"request_id"?: string,"sha256"?: string,"size_bytes"?: number,"status"?: string,"stored_at"?: string | null,"task_id"?: string,"updated_at"?: string,"uploaded_by"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "supplier_money_evidence_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_money_evidence_payment_fk"
+      columns: ["payment_request_id"]
+isOneToOne: false
+      referencedRelation: "supplier_payment_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "supplier_money_evidence_uploaded_by_fkey"
+      columns: ["uploaded_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"supplier_payment_counters": {
+                  Row: {
+                    "last_no": number,"legal_entity_id": string,"year": number
+                  }
+                  Insert: {
+                    "last_no"?: number,"legal_entity_id": string,"year": number
+                  }
+                  Update: {
+                    "last_no"?: number,"legal_entity_id"?: string,"year"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "supplier_payment_counters_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"supplier_payment_requests": {
+                  Row: {
+                    "amount_paise": number,"approved_at": string | null,"approved_by": string | null,"bank_reference": string | null,"bank_revision_no": number | null,"branch_id": string,"cancelled_at": string | null,"cancelled_by": string | null,"cost_version_no": number | null,"customer_money_paise": number,"deal_id": string,"decided_at": string | null,"decided_by": string | null,"due_date": string | null,"flight_batch_id": string | null,"go_ahead_request_id": string | null,"id": string,"legal_entity_id": string,"note": string | null,"paid_on": string | null,"part": string,"payment_mode": string | null,"payment_proof_evidence_id": string | null,"proforma_evidence_id": string | null,"recorded_at": string | null,"recorded_by": string | null,"ref_no": string,"request_id": string,"requested_at": string,"requested_by": string,"resubmits_id": string | null,"return_reason": string | null,"route": string,"row_version": number,"status": string,"supplier_id": string,"task_id": string,"updated_at": string,"verified_at": string | null,"verified_by": string | null
+                  }
+                  Insert: {
+                    "amount_paise": number,"approved_at"?: string | null,"approved_by"?: string | null,"bank_reference"?: string | null,"bank_revision_no"?: number | null,"branch_id": string,"cancelled_at"?: string | null,"cancelled_by"?: string | null,"cost_version_no"?: number | null,"customer_money_paise": number,"deal_id": string,"decided_at"?: string | null,"decided_by"?: string | null,"due_date"?: string | null,"flight_batch_id"?: string | null,"go_ahead_request_id"?: string | null,"id"?: string,"legal_entity_id": string,"note"?: string | null,"paid_on"?: string | null,"part": string,"payment_mode"?: string | null,"payment_proof_evidence_id"?: string | null,"proforma_evidence_id"?: string | null,"recorded_at"?: string | null,"recorded_by"?: string | null,"ref_no": string,"request_id": string,"requested_at"?: string,"requested_by": string,"resubmits_id"?: string | null,"return_reason"?: string | null,"route": string,"row_version"?: number,"status"?: string,"supplier_id": string,"task_id": string,"updated_at"?: string,"verified_at"?: string | null,"verified_by"?: string | null
+                  }
+                  Update: {
+                    "amount_paise"?: number,"approved_at"?: string | null,"approved_by"?: string | null,"bank_reference"?: string | null,"bank_revision_no"?: number | null,"branch_id"?: string,"cancelled_at"?: string | null,"cancelled_by"?: string | null,"cost_version_no"?: number | null,"customer_money_paise"?: number,"deal_id"?: string,"decided_at"?: string | null,"decided_by"?: string | null,"due_date"?: string | null,"flight_batch_id"?: string | null,"go_ahead_request_id"?: string | null,"id"?: string,"legal_entity_id"?: string,"note"?: string | null,"paid_on"?: string | null,"part"?: string,"payment_mode"?: string | null,"payment_proof_evidence_id"?: string | null,"proforma_evidence_id"?: string | null,"recorded_at"?: string | null,"recorded_by"?: string | null,"ref_no"?: string,"request_id"?: string,"requested_at"?: string,"requested_by"?: string,"resubmits_id"?: string | null,"return_reason"?: string | null,"route"?: string,"row_version"?: number,"status"?: string,"supplier_id"?: string,"task_id"?: string,"updated_at"?: string,"verified_at"?: string | null,"verified_by"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "supplier_payment_requests_approved_by_fkey"
+      columns: ["approved_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "supplier_payment_requests_cancelled_by_fkey"
+      columns: ["cancelled_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "supplier_payment_requests_decided_by_fkey"
+      columns: ["decided_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "supplier_payment_requests_flight_batch_fk"
+      columns: ["legal_entity_id","flight_batch_id"]
+isOneToOne: false
+      referencedRelation: "flight_ticket_batches"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_payment_requests_go_ahead_request_id_fkey"
+      columns: ["go_ahead_request_id"]
+isOneToOne: false
+      referencedRelation: "purchase_go_ahead_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "supplier_payment_requests_legal_entity_id_branch_id_fkey"
+      columns: ["legal_entity_id","branch_id"]
+isOneToOne: false
+      referencedRelation: "branches"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_payment_requests_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_payment_requests_legal_entity_id_supplier_id_fkey"
+      columns: ["legal_entity_id","supplier_id"]
+isOneToOne: false
+      referencedRelation: "suppliers"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_payment_requests_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_payment_requests_payment_proof_evidence_id_fkey"
+      columns: ["payment_proof_evidence_id"]
+isOneToOne: false
+      referencedRelation: "supplier_money_evidence"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "supplier_payment_requests_proforma_evidence_id_fkey"
+      columns: ["proforma_evidence_id"]
+isOneToOne: false
+      referencedRelation: "supplier_money_evidence"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "supplier_payment_requests_recorded_by_fkey"
+      columns: ["recorded_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "supplier_payment_requests_requested_by_fkey"
+      columns: ["requested_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "supplier_payment_requests_resubmits_id_fkey"
+      columns: ["resubmits_id"]
+isOneToOne: true
+      referencedRelation: "supplier_payment_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "supplier_payment_requests_verified_by_fkey"
+      columns: ["verified_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"supplier_refund_receipts": {
+                  Row: {
+                    "amount_paise": number,"branch_id": string,"cancellation_id": string | null,"change_request_id": string | null,"deal_id": string,"evidence_id": string,"id": string,"legal_entity_id": string,"mode": string,"over_expected_reason": string | null,"received_on": string,"recorded_at": string,"recorded_by": string,"reference": string,"reject_reason": string | null,"rejected_at": string | null,"rejected_by": string | null,"request_id": string,"row_version": number,"source_group_id": string,"source_id": string,"source_kind": string,"status": string,"supplier_id": string | null,"task_id": string,"updated_at": string,"verified_at": string,"verified_by": string
+                  }
+                  Insert: {
+                    "amount_paise": number,"branch_id": string,"cancellation_id"?: string | null,"change_request_id"?: string | null,"deal_id": string,"evidence_id": string,"id"?: string,"legal_entity_id": string,"mode": string,"over_expected_reason"?: string | null,"received_on": string,"recorded_at"?: string,"recorded_by": string,"reference": string,"reject_reason"?: string | null,"rejected_at"?: string | null,"rejected_by"?: string | null,"request_id": string,"row_version"?: number,"source_group_id": string,"source_id": string,"source_kind": string,"status"?: string,"supplier_id"?: string | null,"task_id": string,"updated_at"?: string,"verified_at": string,"verified_by": string
+                  }
+                  Update: {
+                    "amount_paise"?: number,"branch_id"?: string,"cancellation_id"?: string | null,"change_request_id"?: string | null,"deal_id"?: string,"evidence_id"?: string,"id"?: string,"legal_entity_id"?: string,"mode"?: string,"over_expected_reason"?: string | null,"received_on"?: string,"recorded_at"?: string,"recorded_by"?: string,"reference"?: string,"reject_reason"?: string | null,"rejected_at"?: string | null,"rejected_by"?: string | null,"request_id"?: string,"row_version"?: number,"source_group_id"?: string,"source_id"?: string,"source_kind"?: string,"status"?: string,"supplier_id"?: string | null,"task_id"?: string,"updated_at"?: string,"verified_at"?: string,"verified_by"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "supplier_refund_receipts_cancellation_id_fkey"
+      columns: ["cancellation_id"]
+isOneToOne: false
+      referencedRelation: "deal_cancellations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "supplier_refund_receipts_change_request_id_fkey"
+      columns: ["change_request_id"]
+isOneToOne: false
+      referencedRelation: "booking_change_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "supplier_refund_receipts_evidence_id_fkey"
+      columns: ["evidence_id"]
+isOneToOne: true
+      referencedRelation: "refund_evidence"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "supplier_refund_receipts_legal_entity_id_branch_id_fkey"
+      columns: ["legal_entity_id","branch_id"]
+isOneToOne: false
+      referencedRelation: "branches"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_refund_receipts_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_refund_receipts_legal_entity_id_supplier_id_fkey"
+      columns: ["legal_entity_id","supplier_id"]
+isOneToOne: false
+      referencedRelation: "suppliers"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_refund_receipts_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "supplier_refund_receipts_recorded_by_fkey"
+      columns: ["recorded_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "supplier_refund_receipts_rejected_by_fkey"
+      columns: ["rejected_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "supplier_refund_receipts_verified_by_fkey"
+      columns: ["verified_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"suppliers": {
+                  Row: {
+                    "address": string | null,"city": string | null,"contact_email": string | null,"contact_name": string | null,"contact_phone": string | null,"created_at": string,"created_by": string,"gstin": string | null,"id": string,"import_batch_id": string | null,"legal_entity_id": string,"name": string,"name_key": string | null,"pan": string | null,"payment_terms": string | null,"row_version": number,"service_types": (string)[],"source_ref": string | null,"state_code": string | null,"status": string,"supplier_kind": string,"tally_ledger_name": string | null,"updated_at": string,"updated_by": string,"verification_status": string,"verified_at": string | null,"verified_by": string | null
+                  }
+                  Insert: {
+                    "address"?: string | null,"city"?: string | null,"contact_email"?: string | null,"contact_name"?: string | null,"contact_phone"?: string | null,"created_at"?: string,"created_by": string,"gstin"?: string | null,"id"?: string,"import_batch_id"?: string | null,"legal_entity_id": string,"name": string,"name_key"?: never,"pan"?: string | null,"payment_terms"?: string | null,"row_version"?: number,"service_types": (string)[],"source_ref"?: string | null,"state_code"?: string | null,"status"?: string,"supplier_kind"?: string,"tally_ledger_name"?: string | null,"updated_at"?: string,"updated_by": string,"verification_status"?: string,"verified_at"?: string | null,"verified_by"?: string | null
+                  }
+                  Update: {
+                    "address"?: string | null,"city"?: string | null,"contact_email"?: string | null,"contact_name"?: string | null,"contact_phone"?: string | null,"created_at"?: string,"created_by"?: string,"gstin"?: string | null,"id"?: string,"import_batch_id"?: string | null,"legal_entity_id"?: string,"name"?: string,"name_key"?: never,"pan"?: string | null,"payment_terms"?: string | null,"row_version"?: number,"service_types"?: (string)[],"source_ref"?: string | null,"state_code"?: string | null,"status"?: string,"supplier_kind"?: string,"tally_ledger_name"?: string | null,"updated_at"?: string,"updated_by"?: string,"verification_status"?: string,"verified_at"?: string | null,"verified_by"?: string | null
                   }
                   Relationships: [
                     {
@@ -3412,6 +5995,12 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "staff_profiles"
       referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "suppliers_import_batch_id_fkey"
+      columns: ["import_batch_id"]
+isOneToOne: false
+      referencedRelation: "import_batches"
+      referencedColumns: ["id"]
     },{
       foreignKeyName: "suppliers_legal_entity_id_fkey"
       columns: ["legal_entity_id"]
@@ -3431,6 +6020,442 @@ isOneToOne: false
       referencedRelation: "staff_profiles"
       referencedColumns: ["user_id"]
     }
+                  ]
+                },"tally_export_counters": {
+                  Row: {
+                    "last_no": number,"legal_entity_id": string,"year": number
+                  }
+                  Insert: {
+                    "last_no"?: number,"legal_entity_id": string,"year": number
+                  }
+                  Update: {
+                    "last_no"?: number,"legal_entity_id"?: string,"year"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "tally_export_counters_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"tally_export_left_out": {
+                  Row: {
+                    "created_at": string,"detail": string | null,"export_id": string,"legal_entity_id": string,"reason": string,"record_id": string,"record_kind": string,"reference": string | null
+                  }
+                  Insert: {
+                    "created_at"?: string,"detail"?: string | null,"export_id": string,"legal_entity_id": string,"reason": string,"record_id": string,"record_kind": string,"reference"?: string | null
+                  }
+                  Update: {
+                    "created_at"?: string,"detail"?: string | null,"export_id"?: string,"legal_entity_id"?: string,"reason"?: string,"record_id"?: string,"record_kind"?: string,"reference"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "tally_export_left_out_legal_entity_id_export_id_fkey"
+      columns: ["legal_entity_id","export_id"]
+isOneToOne: false
+      referencedRelation: "tally_exports"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"tally_export_lines": {
+                  Row: {
+                    "created_at": string,"export_id": string,"legal_entity_id": string,"line_no": number,"previously_exported_at": string | null,"record_id": string,"record_kind": string,"source_hash": string,"tally_record_id": string,"values": NonNullable<Json>
+                  }
+                  Insert: {
+                    "created_at"?: string,"export_id": string,"legal_entity_id": string,"line_no": number,"previously_exported_at"?: string | null,"record_id": string,"record_kind": string,"source_hash": string,"tally_record_id": string,"values": NonNullable<Json>
+                  }
+                  Update: {
+                    "created_at"?: string,"export_id"?: string,"legal_entity_id"?: string,"line_no"?: number,"previously_exported_at"?: string | null,"record_id"?: string,"record_kind"?: string,"source_hash"?: string,"tally_record_id"?: string,"values"?: NonNullable<Json>
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "tally_export_lines_export_id_fkey"
+      columns: ["export_id"]
+isOneToOne: false
+      referencedRelation: "tally_exports"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "tally_export_lines_legal_entity_id_tally_record_id_fkey"
+      columns: ["legal_entity_id","tally_record_id"]
+isOneToOne: false
+      referencedRelation: "tally_records"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"tally_exports": {
+                  Row: {
+                    "branch_ids": (string)[] | null,"company_name": string | null,"created_at": string,"created_by": string,"export_no": string,"format": string,"id": string,"include_exported": boolean,"include_reason": string | null,"kinds": (string)[],"legal_entity_id": string,"period_from": string,"period_to": string,"request_id": string,"row_count": number
+                  }
+                  Insert: {
+                    "branch_ids"?: (string)[] | null,"company_name"?: string | null,"created_at"?: string,"created_by": string,"export_no": string,"format"?: string,"id"?: string,"include_exported": boolean,"include_reason"?: string | null,"kinds": (string)[],"legal_entity_id": string,"period_from": string,"period_to": string,"request_id": string,"row_count": number
+                  }
+                  Update: {
+                    "branch_ids"?: (string)[] | null,"company_name"?: string | null,"created_at"?: string,"created_by"?: string,"export_no"?: string,"format"?: string,"id"?: string,"include_exported"?: boolean,"include_reason"?: string | null,"kinds"?: (string)[],"legal_entity_id"?: string,"period_from"?: string,"period_to"?: string,"request_id"?: string,"row_count"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "tally_exports_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "tally_exports_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"tally_ledger_mapping_changes": {
+                  Row: {
+                    "changed_at": string,"changed_by": string,"field": string,"id": number,"legal_entity_id": string,"mapping_id": string,"new_value": string | null,"old_value": string | null,"reason": string
+                  }
+                  Insert: {
+                    "changed_at"?: string,"changed_by": string,"field": string,"id"?: never,"legal_entity_id": string,"mapping_id": string,"new_value"?: string | null,"old_value"?: string | null,"reason": string
+                  }
+                  Update: {
+                    "changed_at"?: string,"changed_by"?: string,"field"?: string,"id"?: never,"legal_entity_id"?: string,"mapping_id"?: string,"new_value"?: string | null,"old_value"?: string | null,"reason"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "tally_ledger_mapping_changes_changed_by_fkey"
+      columns: ["changed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "tally_ledger_mapping_changes_legal_entity_id_mapping_id_fkey"
+      columns: ["legal_entity_id","mapping_id"]
+isOneToOne: false
+      referencedRelation: "tally_ledger_mappings"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"tally_ledger_mappings": {
+                  Row: {
+                    "created_at": string,"credit_ledger": string | null,"debit_ledger": string | null,"id": string,"legal_entity_id": string,"row_kind": string,"row_version": number,"service_class": string,"updated_at": string,"updated_by": string | null,"voucher_type": string | null
+                  }
+                  Insert: {
+                    "created_at"?: string,"credit_ledger"?: string | null,"debit_ledger"?: string | null,"id"?: string,"legal_entity_id": string,"row_kind": string,"row_version"?: number,"service_class": string,"updated_at"?: string,"updated_by"?: string | null,"voucher_type"?: string | null
+                  }
+                  Update: {
+                    "created_at"?: string,"credit_ledger"?: string | null,"debit_ledger"?: string | null,"id"?: string,"legal_entity_id"?: string,"row_kind"?: string,"row_version"?: number,"service_class"?: string,"updated_at"?: string,"updated_by"?: string | null,"voucher_type"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "tally_ledger_mappings_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "tally_ledger_mappings_updated_by_fkey"
+      columns: ["updated_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"tally_match_batches": {
+                  Row: {
+                    "applied_at": string | null,"applied_by": string | null,"apply_request_id": string | null,"cancel_request_id": string | null,"cancelled_at": string | null,"cancelled_by": string | null,"file_name": string,"file_sha256": string,"id": string,"legal_entity_id": string,"proposal_hash": string,"request_id": string,"row_count": number,"row_version": number,"staged_at": string,"staged_by": string,"status": string,"summary": NonNullable<Json>
+                  }
+                  Insert: {
+                    "applied_at"?: string | null,"applied_by"?: string | null,"apply_request_id"?: string | null,"cancel_request_id"?: string | null,"cancelled_at"?: string | null,"cancelled_by"?: string | null,"file_name": string,"file_sha256": string,"id"?: string,"legal_entity_id": string,"proposal_hash": string,"request_id": string,"row_count": number,"row_version"?: number,"staged_at"?: string,"staged_by": string,"status"?: string,"summary": NonNullable<Json>
+                  }
+                  Update: {
+                    "applied_at"?: string | null,"applied_by"?: string | null,"apply_request_id"?: string | null,"cancel_request_id"?: string | null,"cancelled_at"?: string | null,"cancelled_by"?: string | null,"file_name"?: string,"file_sha256"?: string,"id"?: string,"legal_entity_id"?: string,"proposal_hash"?: string,"request_id"?: string,"row_count"?: number,"row_version"?: number,"staged_at"?: string,"staged_by"?: string,"status"?: string,"summary"?: NonNullable<Json>
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "tally_match_batches_applied_by_fkey"
+      columns: ["applied_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "tally_match_batches_cancelled_by_fkey"
+      columns: ["cancelled_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "tally_match_batches_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "tally_match_batches_staged_by_fkey"
+      columns: ["staged_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"tally_match_rows": {
+                  Row: {
+                    "amount_paise": number,"batch_id": string,"crm_amount_paise": number | null,"legal_entity_id": string,"outcome": string,"row_no": number,"tally_record_id": string | null,"tn_tag": string | null,"voucher_date": string,"voucher_ref": string,"voucher_type": string | null
+                  }
+                  Insert: {
+                    "amount_paise": number,"batch_id": string,"crm_amount_paise"?: number | null,"legal_entity_id": string,"outcome": string,"row_no": number,"tally_record_id"?: string | null,"tn_tag"?: string | null,"voucher_date": string,"voucher_ref": string,"voucher_type"?: string | null
+                  }
+                  Update: {
+                    "amount_paise"?: number,"batch_id"?: string,"crm_amount_paise"?: number | null,"legal_entity_id"?: string,"outcome"?: string,"row_no"?: number,"tally_record_id"?: string | null,"tn_tag"?: string | null,"voucher_date"?: string,"voucher_ref"?: string,"voucher_type"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "tally_match_rows_legal_entity_id_batch_id_fkey"
+      columns: ["legal_entity_id","batch_id"]
+isOneToOne: false
+      referencedRelation: "tally_match_batches"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "tally_match_rows_legal_entity_id_tally_record_id_fkey"
+      columns: ["legal_entity_id","tally_record_id"]
+isOneToOne: false
+      referencedRelation: "tally_records"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"tally_records": {
+                  Row: {
+                    "branch_id": string,"created_at": string,"deal_id": string | null,"exception_at": string | null,"exception_by": string | null,"exception_reason": string | null,"exception_tally_amount_paise": number | null,"export_count": number,"id": string,"last_export_hash": string | null,"last_export_id": string | null,"last_exported_at": string | null,"legal_entity_id": string,"matched_at": string | null,"matched_by": string | null,"record_id": string,"record_kind": string,"row_version": number,"status": string | null,"status_before_exception": string | null,"updated_at": string,"updated_by": string | null,"voucher_date": string | null,"voucher_ref": string | null,"xml_export_id": string | null,"xml_exported_at": string | null,"xml_line_no": number | null
+                  }
+                  Insert: {
+                    "branch_id": string,"created_at"?: string,"deal_id"?: string | null,"exception_at"?: string | null,"exception_by"?: string | null,"exception_reason"?: string | null,"exception_tally_amount_paise"?: number | null,"export_count"?: number,"id"?: string,"last_export_hash"?: string | null,"last_export_id"?: string | null,"last_exported_at"?: string | null,"legal_entity_id": string,"matched_at"?: string | null,"matched_by"?: string | null,"record_id": string,"record_kind": string,"row_version"?: number,"status"?: string | null,"status_before_exception"?: string | null,"updated_at"?: string,"updated_by"?: string | null,"voucher_date"?: string | null,"voucher_ref"?: string | null,"xml_export_id"?: string | null,"xml_exported_at"?: string | null,"xml_line_no"?: number | null
+                  }
+                  Update: {
+                    "branch_id"?: string,"created_at"?: string,"deal_id"?: string | null,"exception_at"?: string | null,"exception_by"?: string | null,"exception_reason"?: string | null,"exception_tally_amount_paise"?: number | null,"export_count"?: number,"id"?: string,"last_export_hash"?: string | null,"last_export_id"?: string | null,"last_exported_at"?: string | null,"legal_entity_id"?: string,"matched_at"?: string | null,"matched_by"?: string | null,"record_id"?: string,"record_kind"?: string,"row_version"?: number,"status"?: string | null,"status_before_exception"?: string | null,"updated_at"?: string,"updated_by"?: string | null,"voucher_date"?: string | null,"voucher_ref"?: string | null,"xml_export_id"?: string | null,"xml_exported_at"?: string | null,"xml_line_no"?: number | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "tally_records_exception_by_fkey"
+      columns: ["exception_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "tally_records_legal_entity_id_branch_id_fkey"
+      columns: ["legal_entity_id","branch_id"]
+isOneToOne: false
+      referencedRelation: "branches"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "tally_records_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "tally_records_legal_entity_id_last_export_id_fkey"
+      columns: ["legal_entity_id","last_export_id"]
+isOneToOne: false
+      referencedRelation: "tally_exports"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "tally_records_matched_by_fkey"
+      columns: ["matched_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "tally_records_updated_by_fkey"
+      columns: ["updated_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "tally_records_xml_export_fk"
+      columns: ["legal_entity_id","xml_export_id"]
+isOneToOne: false
+      referencedRelation: "tally_exports"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"tally_source_touches": {
+                  Row: {
+                    "legal_entity_id": string,"tally_record_id": string,"touched_at": string
+                  }
+                  Insert: {
+                    "legal_entity_id": string,"tally_record_id": string,"touched_at"?: string
+                  }
+                  Update: {
+                    "legal_entity_id"?: string,"tally_record_id"?: string,"touched_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "tally_source_touches_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "tally_source_touches_tally_record_id_fkey"
+      columns: ["tally_record_id"]
+isOneToOne: true
+      referencedRelation: "tally_records"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"task_confirmations": {
+                  Row: {
+                    "amount_paise": number,"booking_version_id": string,"change_fee_paise": number | null,"change_request_id": string | null,"committed_version_no": number,"confirmation_no": number,"confirmed_at": string,"confirmed_by": string,"created_at": string,"evidence_ids": (string)[],"id": string,"legal_entity_id": string,"quote_id": string,"supplier_reference": string,"task_id": string
+                  }
+                  Insert: {
+                    "amount_paise": number,"booking_version_id": string,"change_fee_paise"?: number | null,"change_request_id"?: string | null,"committed_version_no": number,"confirmation_no": number,"confirmed_at": string,"confirmed_by": string,"created_at"?: string,"evidence_ids"?: (string)[],"id"?: string,"legal_entity_id": string,"quote_id": string,"supplier_reference": string,"task_id": string
+                  }
+                  Update: {
+                    "amount_paise"?: number,"booking_version_id"?: string,"change_fee_paise"?: number | null,"change_request_id"?: string | null,"committed_version_no"?: number,"confirmation_no"?: number,"confirmed_at"?: string,"confirmed_by"?: string,"created_at"?: string,"evidence_ids"?: (string)[],"id"?: string,"legal_entity_id"?: string,"quote_id"?: string,"supplier_reference"?: string,"task_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "task_confirmations_booking_version_id_fkey"
+      columns: ["booking_version_id"]
+isOneToOne: false
+      referencedRelation: "booking_versions"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "task_confirmations_change_request_id_fkey"
+      columns: ["change_request_id"]
+isOneToOne: false
+      referencedRelation: "booking_change_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "task_confirmations_confirmed_by_fkey"
+      columns: ["confirmed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "task_confirmations_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "task_confirmations_task_id_committed_version_no_fkey"
+      columns: ["task_id","committed_version_no"]
+isOneToOne: false
+      referencedRelation: "purchase_cost_versions"
+      referencedColumns: ["task_id","version_no"]
+    },{
+      foreignKeyName: "task_confirmations_task_id_quote_id_fkey"
+      columns: ["task_id","quote_id"]
+isOneToOne: false
+      referencedRelation: "purchase_quotes"
+      referencedColumns: ["task_id","id"]
+    }
+                  ]
+                },"task_reconfirmations": {
+                  Row: {
+                    "booking_version_id": string,"budget_paise": number | null,"change_request_id": string,"created_at": string,"evidence_id": string | null,"id": string,"legal_entity_id": string,"new_rate_paise": number | null,"new_reference": string | null,"note": string | null,"over_budget": boolean,"over_budget_approved_at": string | null,"over_budget_approved_by": string | null,"recorded_at": string | null,"recorded_by": string | null,"refused_reason": string | null,"request_id": string | null,"row_version": number,"status": string,"supplier_fee_paise": number | null,"task_id": string,"updated_at": string
+                  }
+                  Insert: {
+                    "booking_version_id": string,"budget_paise"?: number | null,"change_request_id": string,"created_at"?: string,"evidence_id"?: string | null,"id"?: string,"legal_entity_id": string,"new_rate_paise"?: number | null,"new_reference"?: string | null,"note"?: string | null,"over_budget"?: boolean,"over_budget_approved_at"?: string | null,"over_budget_approved_by"?: string | null,"recorded_at"?: string | null,"recorded_by"?: string | null,"refused_reason"?: string | null,"request_id"?: string | null,"row_version"?: number,"status"?: string,"supplier_fee_paise"?: number | null,"task_id": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "booking_version_id"?: string,"budget_paise"?: number | null,"change_request_id"?: string,"created_at"?: string,"evidence_id"?: string | null,"id"?: string,"legal_entity_id"?: string,"new_rate_paise"?: number | null,"new_reference"?: string | null,"note"?: string | null,"over_budget"?: boolean,"over_budget_approved_at"?: string | null,"over_budget_approved_by"?: string | null,"recorded_at"?: string | null,"recorded_by"?: string | null,"refused_reason"?: string | null,"request_id"?: string | null,"row_version"?: number,"status"?: string,"supplier_fee_paise"?: number | null,"task_id"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "task_reconfirmations_booking_version_id_fkey"
+      columns: ["booking_version_id"]
+isOneToOne: false
+      referencedRelation: "booking_versions"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "task_reconfirmations_evidence_id_fkey"
+      columns: ["evidence_id"]
+isOneToOne: false
+      referencedRelation: "purchase_evidence"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "task_reconfirmations_legal_entity_id_change_request_id_fkey"
+      columns: ["legal_entity_id","change_request_id"]
+isOneToOne: false
+      referencedRelation: "booking_change_requests"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "task_reconfirmations_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "task_reconfirmations_over_budget_approved_by_fkey"
+      columns: ["over_budget_approved_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "task_reconfirmations_recorded_by_fkey"
+      columns: ["recorded_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"timer_alerts": {
+                  Row: {
+                    "created_at": string,"hour_key": string,"id": string,"kind": string,"oldest_minutes": number
+                  }
+                  Insert: {
+                    "created_at"?: string,"hour_key": string,"id"?: string,"kind": string,"oldest_minutes": number
+                  }
+                  Update: {
+                    "created_at"?: string,"hour_key"?: string,"id"?: string,"kind"?: string,"oldest_minutes"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"timer_runs": {
+                  Row: {
+                    "error_code": string | null,"finished_at": string | null,"id": number,"results": NonNullable<Json>,"started_at": string
+                  }
+                  Insert: {
+                    "error_code"?: string | null,"finished_at"?: string | null,"id"?: never,"results"?: NonNullable<Json>,"started_at": string
+                  }
+                  Update: {
+                    "error_code"?: string | null,"finished_at"?: string | null,"id"?: never,"results"?: NonNullable<Json>,"started_at"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"timer_settings": {
+                  Row: {
+                    "enabled": boolean,"id": boolean,"last_dispatched_at": string | null,"last_ok_at": string | null,"last_request_id": number | null,"updated_at": string,"updated_by": string | null
+                  }
+                  Insert: {
+                    "enabled"?: boolean,"id"?: boolean,"last_dispatched_at"?: string | null,"last_ok_at"?: string | null,"last_request_id"?: number | null,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Update: {
+                    "enabled"?: boolean,"id"?: boolean,"last_dispatched_at"?: string | null,"last_ok_at"?: string | null,"last_request_id"?: number | null,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "timer_settings_updated_by_fkey"
+      columns: ["updated_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"timer_tasks": {
+                  Row: {
+                    "created_at": string,"enabled": boolean,"every_minutes": number,"function_name": string,"last_error_code": string | null,"last_result": Json | null,"last_run_at": string | null,"name": string
+                  }
+                  Insert: {
+                    "created_at"?: string,"enabled"?: boolean,"every_minutes": number,"function_name": string,"last_error_code"?: string | null,"last_result"?: Json | null,"last_run_at"?: string | null,"name": string
+                  }
+                  Update: {
+                    "created_at"?: string,"enabled"?: boolean,"every_minutes"?: number,"function_name"?: string,"last_error_code"?: string | null,"last_result"?: Json | null,"last_run_at"?: string | null,"name"?: string
+                  }
+                  Relationships: [
+                    
                   ]
                 },"traveller_id_proofs": {
                   Row: {
@@ -3506,20 +6531,99 @@ isOneToOne: false
       referencedColumns: ["user_id"]
     }
                   ]
-                },"visa_applications": {
+                },"visa_application_documents": {
                   Row: {
-                    "appointment_at": string | null,"appointment_place": string | null,"created_at": string,"customer_informed_at": string | null,"deal_id": string,"documents": NonNullable<Json>,"documents_returned_at": string | null,"documents_returned_by": string | null,"id": string,"legal_entity_id": string,"outcome_at": string | null,"outcome_evidence_id": string | null,"reference": string | null,"row_version": number,"service_item_id": string,"state": string,"submitted_at": string | null,"task_id": string,"traveller_seq": number,"updated_at": string,"updated_by": string | null
+                    "added_by": string | null,"application_id": string,"catalogue_code": string | null,"created_at": string,"id": string,"label": string,"label_key": string | null,"legal_entity_id": string,"received_at": string | null,"received_by": string | null,"remark": string | null,"removed_at": string | null,"removed_by": string | null,"source": string,"status": string,"task_id": string,"updated_at": string
                   }
                   Insert: {
-                    "appointment_at"?: string | null,"appointment_place"?: string | null,"created_at"?: string,"customer_informed_at"?: string | null,"deal_id": string,"documents"?: NonNullable<Json>,"documents_returned_at"?: string | null,"documents_returned_by"?: string | null,"id"?: string,"legal_entity_id": string,"outcome_at"?: string | null,"outcome_evidence_id"?: string | null,"reference"?: string | null,"row_version"?: number,"service_item_id": string,"state"?: string,"submitted_at"?: string | null,"task_id": string,"traveller_seq": number,"updated_at"?: string,"updated_by"?: string | null
+                    "added_by"?: string | null,"application_id": string,"catalogue_code"?: string | null,"created_at"?: string,"id"?: string,"label": string,"label_key"?: never,"legal_entity_id": string,"received_at"?: string | null,"received_by"?: string | null,"remark"?: string | null,"removed_at"?: string | null,"removed_by"?: string | null,"source": string,"status"?: string,"task_id": string,"updated_at"?: string
                   }
                   Update: {
-                    "appointment_at"?: string | null,"appointment_place"?: string | null,"created_at"?: string,"customer_informed_at"?: string | null,"deal_id"?: string,"documents"?: NonNullable<Json>,"documents_returned_at"?: string | null,"documents_returned_by"?: string | null,"id"?: string,"legal_entity_id"?: string,"outcome_at"?: string | null,"outcome_evidence_id"?: string | null,"reference"?: string | null,"row_version"?: number,"service_item_id"?: string,"state"?: string,"submitted_at"?: string | null,"task_id"?: string,"traveller_seq"?: number,"updated_at"?: string,"updated_by"?: string | null
+                    "added_by"?: string | null,"application_id"?: string,"catalogue_code"?: string | null,"created_at"?: string,"id"?: string,"label"?: string,"label_key"?: never,"legal_entity_id"?: string,"received_at"?: string | null,"received_by"?: string | null,"remark"?: string | null,"removed_at"?: string | null,"removed_by"?: string | null,"source"?: string,"status"?: string,"task_id"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     {
+      foreignKeyName: "visa_application_documents_added_by_fkey"
+      columns: ["added_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "visa_application_documents_legal_entity_id_application_id_fkey"
+      columns: ["legal_entity_id","application_id"]
+isOneToOne: false
+      referencedRelation: "visa_applications"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "visa_application_documents_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "visa_application_documents_received_by_fkey"
+      columns: ["received_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "visa_application_documents_removed_by_fkey"
+      columns: ["removed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"visa_applications": {
+                  Row: {
+                    "applied_on": string | null,"applied_remark": string | null,"appointment_at": string | null,"appointment_date": string | null,"appointment_place": string | null,"appointment_time": string | null,"cancellation_choice": string | null,"cancellation_choice_at": string | null,"cancellation_choice_by": string | null,"cancellation_choice_reason": string | null,"closed_at": string | null,"closed_by": string | null,"closed_reason": string | null,"club_id": string | null,"club_size": number | null,"courier_number": string | null,"created_at": string,"customer_informed_at": string | null,"deal_id": string,"decided_by": string | null,"decision_remark": string | null,"delivered_at": string | null,"delivered_by": string | null,"delivered_on": string | null,"delivery_remark": string | null,"documents": NonNullable<Json>,"documents_returned_at": string | null,"documents_returned_by": string | null,"evisa_recipient_email": string | null,"evisa_sent_at": string | null,"evisa_sent_by": string | null,"handover_method": string | null,"handover_remark": string | null,"handover_set_at": string | null,"handover_set_by": string | null,"id": string,"jurisdiction_place": string | null,"jurisdiction_required": boolean | null,"legal_entity_id": string,"outcome_at": string | null,"outcome_evidence_id": string | null,"passport_taken_at": string | null,"passport_taken_by": string | null,"reapplication_of_id": string | null,"reference": string | null,"refusal_reason": string | null,"remark": string | null,"removed_at": string | null,"removed_version_id": string | null,"row_version": number,"service_item_id": string,"state": string,"submitted_at": string | null,"superseded_at": string | null,"superseded_by_id": string | null,"task_id": string,"traveller_name_snapshot": string | null,"traveller_seq": number,"traveller_type_snapshot": string | null,"updated_at": string,"updated_by": string | null,"visa_kind": string | null,"withdraw_reason": string | null
+                  }
+                  Insert: {
+                    "applied_on"?: string | null,"applied_remark"?: string | null,"appointment_at"?: string | null,"appointment_date"?: string | null,"appointment_place"?: string | null,"appointment_time"?: string | null,"cancellation_choice"?: string | null,"cancellation_choice_at"?: string | null,"cancellation_choice_by"?: string | null,"cancellation_choice_reason"?: string | null,"closed_at"?: string | null,"closed_by"?: string | null,"closed_reason"?: string | null,"club_id"?: string | null,"club_size"?: number | null,"courier_number"?: string | null,"created_at"?: string,"customer_informed_at"?: string | null,"deal_id": string,"decided_by"?: string | null,"decision_remark"?: string | null,"delivered_at"?: string | null,"delivered_by"?: string | null,"delivered_on"?: string | null,"delivery_remark"?: string | null,"documents"?: NonNullable<Json>,"documents_returned_at"?: string | null,"documents_returned_by"?: string | null,"evisa_recipient_email"?: string | null,"evisa_sent_at"?: string | null,"evisa_sent_by"?: string | null,"handover_method"?: string | null,"handover_remark"?: string | null,"handover_set_at"?: string | null,"handover_set_by"?: string | null,"id"?: string,"jurisdiction_place"?: string | null,"jurisdiction_required"?: boolean | null,"legal_entity_id": string,"outcome_at"?: string | null,"outcome_evidence_id"?: string | null,"passport_taken_at"?: string | null,"passport_taken_by"?: string | null,"reapplication_of_id"?: string | null,"reference"?: string | null,"refusal_reason"?: string | null,"remark"?: string | null,"removed_at"?: string | null,"removed_version_id"?: string | null,"row_version"?: number,"service_item_id": string,"state"?: string,"submitted_at"?: string | null,"superseded_at"?: string | null,"superseded_by_id"?: string | null,"task_id": string,"traveller_name_snapshot"?: string | null,"traveller_seq": number,"traveller_type_snapshot"?: string | null,"updated_at"?: string,"updated_by"?: string | null,"visa_kind"?: string | null,"withdraw_reason"?: string | null
+                  }
+                  Update: {
+                    "applied_on"?: string | null,"applied_remark"?: string | null,"appointment_at"?: string | null,"appointment_date"?: string | null,"appointment_place"?: string | null,"appointment_time"?: string | null,"cancellation_choice"?: string | null,"cancellation_choice_at"?: string | null,"cancellation_choice_by"?: string | null,"cancellation_choice_reason"?: string | null,"closed_at"?: string | null,"closed_by"?: string | null,"closed_reason"?: string | null,"club_id"?: string | null,"club_size"?: number | null,"courier_number"?: string | null,"created_at"?: string,"customer_informed_at"?: string | null,"deal_id"?: string,"decided_by"?: string | null,"decision_remark"?: string | null,"delivered_at"?: string | null,"delivered_by"?: string | null,"delivered_on"?: string | null,"delivery_remark"?: string | null,"documents"?: NonNullable<Json>,"documents_returned_at"?: string | null,"documents_returned_by"?: string | null,"evisa_recipient_email"?: string | null,"evisa_sent_at"?: string | null,"evisa_sent_by"?: string | null,"handover_method"?: string | null,"handover_remark"?: string | null,"handover_set_at"?: string | null,"handover_set_by"?: string | null,"id"?: string,"jurisdiction_place"?: string | null,"jurisdiction_required"?: boolean | null,"legal_entity_id"?: string,"outcome_at"?: string | null,"outcome_evidence_id"?: string | null,"passport_taken_at"?: string | null,"passport_taken_by"?: string | null,"reapplication_of_id"?: string | null,"reference"?: string | null,"refusal_reason"?: string | null,"remark"?: string | null,"removed_at"?: string | null,"removed_version_id"?: string | null,"row_version"?: number,"service_item_id"?: string,"state"?: string,"submitted_at"?: string | null,"superseded_at"?: string | null,"superseded_by_id"?: string | null,"task_id"?: string,"traveller_name_snapshot"?: string | null,"traveller_seq"?: number,"traveller_type_snapshot"?: string | null,"updated_at"?: string,"updated_by"?: string | null,"visa_kind"?: string | null,"withdraw_reason"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "visa_applications_cancellation_choice_by_fkey"
+      columns: ["cancellation_choice_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "visa_applications_closed_by_fkey"
+      columns: ["closed_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "visa_applications_decided_by_fkey"
+      columns: ["decided_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "visa_applications_delivered_by_fkey"
+      columns: ["delivered_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
       foreignKeyName: "visa_applications_documents_returned_by_fkey"
       columns: ["documents_returned_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "visa_applications_evisa_sent_by_fkey"
+      columns: ["evisa_sent_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "visa_applications_handover_set_by_fkey"
+      columns: ["handover_set_by"]
 isOneToOne: false
       referencedRelation: "staff_profiles"
       referencedColumns: ["user_id"]
@@ -3548,7 +6652,154 @@ isOneToOne: false
       referencedRelation: "department_evidence"
       referencedColumns: ["id"]
     },{
+      foreignKeyName: "visa_applications_passport_taken_by_fkey"
+      columns: ["passport_taken_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "visa_applications_reapplication_of_id_fkey"
+      columns: ["reapplication_of_id"]
+isOneToOne: false
+      referencedRelation: "visa_applications"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "visa_applications_removed_version_id_fkey"
+      columns: ["removed_version_id"]
+isOneToOne: false
+      referencedRelation: "booking_versions"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "visa_applications_superseded_by_id_fkey"
+      columns: ["superseded_by_id"]
+isOneToOne: false
+      referencedRelation: "visa_applications"
+      referencedColumns: ["id"]
+    },{
       foreignKeyName: "visa_applications_updated_by_fkey"
+      columns: ["updated_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"visa_cancellation_fees": {
+                  Row: {
+                    "cancellation_id": string | null,"change_request_id": string | null,"deal_id": string,"entered_at": string,"entered_by": string,"entry_id": string,"id": string,"legal_entity_id": string,"note": string | null,"refund_expected_paise": number,"request_id": string,"revision_no": number,"task_id": string
+                  }
+                  Insert: {
+                    "cancellation_id"?: string | null,"change_request_id"?: string | null,"deal_id": string,"entered_at"?: string,"entered_by": string,"entry_id": string,"id"?: string,"legal_entity_id": string,"note"?: string | null,"refund_expected_paise": number,"request_id": string,"revision_no": number,"task_id": string
+                  }
+                  Update: {
+                    "cancellation_id"?: string | null,"change_request_id"?: string | null,"deal_id"?: string,"entered_at"?: string,"entered_by"?: string,"entry_id"?: string,"id"?: string,"legal_entity_id"?: string,"note"?: string | null,"refund_expected_paise"?: number,"request_id"?: string,"revision_no"?: number,"task_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "visa_cancellation_fees_cancellation_id_fkey"
+      columns: ["cancellation_id"]
+isOneToOne: false
+      referencedRelation: "deal_cancellations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "visa_cancellation_fees_change_request_fk"
+      columns: ["legal_entity_id","change_request_id"]
+isOneToOne: false
+      referencedRelation: "booking_change_requests"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "visa_cancellation_fees_entered_by_fkey"
+      columns: ["entered_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "visa_cancellation_fees_entry_id_fkey"
+      columns: ["entry_id"]
+isOneToOne: false
+      referencedRelation: "department_cost_entries"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "visa_cancellation_fees_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "visa_cancellation_fees_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    }
+                  ]
+                },"visa_result_notices": {
+                  Row: {
+                    "application_id": string,"branch_id": string,"created_at": string,"created_by": string | null,"deal_id": string,"id": string,"legal_entity_id": string,"outcome": string,"seen_at": string | null,"seen_by": string | null,"task_id": string,"traveller_seq": number
+                  }
+                  Insert: {
+                    "application_id": string,"branch_id": string,"created_at"?: string,"created_by"?: string | null,"deal_id": string,"id"?: string,"legal_entity_id": string,"outcome": string,"seen_at"?: string | null,"seen_by"?: string | null,"task_id": string,"traveller_seq": number
+                  }
+                  Update: {
+                    "application_id"?: string,"branch_id"?: string,"created_at"?: string,"created_by"?: string | null,"deal_id"?: string,"id"?: string,"legal_entity_id"?: string,"outcome"?: string,"seen_at"?: string | null,"seen_by"?: string | null,"task_id"?: string,"traveller_seq"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "visa_result_notices_branch_id_fkey"
+      columns: ["branch_id"]
+isOneToOne: false
+      referencedRelation: "branches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "visa_result_notices_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "visa_result_notices_legal_entity_id_application_id_fkey"
+      columns: ["legal_entity_id","application_id"]
+isOneToOne: false
+      referencedRelation: "visa_applications"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "visa_result_notices_legal_entity_id_deal_id_fkey"
+      columns: ["legal_entity_id","deal_id"]
+isOneToOne: false
+      referencedRelation: "deals"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "visa_result_notices_legal_entity_id_task_id_fkey"
+      columns: ["legal_entity_id","task_id"]
+isOneToOne: false
+      referencedRelation: "fulfilment_tasks"
+      referencedColumns: ["legal_entity_id","id"]
+    },{
+      foreignKeyName: "visa_result_notices_seen_by_fkey"
+      columns: ["seen_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"whatsapp_templates": {
+                  Row: {
+                    "legal_entity_id": string,"row_version": number,"status": string,"template_code": string,"updated_at": string,"updated_by": string | null
+                  }
+                  Insert: {
+                    "legal_entity_id": string,"row_version"?: number,"status"?: string,"template_code": string,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Update: {
+                    "legal_entity_id"?: string,"row_version"?: number,"status"?: string,"template_code"?: string,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "whatsapp_templates_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "whatsapp_templates_updated_by_fkey"
       columns: ["updated_by"]
 isOneToOne: false
       referencedRelation: "staff_profiles"
@@ -3566,7 +6817,26 @@ isOneToOne: false
                     "id"?: boolean,"intake_prompt_enabled"?: boolean,"prefill_auto_fill"?: boolean,"referral_auto_close_resumed_at"?: string | null,"referral_drafts"?: boolean,"service_items_enabled"?: boolean,"updated_at"?: string,"visa_passport_tasks_enabled"?: boolean
                   }
                   Relationships: [
-
+                    
+                  ]
+                },"write_off_counters": {
+                  Row: {
+                    "last_no": number,"legal_entity_id": string,"year": number
+                  }
+                  Insert: {
+                    "last_no"?: number,"legal_entity_id": string,"year": number
+                  }
+                  Update: {
+                    "last_no"?: number,"legal_entity_id"?: string,"year"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "write_off_counters_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    }
                   ]
                 }
           }
@@ -3586,14 +6856,29 @@ isOneToOne: false
 "accounts_cash_overview":
 { Args: { "p_entity_id": string }; Returns: Json
                            },
+"accounts_company_funding":
+{ Args: { "p_tab": string }; Returns: Json
+                           },
+"accounts_daily_check":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
 "accounts_deal_detail":
 { Args: { "p_deal_id": string }; Returns: Json
                            },
 "accounts_deal_lookup":
 { Args: { "p_reference": string }; Returns: Json
                            },
+"accounts_dues":
+{ Args: { "p_after"?: string,"p_filter": Json,"p_limit"?: number }; Returns: Json
+                           },
 "accounts_expense_records":
 { Args: { "p_after"?: string,"p_filter": string,"p_limit"?: number }; Returns: Json
+                           },
+"accounts_filter_options":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"accounts_go_ahead_list":
+{ Args: Record<PropertyKey, never>; Returns: Json
                            },
 "accounts_payment_claims":
 { Args: { "p_after"?: string,"p_filter": string,"p_limit"?: number }; Returns: Json
@@ -3601,23 +6886,149 @@ isOneToOne: false
 "accounts_queue":
 { Args: { "p_after"?: string,"p_filter": string,"p_limit"?: number }; Returns: Json
                            },
+"accounts_records":
+{ Args: { "p_after"?: string,"p_filter": Json,"p_limit"?: number }; Returns: Json
+                           },
+"accounts_records_totals":
+{ Args: { "p_filter": Json }; Returns: Json
+                           },
 "accounts_review_approve":
 { Args: { "p_booking_version_id": string,"p_expected_row_version": number,"p_request_id": string }; Returns: Json
                            },
 "accounts_review_return":
 { Args: { "p_booking_version_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
                            },
+"accounts_supplier_documents":
+{ Args: { "p_tab": string }; Returns: Json
+                           },
+"accounts_supplier_payables":
+{ Args: { "p_deal_id": string }; Returns: Json
+                           },
+"accounts_supplier_payments":
+{ Args: { "p_tab": string }; Returns: Json
+                           },
+"accounts_tally_exception":
+{ Args: { "p_expected_row_version": number,"p_fields": Json,"p_kind": string,"p_record_id": string,"p_request_id": string }; Returns: Json
+                           },
+"accounts_tally_export_create":
+{ Args: { "p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"accounts_tally_export_download_log":
+{ Args: { "p_export_id": string }; Returns: Json
+                           },
+"accounts_tally_export_left_out":
+{ Args: { "p_after"?: string,"p_export_id": string,"p_limit"?: number }; Returns: Json
+                           },
+"accounts_tally_export_lines":
+{ Args: { "p_after_line"?: number,"p_export_id": string,"p_limit"?: number }; Returns: Json
+                           },
+"accounts_tally_exports":
+{ Args: { "p_limit"?: number }; Returns: Json
+                           },
+"accounts_tally_file_create":
+{ Args: { "p_branch_ids": (string)[],"p_entity": string,"p_from": string,"p_include_again": boolean,"p_include_reason": string,"p_kinds": (string)[],"p_request_id": string,"p_to": string }; Returns: Json
+                           },
+"accounts_tally_file_download_log":
+{ Args: { "p_export_id": string }; Returns: Json
+                           },
+"accounts_tally_file_preview":
+{ Args: { "p_branch_ids": (string)[],"p_entity": string,"p_from": string,"p_kinds": (string)[],"p_to": string }; Returns: Json
+                           },
+"accounts_tally_invoice_add":
+{ Args: { "p_deal_id": string,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"accounts_tally_invoice_withdraw":
+{ Args: { "p_expected_row_version": number,"p_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"accounts_tally_match":
+{ Args: { "p_expected_row_version": number,"p_fields": Json,"p_kind": string,"p_record_id": string,"p_request_id": string }; Returns: Json
+                           },
+"accounts_tally_match_apply":
+{ Args: { "p_batch_id": string,"p_expected_proposal_hash": string,"p_request_id": string }; Returns: Json
+                           },
+"accounts_tally_match_cancel":
+{ Args: { "p_batch_id": string,"p_request_id": string }; Returns: Json
+                           },
+"accounts_tally_match_get":
+{ Args: { "p_after"?: string,"p_batch_id": string,"p_limit"?: number,"p_outcome"?: string }; Returns: Json
+                           },
+"accounts_tally_match_stage":
+{ Args: { "p_entity": string,"p_file_name": string,"p_file_sha256": string,"p_request_id": string,"p_rows": Json }; Returns: Json
+                           },
+"accounts_tally_reopen":
+{ Args: { "p_expected_row_version": number,"p_kind": string,"p_reason": string,"p_record_id": string,"p_request_id": string }; Returns: Json
+                           },
+"admin_accounts_settings":
+{ Args: { "p_entity": string }; Returns: Json
+                           },
+"admin_customer_documents_settings":
+{ Args: { "p_entity": string }; Returns: Json
+                           },
+"admin_customer_messages":
+{ Args: { "p_entity": string }; Returns: Json
+                           },
+"admin_set_accounts_exception_owner":
+{ Args: { "p_entity": string,"p_reason": string,"p_user_id": string }; Returns: Json
+                           },
+"admin_set_auto_bills":
+{ Args: { "p_drafts": boolean,"p_entity": string,"p_reason": string,"p_release": boolean }; Returns: Json
+                           },
+"admin_set_booking_changes_enabled":
+{ Args: { "p_enabled": boolean,"p_reason": string }; Returns: Json
+                           },
 "admin_set_booking_live":
 { Args: { "p_enabled": boolean,"p_reason": string }; Returns: Json
+                           },
+"admin_set_customer_documents_enabled":
+{ Args: { "p_enabled": boolean,"p_entity": string,"p_reason": string }; Returns: Json
+                           },
+"admin_set_customer_message_pilot":
+{ Args: { "p_entity": string,"p_pilot_only": boolean,"p_reason": string }; Returns: Json
+                           },
+"admin_set_customer_message_switch":
+{ Args: { "p_channel": string,"p_enabled": boolean,"p_entity": string,"p_expected_row_version": number,"p_reason": string,"p_type": string }; Returns: Json
                            },
 "admin_set_finance_live_modes":
 { Args: { "p_entity": string,"p_modes": Json,"p_reason": string }; Returns: Json
                            },
+"admin_set_notices_enabled":
+{ Args: { "p_enabled": boolean,"p_reason": string }; Returns: Json
+                           },
+"admin_set_push_enabled":
+{ Args: { "p_enabled": boolean,"p_reason": string }; Returns: Json
+                           },
+"admin_set_rate_contracts_enabled":
+{ Args: { "p_enabled": boolean,"p_reason": string }; Returns: Json
+                           },
+"admin_set_refunds_enabled":
+{ Args: { "p_enabled": boolean,"p_entity": string,"p_reason": string }; Returns: Json
+                           },
+"admin_set_service_changes_enabled":
+{ Args: { "p_enabled": boolean,"p_reason": string }; Returns: Json
+                           },
 "admin_set_supplier_confirmation_live":
 { Args: { "p_enabled": boolean,"p_reason": string }; Returns: Json
                            },
+"admin_set_supplier_email_sending":
+{ Args: { "p_enabled": boolean,"p_reason": string }; Returns: Json
+                           },
+"admin_set_tally_export_enabled":
+{ Args: { "p_enabled": boolean,"p_entity": string,"p_reason": string }; Returns: Json
+                           },
+"admin_set_tally_xml":
+{ Args: { "p_company_name": string,"p_enabled": boolean,"p_entity": string,"p_reason": string }; Returns: Json
+                           },
+"admin_set_timer_enabled":
+{ Args: { "p_enabled": boolean,"p_reason": string }; Returns: Json
+                           },
+"admin_set_whatsapp_template_status":
+{ Args: { "p_entity": string,"p_reason": string,"p_status": string,"p_template_code": string }; Returns: Json
+                           },
 "admin_set_workflow_setting":
 { Args: { "p_key": string,"p_reason": string,"p_value": boolean }; Returns: Json
+                           },
+"admin_set_write_off":
+{ Args: { "p_enabled": boolean,"p_entity": string,"p_limit_paise": number,"p_reason": string }; Returns: Json
                            },
 "begin_mfa_recovery":
 { Args: { "p_reason": string,"p_user_id": string }; Returns: Json
@@ -3658,6 +7069,9 @@ isOneToOne: false
 "bitrix_trip_details_read_state":
 { Args: Record<PropertyKey, never>; Returns: Json
                            },
+"boarding_pass_slot_link":
+{ Args: { "p_evidence_id": string,"p_sector_id": string,"p_traveller_seq": number }; Returns: Json
+                           },
 "booking_authorize_evidence_download":
 { Args: { "p_evidence_id": string }; Returns: Json
                            },
@@ -3669,6 +7083,30 @@ isOneToOne: false
                            },
 "booking_billing_propose":
 { Args: { "p_deal_id": string,"p_expected_row_version": number,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"booking_bitrix_refresh_begin":
+{ Args: { "p_deal_id": string,"p_request_id": string }; Returns: Json
+                           },
+"booking_change_open_version":
+{ Args: { "p_change_request_id": string,"p_request_id": string }; Returns: Json
+                           },
+"booking_change_preview":
+{ Args: { "p_change_request_id": string }; Returns: Json
+                           },
+"booking_change_request_create":
+{ Args: { "p_deal_id": string,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"booking_change_request_decide":
+{ Args: { "p_decision": string,"p_expected_row_version": number,"p_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"booking_change_request_resubmit":
+{ Args: { "p_expected_row_version": number,"p_fields": Json,"p_id": string,"p_request_id": string }; Returns: Json
+                           },
+"booking_change_request_withdraw":
+{ Args: { "p_expected_row_version": number,"p_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"booking_change_submit":
+{ Args: { "p_change_request_id": string,"p_expected_changed_item_ids": (string)[],"p_expected_content_hash": string,"p_request_id": string }; Returns: Json
                            },
 "booking_classify_revision":
 { Args: { "p_change_class": string,"p_expected_row_version": number,"p_version_id": string }; Returns: Json
@@ -3690,6 +7128,12 @@ isOneToOne: false
                            },
 "booking_finish_evidence":
 { Args: { "p_evidence_id": string,"p_ok": boolean }; Returns: Json
+                           },
+"booking_flight_fares_save":
+{ Args: { "p_expected_row_version": number,"p_fares": Json,"p_request_id": string,"p_version_id": string }; Returns: Json
+                           },
+"booking_flight_returns_add":
+{ Args: { "p_expected_row_version": number,"p_request_id": string,"p_version_id": string }; Returns: Json
                            },
 "booking_form_get":
 { Args: { "p_deal_id": string }; Returns: Json
@@ -3760,6 +7204,12 @@ isOneToOne: false
 "cash_reconciliation_verify":
 { Args: { "p_reconciliation_id": string,"p_request_id": string }; Returns: Json
                            },
+"change_request_review":
+{ Args: { "p_change_request_id": string }; Returns: Json
+                           },
+"change_requests_list":
+{ Args: { "p_after"?: string,"p_filter": Json,"p_limit"?: number }; Returns: Json
+                           },
 "cheque_clear":
 { Args: { "p_outcome_date": string,"p_receipt_id": string,"p_request_id": string }; Returns: Json
                            },
@@ -3790,6 +7240,12 @@ isOneToOne: false
 "company_destinations_list":
 { Args: { "p_entity_id": string }; Returns: Json
                            },
+"company_funding_decide":
+{ Args: { "p_decision": string,"p_expected_row_version": number,"p_funding_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"company_funding_mark_recovered":
+{ Args: { "p_expected_row_version": number,"p_funding_id": string,"p_note": string,"p_request_id": string }; Returns: Json
+                           },
 "confirm_mfa_recovery":
 { Args: { "p_case_id": string,"p_confirmation_code": string,"p_method": string,"p_note": string }; Returns: Json
                            },
@@ -3798,6 +7254,69 @@ isOneToOne: false
                            },
 "crm_search":
 { Args: { "p_after"?: Json,"p_kind": string,"p_limit"?: number,"p_query": string }; Returns: Json
+                           },
+"customer_document_authorize_download":
+{ Args: { "p_document_id": string }; Returns: Json
+                           },
+"customer_document_cancel":
+{ Args: { "p_document_id": string,"p_expected_row_version": number,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"customer_document_discard":
+{ Args: { "p_document_id": string,"p_expected_row_version": number,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"customer_document_draft_create":
+{ Args: { "p_deal_id": string,"p_kind": string,"p_request_id": string,"p_source": Json }; Returns: Json
+                           },
+"customer_document_get":
+{ Args: { "p_document_id": string }; Returns: Json
+                           },
+"customer_document_link_tally":
+{ Args: { "p_document_id": string,"p_expected_row_version": number,"p_request_id": string,"p_tally_invoice_id": string }; Returns: Json
+                           },
+"customer_document_refresh":
+{ Args: { "p_document_id": string,"p_expected_row_version": number,"p_request_id": string }; Returns: Json
+                           },
+"customer_document_release":
+{ Args: { "p_document_id": string,"p_expected_content_sha256": string,"p_expected_row_version": number,"p_request_id": string }; Returns: Json
+                           },
+"customer_document_render_claim":
+{ Args: { "p_lease_seconds": number,"p_worker": string }; Returns: Json
+                           },
+"customer_document_render_complete":
+{ Args: { "p_error_code": string,"p_file": Json,"p_job_id": string,"p_ok": boolean,"p_worker": string }; Returns: Json
+                           },
+"customer_document_render_input":
+{ Args: { "p_job_id": string,"p_worker": string }; Returns: Json
+                           },
+"customer_document_render_retry":
+{ Args: { "p_document_id": string,"p_request_id": string }; Returns: Json
+                           },
+"customer_document_replace":
+{ Args: { "p_document_id": string,"p_expected_row_version": number,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"customer_documents_list":
+{ Args: { "p_after"?: string,"p_filter": Json,"p_limit"?: number }; Returns: Json
+                           },
+"customer_message_claim":
+{ Args: { "p_lease_seconds": number,"p_limit": number,"p_worker": string }; Returns: Json
+                           },
+"customer_message_complete":
+{ Args: { "p_error_code": string,"p_id": string,"p_ok": boolean,"p_provider_message_id": string,"p_worker": string }; Returns: Json
+                           },
+"customer_message_deal_lookup":
+{ Args: { "p_entity": string,"p_reference": string }; Returns: Json
+                           },
+"customer_message_event_record":
+{ Args: { "p_error_code": string,"p_kind": string,"p_message_ref": string,"p_mobile": string,"p_provider": string,"p_provider_event_id": string }; Returns: Json
+                           },
+"customer_message_pilot_set":
+{ Args: { "p_deal_id": string,"p_entity": string,"p_in": boolean,"p_reason": string }; Returns: Json
+                           },
+"customer_message_release":
+{ Args: { "p_ids": (string)[],"p_worker": string }; Returns: Json
+                           },
+"customer_message_resend":
+{ Args: { "p_message_id": string,"p_request_id": string }; Returns: Json
                            },
 "customer_party_accounts_list":
 { Args: { "p_limit"?: number,"p_offset"?: number,"p_status"?: string }; Returns: Json
@@ -3832,13 +7351,79 @@ isOneToOne: false
 "customer_party_search":
 { Args: { "p_deal_id"?: string,"p_limit"?: number,"p_offset"?: number,"p_query": string }; Returns: Json
                            },
+"customer_party_tally_name":
+{ Args: { "p_party_id": string }; Returns: Json
+                           },
+"customer_party_tally_name_set":
+{ Args: { "p_expected_row_version": number,"p_name": string,"p_party_id": string,"p_request_id": string }; Returns: Json
+                           },
+"customer_refund_decide":
+{ Args: { "p_decision": string,"p_expected_amount_paise": number,"p_expected_charge_paise": number,"p_expected_row_version": number,"p_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"customer_refund_payout_record":
+{ Args: { "p_expected_row_version": number,"p_fields": Json,"p_id": string,"p_request_id": string }; Returns: Json
+                           },
+"customer_refund_request_create":
+{ Args: { "p_deal_id": string,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"customer_refund_request_resubmit":
+{ Args: { "p_expected_row_version": number,"p_fields": Json,"p_id": string,"p_request_id": string }; Returns: Json
+                           },
+"customer_refund_request_withdraw":
+{ Args: { "p_expected_row_version": number,"p_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"customer_whatsapp_restart":
+{ Args: { "p_deal_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
 "deactivate_staff_member":
 { Args: { "p_reason": string,"p_user_id": string }; Returns: undefined
+                           },
+"deal_cancellation_decide":
+{ Args: { "p_cancellation_id": string,"p_decision": string,"p_expected_row_version": number,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"deal_cancellation_open":
+{ Args: { "p_deal_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"deal_cancellation_send":
+{ Args: { "p_cancellation_id": string,"p_expected_row_version": number,"p_request_id": string }; Returns: Json
+                           },
+"deal_cancellation_summary":
+{ Args: { "p_deal_id": string }; Returns: Json
+                           },
+"deal_change_history":
+{ Args: { "p_deal_id": string }; Returns: Json
+                           },
+"deal_change_requests":
+{ Args: { "p_deal_id": string }; Returns: Json
+                           },
+"deal_customer_documents":
+{ Args: { "p_deal_id": string }; Returns: Json
+                           },
+"deal_customer_messages":
+{ Args: { "p_deal_id": string }; Returns: Json
                            },
 "deal_documents_list":
 { Args: { "p_deal_id": string }; Returns: Json
                            },
+"deal_dues":
+{ Args: { "p_deal_id": string }; Returns: Json
+                           },
+"deal_flight_history":
+{ Args: { "p_deal_id": string }; Returns: Json
+                           },
+"deal_flight_summary":
+{ Args: { "p_deal_id": string }; Returns: Json
+                           },
+"deal_message_prefs_get":
+{ Args: { "p_deal_id": string }; Returns: Json
+                           },
+"deal_message_prefs_set":
+{ Args: { "p_deal_id": string,"p_expected_row_version": number,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
 "deal_payment_claims":
+{ Args: { "p_deal_id": string }; Returns: Json
+                           },
+"deal_refunds":
 { Args: { "p_deal_id": string }; Returns: Json
                            },
 "deal_service_summary":
@@ -3847,8 +7432,17 @@ isOneToOne: false
 "deal_services":
 { Args: { "p_deal_id": string }; Returns: Json
                            },
+"deal_traveller_name_fill":
+{ Args: { "p_deal_id": string,"p_full_name": string,"p_request_id": string,"p_seq": number,"p_traveller_type": string,"p_version_id": string }; Returns: Json
+                           },
 "deal_travellers_save":
 { Args: { "p_deal_id": string,"p_expected_row_version": number,"p_travellers": Json }; Returns: Json
+                           },
+"deal_visa_history":
+{ Args: { "p_deal_id": string }; Returns: Json
+                           },
+"deal_visa_summary":
+{ Args: { "p_deal_id": string }; Returns: Json
                            },
 "department_cost_save":
 { Args: { "p_entry_id": string,"p_expected_row_version": number,"p_fields": Json,"p_request_id": string,"p_task_id": string }; Returns: Json
@@ -3901,6 +7495,84 @@ isOneToOne: false
 "finance_policy_update":
 { Args: { "p_effective_at": string,"p_entity_id": string,"p_fields": Json,"p_reason": string,"p_request_id": string }; Returns: Json
                            },
+"flight_booking_change_apply":
+{ Args: { "p_expected_basis_version_id": string,"p_request_id": string,"p_target_version_id": string,"p_task_id": string }; Returns: Json
+                           },
+"flight_cancellation_charge_set":
+{ Args: { "p_batch_id": string,"p_expected_revision": number,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"flight_change_acknowledge":
+{ Args: { "p_change_id": string }; Returns: Json
+                           },
+"flight_change_decide":
+{ Args: { "p_change_id": string,"p_decision": string,"p_expected_row_version": number,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"flight_change_submit":
+{ Args: { "p_fields": Json,"p_request_id": string,"p_task_id": string }; Returns: Json
+                           },
+"flight_change_withdraw":
+{ Args: { "p_change_id": string,"p_expected_row_version": number,"p_request_id": string }; Returns: Json
+                           },
+"flight_direct_payment_save":
+{ Args: { "p_batch_id": string,"p_expected_row_version": number,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"flight_fare_approval_decide":
+{ Args: { "p_approval_id": string,"p_decision": string,"p_expected_row_version": number,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"flight_fare_approval_request":
+{ Args: { "p_deal_id": string,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"flight_fare_approval_sets":
+{ Args: { "p_deal_id": string }; Returns: Json
+                           },
+"flight_fare_approval_withdraw":
+{ Args: { "p_approval_id": string,"p_expected_row_version": number,"p_request_id": string }; Returns: Json
+                           },
+"flight_fare_preview":
+{ Args: { "p_deal_id": string,"p_fields": Json }; Returns: Json
+                           },
+"flight_group_claim":
+{ Args: { "p_deal_id": string,"p_request_id": string }; Returns: Json
+                           },
+"flight_group_complete":
+{ Args: { "p_deal_id": string,"p_expected_task_ids": (string)[],"p_request_id": string }; Returns: Json
+                           },
+"flight_group_reassign":
+{ Args: { "p_deal_id": string,"p_expected_assignee": string,"p_reason": string,"p_request_id": string,"p_to_user_id": string }; Returns: Json
+                           },
+"flight_home_counts":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"flight_money":
+{ Args: { "p_deal_id": string }; Returns: Json
+                           },
+"flight_payment_context":
+{ Args: { "p_batch_id": string }; Returns: Json
+                           },
+"flight_payment_request_create":
+{ Args: { "p_batch_id": string,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"flight_queue":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"flight_screenshot_sectors_save":
+{ Args: { "p_expected_state_row_version": number,"p_request_id": string,"p_sectors": Json,"p_task_id": string }; Returns: Json
+                           },
+"flight_sector_fill_blanks":
+{ Args: { "p_expected_row_version": number,"p_fields": Json,"p_request_id": string,"p_sector_id": string }; Returns: Json
+                           },
+"flight_supplier_add_beneficiary":
+{ Args: { "p_fields": Json,"p_request_id": string,"p_supplier_id": string }; Returns: Json
+                           },
+"flight_supplier_create":
+{ Args: { "p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"flight_supplier_list":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"flight_supplier_update":
+{ Args: { "p_expected_row_version": number,"p_fields": Json,"p_supplier_id": string }; Returns: Json
+                           },
 "flight_task_claim":
 { Args: { "p_task_id": string }; Returns: Json
                            },
@@ -3909,6 +7581,15 @@ isOneToOne: false
                            },
 "flight_task_list":
 { Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"flight_ticket_correct":
+{ Args: { "p_expected_revision_no": number,"p_fields": Json,"p_reason": string,"p_request_id": string,"p_sector_id": string,"p_traveller_seq": number }; Returns: Json
+                           },
+"flight_tickets_confirm":
+{ Args: { "p_deal_id": string,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"flight_workspace":
+{ Args: { "p_deal_id": string }; Returns: Json
                            },
 "get_mfa_recovery_cleanup":
 { Args: { "p_case_id": string }; Returns: Json
@@ -3925,8 +7606,17 @@ isOneToOne: false
 "hotel_catalogue_search":
 { Args: { "p_city"?: string,"p_limit"?: number,"p_offset"?: number,"p_query": string }; Returns: Json
                            },
+"hotel_room_type_remove":
+{ Args: { "p_reason": string,"p_request_id": string,"p_room_type_id": string }; Returns: Json
+                           },
+"hotel_room_type_save":
+{ Args: { "p_expected_row_version": number,"p_hotel_id": string,"p_name": string,"p_request_id": string,"p_room_type_id": string }; Returns: Json
+                           },
+"hotel_suppliers":
+{ Args: { "p_hotel_id": string }; Returns: Json
+                           },
 "import_batch_apply":
-{ Args: { "p_batch_id": string,"p_expected_row_version": number,"p_proposal_hash"?: string,"p_reason": string }; Returns: Json
+{ Args: { "p_bank"?: Json,"p_batch_id": string,"p_expected_row_version": number,"p_proposal_hash"?: string,"p_reason": string }; Returns: Json
                            },
 "import_batch_cancel":
 { Args: { "p_batch_id": string,"p_expected_row_version": number }; Returns: Json
@@ -4129,6 +7819,15 @@ isOneToOne: false
 "link_invitation_user":
 { Args: { "p_invitation_id": string,"p_user_id": string }; Returns: undefined
                            },
+"manager_approvals":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"manager_cancellation_list":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"manager_cancellations_to_decide":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
 "my_session_status":
 { Args: Record<PropertyKey, never>; Returns: Json
                            },
@@ -4137,6 +7836,27 @@ isOneToOne: false
                            },
 "my_work_list":
 { Args: { "p_after": Json,"p_kind": string,"p_limit": number }; Returns: Json
+                           },
+"notice_history":
+{ Args: { "p_before_seq"?: number,"p_limit"?: number }; Returns: Json
+                           },
+"notice_inbox":
+{ Args: { "p_after_seq"?: number,"p_limit"?: number }; Returns: Json
+                           },
+"notice_mark":
+{ Args: { "p_action": string,"p_notice_id": string }; Returns: Json
+                           },
+"notice_mark_all_read":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"notice_preferences_get":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"notice_preferences_set":
+{ Args: { "p_fields": Json }; Returns: Json
+                           },
+"notice_unread_count":
+{ Args: Record<PropertyKey, never>; Returns: Json
                            },
 "payment_claim_link_receipt":
 { Args: { "p_claim_id": string,"p_reason": string,"p_receipt_id": string,"p_request_id": string }; Returns: Json
@@ -4159,11 +7879,29 @@ isOneToOne: false
 "prefill_notice_dismiss":
 { Args: { "p_expected_row_version": number,"p_field": string,"p_source_modified_at": string,"p_target_id": string,"p_target_kind": string }; Returns: Json
                            },
+"purchase_booking_change":
+{ Args: { "p_task_id": string }; Returns: Json
+                           },
+"purchase_booking_change_ack":
+{ Args: { "p_expected_basis_version_id": string,"p_request_id": string,"p_task_id": string }; Returns: Json
+                           },
+"purchase_booking_request_send":
+{ Args: { "p_body": string,"p_cc": (string)[],"p_expected_cost_version_no": number,"p_request_id": string,"p_subject": string,"p_task_id": string,"p_to": string }; Returns: Json
+                           },
+"purchase_cancellation_charge_set":
+{ Args: { "p_credit_note_evidence_id": string,"p_expected_revision": number,"p_keeps_paise": number,"p_note": string,"p_refund_paise": number,"p_request_id": string,"p_task_id": string }; Returns: Json
+                           },
 "purchase_cost_approve_over_budget":
 { Args: { "p_task_id": string,"p_version_no": number }; Returns: Json
                            },
 "purchase_cost_propose":
 { Args: { "p_amount_paise": number,"p_due_date": string,"p_expected_version_no": number,"p_note": string,"p_quote_id": string,"p_request_id": string,"p_task_id": string }; Returns: Json
+                           },
+"purchase_email_mark_result":
+{ Args: { "p_email_id": string,"p_failure": string,"p_provider_id": string,"p_status": string }; Returns: Json
+                           },
+"purchase_email_record":
+{ Args: { "p_body": string,"p_cc": (string)[],"p_kind": string,"p_request_id": string,"p_subject": string,"p_supplier_id": string,"p_task_id": string,"p_to": string }; Returns: Json
                            },
 "purchase_evidence_authorize_download":
 { Args: { "p_evidence_id": string }; Returns: Json
@@ -4176,6 +7914,18 @@ isOneToOne: false
                            },
 "purchase_evidence_remove":
 { Args: { "p_evidence_id": string }; Returns: Json
+                           },
+"purchase_go_ahead_decide":
+{ Args: { "p_decision": string,"p_expected_row_version": number,"p_reason": string,"p_request": string,"p_request_id": string }; Returns: Json
+                           },
+"purchase_home_counts":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"purchase_payment_context":
+{ Args: { "p_task_id": string }; Returns: Json
+                           },
+"purchase_payment_requests":
+{ Args: { "p_scope": string }; Returns: Json
                            },
 "purchase_quote_add":
 { Args: { "p_fields": Json,"p_request_id": string,"p_task_id": string }; Returns: Json
@@ -4201,8 +7951,35 @@ isOneToOne: false
 "purchase_task_release":
 { Args: { "p_task_id": string }; Returns: Json
                            },
+"purchase_voucher_mark_ready":
+{ Args: { "p_evidence_id": string,"p_request_id": string }; Returns: Json
+                           },
 "purchase_workspace":
 { Args: { "p_task_id": string }; Returns: Json
+                           },
+"push_claim":
+{ Args: { "p_lease_seconds": number,"p_limit": number,"p_worker": string }; Returns: Json
+                           },
+"push_complete":
+{ Args: { "p_error_code"?: string,"p_job_id": string,"p_ok": boolean,"p_status_code": number,"p_worker": string }; Returns: Json
+                           },
+"push_device_register":
+{ Args: { "p_auth_key": string,"p_endpoint": string,"p_label": string,"p_p256dh": string,"p_request_id": string }; Returns: Json
+                           },
+"push_device_remove":
+{ Args: { "p_device_id": string,"p_request_id": string }; Returns: Json
+                           },
+"push_device_remove_current":
+{ Args: { "p_endpoint": string }; Returns: Json
+                           },
+"push_devices_list":
+{ Args: { "p_endpoint_hash"?: string }; Returns: Json
+                           },
+"push_devices_remove_all":
+{ Args: { "p_request_id": string }; Returns: Json
+                           },
+"push_test_send":
+{ Args: { "p_device_id": string,"p_request_id": string }; Returns: Json
                            },
 "quotation_accept":
 { Args: { "p_evidence_id": string,"p_expected_content_hash": string,"p_request_id": string,"p_tier_key": string,"p_version_id": string }; Returns: Json
@@ -4291,6 +8068,45 @@ isOneToOne: false
 "quotation_version_save":
 { Args: { "p_expected_row_version": number,"p_fields": Json,"p_version_id": string }; Returns: Json
                            },
+"rate_contract_choices":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"rate_contract_decide":
+{ Args: { "p_contract_id": string,"p_decision": string,"p_expected_row_version": number,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"rate_contract_end":
+{ Args: { "p_contract_id": string,"p_expected_row_version": number,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"rate_contract_file_authorize_download":
+{ Args: { "p_file_id": string }; Returns: Json
+                           },
+"rate_contract_file_begin":
+{ Args: { "p_contract_id": string,"p_file_name": string,"p_mime": string,"p_sha256": string,"p_size_bytes": number }; Returns: Json
+                           },
+"rate_contract_file_finish":
+{ Args: { "p_file_id": string,"p_ok": boolean }; Returns: Json
+                           },
+"rate_contract_get":
+{ Args: { "p_contract_id": string }; Returns: Json
+                           },
+"rate_contract_lines_set":
+{ Args: { "p_blackouts": Json,"p_contract_id": string,"p_expected_row_version": number,"p_lines": Json,"p_request_id": string }; Returns: Json
+                           },
+"rate_contract_lookup":
+{ Args: { "p_hotel_id": string,"p_meal_plan_code": string,"p_room_type_id": string,"p_supplier_id": string,"p_task_id": string }; Returns: Json
+                           },
+"rate_contract_save":
+{ Args: { "p_contract_id": string,"p_expected_row_version": number,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"rate_contract_submit":
+{ Args: { "p_contract_id": string,"p_expected_row_version": number,"p_request_id": string }; Returns: Json
+                           },
+"rate_contracts_list":
+{ Args: { "p_after": string,"p_filter": Json,"p_limit": number }; Returns: Json
+                           },
+"rate_contracts_state":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
 "receipt_record":
 { Args: { "p_deal_id": string,"p_fields": Json,"p_request_id": string }; Returns: Json
                            },
@@ -4354,6 +8170,18 @@ isOneToOne: false
 "referral_owner_candidates":
 { Args: { "p_draft_id": string }; Returns: Json
                            },
+"refund_evidence_authorize_download":
+{ Args: { "p_evidence_id": string }; Returns: Json
+                           },
+"refund_evidence_begin":
+{ Args: { "p_file_name": string,"p_mime": string,"p_request_id": string,"p_sha256": string,"p_size_bytes": number,"p_subject_id": string,"p_subject_kind": string }; Returns: Json
+                           },
+"refund_evidence_finish":
+{ Args: { "p_evidence_id": string,"p_ok": boolean }; Returns: Json
+                           },
+"refund_requests_list":
+{ Args: { "p_after"?: string,"p_filter": Json,"p_limit"?: number }; Returns: Json
+                           },
 "register_my_recovery_factor":
 { Args: Record<PropertyKey, never>; Returns: Json
                            },
@@ -4399,8 +8227,14 @@ isOneToOne: false
 "service_item_travellers_save":
 { Args: { "p_expected_row_version": number,"p_item_id": string,"p_seqs": (number)[],"p_version_id": string }; Returns: Json
                            },
+"service_removal_charges":
+{ Args: { "p_change_request_id": string }; Returns: Json
+                           },
 "settings_switch_states":
 { Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"small_balances_list":
+{ Args: { "p_after"?: string,"p_filter": Json,"p_limit"?: number }; Returns: Json
                            },
 "supplier_add_beneficiary":
 { Args: { "p_fields": Json,"p_request_id": string,"p_supplier_id": string }; Returns: Json
@@ -4408,20 +8242,125 @@ isOneToOne: false
 "supplier_approve_beneficiary":
 { Args: { "p_revision_no": number,"p_supplier_id": string }; Returns: Json
                            },
+"supplier_contact_remove":
+{ Args: { "p_contact_id": string,"p_expected_row_version": number,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"supplier_contact_save":
+{ Args: { "p_contact_id": string,"p_expected_row_version": number,"p_fields": Json,"p_request_id": string,"p_supplier_id": string }; Returns: Json
+                           },
 "supplier_create":
 { Args: { "p_entity_id": string,"p_fields": Json }; Returns: Json
+                           },
+"supplier_document_link_targets":
+{ Args: { "p_document_id": string }; Returns: Json
+                           },
+"supplier_document_link_task":
+{ Args: { "p_document_id": string,"p_request_id": string,"p_task_id": string }; Returns: Json
+                           },
+"supplier_document_review":
+{ Args: { "p_decision": string,"p_document_id": string,"p_expected_row_version": number,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"supplier_document_set_credit_link":
+{ Args: { "p_document_id": string,"p_invoice_id": string,"p_request_id": string }; Returns: Json
+                           },
+"supplier_document_unlink_task":
+{ Args: { "p_link_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"supplier_document_upload":
+{ Args: { "p_fields": Json,"p_request_id": string,"p_task_id": string }; Returns: Json
                            },
 "supplier_get":
 { Args: { "p_supplier_id": string }; Returns: Json
                            },
+"supplier_hotel_link":
+{ Args: { "p_hotel_id": string,"p_request_id": string,"p_supplier_id": string }; Returns: Json
+                           },
+"supplier_hotel_unlink":
+{ Args: { "p_link_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
 "supplier_list":
 { Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"supplier_master_get":
+{ Args: { "p_supplier_id": string }; Returns: Json
+                           },
+"supplier_money_evidence_authorize_download":
+{ Args: { "p_evidence_id": string }; Returns: Json
+                           },
+"supplier_money_evidence_begin":
+{ Args: { "p_file_name": string,"p_kind": string,"p_mime": string,"p_request_id": string,"p_sha256": string,"p_size_bytes": number,"p_target_id": string }; Returns: Json
+                           },
+"supplier_money_evidence_finish":
+{ Args: { "p_evidence_id": string,"p_ok": boolean }; Returns: Json
+                           },
+"supplier_money_home_counts":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"supplier_payment_decide":
+{ Args: { "p_decision": string,"p_expected_row_version": number,"p_payment_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"supplier_payment_record":
+{ Args: { "p_bank_reference": string,"p_expected_row_version": number,"p_mode": string,"p_paid_on": string,"p_payment_id": string,"p_proof_evidence_id": string,"p_request_id": string }; Returns: Json
+                           },
+"supplier_payment_request_cancel":
+{ Args: { "p_expected_row_version": number,"p_payment_id": string,"p_request_id": string }; Returns: Json
+                           },
+"supplier_payment_request_create":
+{ Args: { "p_fields": Json,"p_request_id": string,"p_task_id": string }; Returns: Json
+                           },
+"supplier_payment_request_resubmit":
+{ Args: { "p_fields": Json,"p_payment_id": string,"p_request_id": string }; Returns: Json
+                           },
+"supplier_payment_verify":
+{ Args: { "p_expected_row_version": number,"p_payment_id": string,"p_request_id": string }; Returns: Json
+                           },
+"supplier_refund_cancel":
+{ Args: { "p_expected_row_version": number,"p_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"supplier_refund_record":
+{ Args: { "p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"supplier_refunds_due":
+{ Args: { "p_after"?: string,"p_filter": Json,"p_limit"?: number }; Returns: Json
+                           },
+"supplier_register":
+{ Args: { "p_after": string,"p_filter": Json,"p_limit": number }; Returns: Json
                            },
 "supplier_update":
 { Args: { "p_expected_row_version": number,"p_fields": Json,"p_supplier_id": string }; Returns: Json
                            },
 "supplier_verify":
 { Args: { "p_expected_row_version": number,"p_supplier_id": string }; Returns: Json
+                           },
+"tally_mapping_history":
+{ Args: { "p_mapping_id": string }; Returns: Json
+                           },
+"tally_mapping_list":
+{ Args: { "p_entity": string }; Returns: Json
+                           },
+"tally_mapping_set":
+{ Args: { "p_expected_row_version": number,"p_fields": Json,"p_mapping_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"task_customer_files":
+{ Args: { "p_task_id": string }; Returns: Json
+                           },
+"task_customer_message_status":
+{ Args: { "p_task_id": string }; Returns: Json
+                           },
+"task_reconfirm_approve_over_budget":
+{ Args: { "p_expected_row_version": number,"p_reconfirmation_id": string,"p_request_id": string }; Returns: Json
+                           },
+"task_reconfirm_record":
+{ Args: { "p_expected_row_version": number,"p_fields": Json,"p_reconfirmation_id": string,"p_request_id": string }; Returns: Json
+                           },
+"task_reconfirm_refuse":
+{ Args: { "p_expected_row_version": number,"p_reason": string,"p_reconfirmation_id": string,"p_request_id": string }; Returns: Json
+                           },
+"task_reconfirmation_get":
+{ Args: { "p_task_id": string }; Returns: Json
+                           },
+"timer_tick":
+{ Args: Record<PropertyKey, never>; Returns: Json
                            },
 "traveller_id_proof_authorize_download":
 { Args: { "p_file_id": string }; Returns: Json
@@ -4444,11 +8383,62 @@ isOneToOne: false
 "traveller_identity_save":
 { Args: { "p_deal_id": string,"p_expected_row_version": number,"p_fields": Json,"p_seq": number }; Returns: Json
                            },
+"visa_application_cancellation_choice":
+{ Args: { "p_application_id": string,"p_choice": string,"p_expected_row_version": number,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"visa_application_confirm_traveller":
+{ Args: { "p_application_id": string,"p_expected_row_version": number,"p_request_id": string }; Returns: Json
+                           },
+"visa_application_decide":
+{ Args: { "p_application_id": string,"p_expected_row_version": number,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"visa_application_document_add":
+{ Args: { "p_application_id": string,"p_expected_row_version": number,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"visa_application_document_remove":
+{ Args: { "p_document_id": string,"p_expected_row_version": number,"p_request_id": string }; Returns: Json
+                           },
+"visa_application_mark_delivered":
+{ Args: { "p_application_id": string,"p_expected_row_version": number,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"visa_application_reapply":
+{ Args: { "p_application_id": string,"p_expected_row_version": number,"p_request_id": string }; Returns: Json
+                           },
+"visa_application_set_handover":
+{ Args: { "p_application_id": string,"p_expected_row_version": number,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"visa_application_set_row":
+{ Args: { "p_application_id": string,"p_expected_row_version": number,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
 "visa_application_set_state":
 { Args: { "p_application_id": string,"p_evidence_id": string,"p_expected_row_version": number,"p_state": string }; Returns: Json
                            },
 "visa_application_update":
 { Args: { "p_application_id": string,"p_expected_row_version": number,"p_fields": Json }; Returns: Json
+                           },
+"visa_application_withdraw":
+{ Args: { "p_application_id": string,"p_expected_row_version": number,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"visa_applications_apply":
+{ Args: { "p_fields": Json,"p_request_id": string,"p_task_id": string }; Returns: Json
+                           },
+"visa_cancellation_fee_set":
+{ Args: { "p_entry_id": string,"p_expected_revision": number,"p_note": string,"p_refund_expected_paise": number,"p_request_id": string }; Returns: Json
+                           },
+"visa_document_file_begin":
+{ Args: { "p_document_id": string,"p_file_name": string,"p_mime": string,"p_sha256": string,"p_size_bytes": number }; Returns: Json
+                           },
+"visa_fee_send":
+{ Args: { "p_entry_id": string,"p_expected_row_version": number,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"visa_home_counts":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"visa_queue":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"visa_result_notice_ack":
+{ Args: { "p_notice_id": string }; Returns: Json
                            },
 "visa_task_claim":
 { Args: { "p_task_id": string }; Returns: Json
@@ -4459,6 +8449,9 @@ isOneToOne: false
 "visa_task_list":
 { Args: Record<PropertyKey, never>; Returns: Json
                            },
+"visa_workspace":
+{ Args: { "p_task_id": string }; Returns: Json
+                           },
 "work_drafts_list":
 { Args: { "p_after": Json,"p_filter": Json,"p_kind": string,"p_limit": number }; Returns: Json
                            },
@@ -4467,6 +8460,21 @@ isOneToOne: false
                            },
 "workflow_visa_task_preview":
 { Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"write_off_decide":
+{ Args: { "p_decision": string,"p_expected_amount_paise": number,"p_expected_row_version": number,"p_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"write_off_monthly":
+{ Args: { "p_month": string }; Returns: Json
+                           },
+"write_off_propose":
+{ Args: { "p_deal_id": string,"p_fields": Json,"p_request_id": string }; Returns: Json
+                           },
+"write_off_undo":
+{ Args: { "p_expected_row_version": number,"p_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"write_off_withdraw":
+{ Args: { "p_expected_row_version": number,"p_id": string,"p_reason": string,"p_request_id": string }; Returns: Json
                            }
           }
           Enums: {
@@ -4586,7 +8594,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-
+            
           }
         }
 } as const

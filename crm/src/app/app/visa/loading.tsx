@@ -1,4 +1,4 @@
-import { VisaQueueLoading } from '@/views/b11/visa-desk';
+import { VisaQueueLoading } from '@/views/visa/queue';
 
 export default function Loading() {
   return <VisaQueueLoading />;

@@ -1,4 +1,4 @@
-import type { ApplyResult, IntakeErrorCode, WorkerRunSummary } from '../contracts';
+import type { ApplyResult, IntakeErrorCode, IntakeReasonCode, WorkerRunSummary } from '../contracts';
 import {
   applyBitrixDeal,
   applyBitrixLead,
@@ -127,7 +127,13 @@ export async function runInboxBatch(deps: WorkerDeps): Promise<WorkerRunStats> {
   const now = deps.now ?? Date.now;
   const deadline = now() + (deps.deadlineMs ?? WORKER_DEADLINE_MS);
   const summary = emptySummary();
-  const stats = { summary, released: 0, providerErrors: 0, internalErrors: 0, deadlineReached: false };
+  const stats: ItemCounters & { deadlineReached: boolean } = {
+    summary,
+    released: 0,
+    providerErrors: 0,
+    internalErrors: 0,
+    deadlineReached: false,
+  };
   const items = await claimInbox(deps.rpc, clampLimit(deps.limit), deps.leaseSeconds ?? WORKER_LEASE_SECONDS);
   summary.claimed = items.length;
   let rateLimited = false;
@@ -146,146 +152,223 @@ export async function runInboxBatch(deps: WorkerDeps): Promise<WorkerRunStats> {
         )
       : new Map();
 
-  /**
-   * 'recorded' = the row is now failed / dead-lettered; 'settled' = the fail was
-   * refused because the row was already finished (for example the apply had
-   * committed but its answer could not be read), counted by its real status;
-   * 'unconfirmed' = neither could be confirmed (lease lost, database unavailable):
-   * counted as failed, and the lease expiry retries the row.
-   */
-  const recordFailure = async (
-    item: ClaimedSourceItem,
-    code: IntakeErrorCode,
-    retryable: boolean,
-  ): Promise<'recorded' | 'settled' | 'unconfirmed'> => {
-    try {
-      const result = await failInbox(deps.rpc, item, code, retryable);
-      if (result.status === 'dead_letter') summary.deadLettered += 1;
-      else summary.failed += 1;
-      return 'recorded';
-    } catch {
-      switch (await inboxRowStatus(deps.rpc, item.inboxId)) {
-        case 'processed':
-          // Saved (created or updated; the answer that said which was lost).
-          summary.updated += 1;
-          return 'settled';
-        case 'ignored':
-          summary.ignored += 1;
-          return 'settled';
-        case 'needs_review':
-          summary.needsReview += 1;
-          return 'settled';
-        case 'dead_letter':
-          summary.deadLettered += 1;
-          return 'settled';
-        default:
-          summary.failed += 1;
-          stats.internalErrors += 1;
-          return 'unconfirmed';
-      }
-    }
-  };
-
-  const release = async (item: ClaimedSourceItem) => {
-    try {
-      await releaseInbox(deps.rpc, item);
-      stats.released += 1;
-    } catch {
-      // Lease expires instead; nothing else to do.
-      stats.internalErrors += 1;
-    }
-  };
-
   for (const item of items) {
     if (stats.deadlineReached || now() >= deadline) {
       stats.deadlineReached = true;
-      await release(item);
+      await releaseItem(deps, item, stats);
       continue;
     }
     // After a rate limit, do not hammer the provider: hand the rest back untouched.
     if (rateLimited) {
-      await release(item);
+      await releaseItem(deps, item, stats);
       continue;
     }
-    // A row from another portal cannot be read with this portal's credential.
-    if (item.portalMemberId !== deps.config.portalMemberId) {
-      stats.internalErrors += 1;
-      await recordFailure(item, 'internal_error', false);
-      continue;
-    }
-
-    // Source object must be known and consistent before any provider call.
-    if (item.sourceObject === null) {
-      stats.internalErrors += 1;
-      await recordFailure(item, 'internal_error', false);
-      continue;
-    }
-
-    let apply: () => Promise<Pick<ApplyResult, 'outcome'>>;
-    let facts: DealFactsPayload | LeadSourceFacts | null = null;
-    try {
-      if (item.sourceObject === 'lead') {
-        const read = tripFactsOn
-          ? await deps.bitrix.getLead(item.sourceDealId, { facts: true })
-          : await deps.bitrix.getLead(item.sourceDealId);
-        // Not found (deleted / no access): apply with null -> needs_review.
-        const lead = read.kind === 'not_found' ? null : toLeadSnapshot(read.lead);
-        if (lead && lead.id !== item.sourceDealId) throw new BitrixClientError('provider_bad_response', 200);
-        if (tripFactsOn && read.kind === 'ok' && read.facts) facts = toLeadSourceFacts(read.facts);
-        apply = () => applyBitrixLead(deps.rpc, item, lead);
-      } else {
-        // Deals listed in one prefetch call (sync) are not fetched again.
-        const cached = prefetched.get(item.sourceDealId);
-        const read = cached ? { kind: 'ok' as const, deal: cached } : await deps.bitrix.getDeal(item.sourceDealId);
-        // Not found (deleted / no access): apply with null -> needs_review, source_deal_not_found.
-        const deal = read.kind === 'not_found' ? null : toDealSnapshot(read.deal);
-        if (deal && deal.id !== item.sourceDealId) throw new BitrixClientError('provider_bad_response', 200);
-        if ((tripFactsOn || tripDetailsOn) && read.kind === 'ok') facts = toDealFactsPayload(read.deal, tripFactsOn, tripDetailsOn);
-        apply = () => applyBitrixDeal(deps.rpc, item, deal);
-      }
-    } catch (error) {
-      const code: IntakeErrorCode = error instanceof BitrixClientError ? error.code : 'internal_error';
-      if (code === 'provider_rate_limited') rateLimited = true;
-      if (code === 'internal_error') stats.internalErrors += 1;
-      else stats.providerErrors += 1;
-      await recordFailure(item, code, RETRYABLE[code]);
-      continue;
-    }
-
-    try {
-      const applied = await apply();
-      switch (applied.outcome) {
-        case 'created':
-          summary.created += 1;
-          break;
-        case 'updated':
-          summary.updated += 1;
-          break;
-        case 'needs_review':
-          summary.needsReview += 1;
-          break;
-        case 'ignored':
-        case 'stale_ignored':
-          summary.ignored += 1;
-          break;
-      }
-      // B1.2: the row is finished; the facts are a separate, retry-safe step
-      // (a failure here never fails the inbox row; the next read repeats it).
-      if (facts && (applied.outcome === 'created' || applied.outcome === 'updated' || applied.outcome === 'stale_ignored')) {
-        const step = await storeTripFacts(deps, item.inboxId, facts, rateLimited);
-        if (step === 'rate_limited') rateLimited = true;
-        if (step === 'rate_limited' || step === 'provider_error') stats.providerErrors += 1;
-        if (step === 'internal_error') stats.internalErrors += 1;
-      }
-    } catch {
-      // A refused answer after a committed apply is counted by the row's real status, not as an error.
-      if ((await recordFailure(item, 'internal_error', true)) === 'recorded') stats.internalErrors += 1;
-    }
+    const result = await processInboxItem(deps, item, { tripFactsOn, tripDetailsOn, rateLimited, prefetched }, stats);
+    if (result.rateLimited) rateLimited = true;
   }
   return { ...stats, outcome: runOutcome(stats) };
 }
 
+/** The counters one item updates (the batch's summary and error counts). */
+export interface ItemCounters {
+  summary: WorkerRunSummary;
+  released: number;
+  providerErrors: number;
+  internalErrors: number;
+}
+
+export interface ItemFlags {
+  tripFactsOn: boolean;
+  tripDetailsOn: boolean;
+  /** A rate limit was met earlier in this run: the facts step makes no provider call. */
+  rateLimited: boolean;
+  /** Deals already read by one crm.deal.list for the batch (keyed by Bitrix ID). */
+  prefetched?: ReadonlyMap<string, Record<string, unknown>>;
+  /**
+   * "Refresh from Bitrix now" only: also read the Deal's linked Contact and
+   * Company when the database does not ask for them (a contact's phone can
+   * change in Bitrix without the Deal changing). Never set by the batch.
+   */
+  rereadParties?: boolean;
+}
+
+/** How a recorded failure ended (see recordItemFailure). */
+export type FailureRecord = 'recorded' | 'settled' | 'unconfirmed';
+
+export type ItemResult =
+  /** The row was refused before any provider call (other portal, inconsistent row). */
+  | { kind: 'refused'; rateLimited: false; failure: FailureRecord }
+  /** Reading Bitrix failed; the row was failed with this code. */
+  | { kind: 'read_failed'; code: IntakeErrorCode; rateLimited: boolean; failure: FailureRecord }
+  /** The apply command answered; `facts` is the facts step (null when it did not run). */
+  | {
+      kind: 'applied';
+      outcome: ApplyResult['outcome'];
+      reasonCode: IntakeReasonCode | null;
+      facts: TripFactsOutcome | null;
+      rateLimited: boolean;
+    }
+  /** The apply command failed or its answer was unreadable; the row was failed or found finished. */
+  | { kind: 'apply_failed'; rateLimited: false; failure: FailureRecord };
+
+/**
+ * 'recorded' = the row is now failed / dead-lettered; 'settled' = the fail was
+ * refused because the row was already finished (for example the apply had
+ * committed but its answer could not be read), counted by its real status;
+ * 'unconfirmed' = neither could be confirmed (lease lost, database unavailable):
+ * counted as failed, and the lease expiry retries the row.
+ */
+async function recordItemFailure(
+  deps: Pick<WorkerDeps, 'rpc'>,
+  item: ClaimedSourceItem,
+  code: IntakeErrorCode,
+  retryable: boolean,
+  stats: ItemCounters,
+): Promise<FailureRecord> {
+  const summary = stats.summary;
+  try {
+    const result = await failInbox(deps.rpc, item, code, retryable);
+    if (result.status === 'dead_letter') summary.deadLettered += 1;
+    else summary.failed += 1;
+    return 'recorded';
+  } catch {
+    switch (await inboxRowStatus(deps.rpc, item.inboxId)) {
+      case 'processed':
+        // Saved (created or updated; the answer that said which was lost).
+        summary.updated += 1;
+        return 'settled';
+      case 'ignored':
+        summary.ignored += 1;
+        return 'settled';
+      case 'needs_review':
+        summary.needsReview += 1;
+        return 'settled';
+      case 'dead_letter':
+        summary.deadLettered += 1;
+        return 'settled';
+      default:
+        summary.failed += 1;
+        stats.internalErrors += 1;
+        return 'unconfirmed';
+    }
+  }
+}
+
+/** Returns a leased row to pending without consuming an attempt; a failed release lets the lease expire. */
+export async function releaseItem(deps: Pick<WorkerDeps, 'rpc'>, item: ClaimedSourceItem, stats: ItemCounters): Promise<void> {
+  try {
+    await releaseInbox(deps.rpc, item);
+    stats.released += 1;
+  } catch {
+    // Lease expires instead; nothing else to do.
+    stats.internalErrors += 1;
+  }
+}
+
+/**
+ * One leased inbox row: read Bitrix (Deal or Lead), apply, then the facts
+ * step. The scheduled batch and "Refresh from Bitrix now" share it. Updates
+ * `stats` exactly as the batch always has and never throws for a provider or
+ * database refusal (the row is failed instead).
+ */
+export async function processInboxItem(
+  deps: Pick<WorkerDeps, 'rpc' | 'bitrix' | 'config'>,
+  item: ClaimedSourceItem,
+  flags: ItemFlags,
+  stats: ItemCounters,
+): Promise<ItemResult> {
+  const { tripFactsOn, tripDetailsOn } = flags;
+  // A row from another portal cannot be read with this portal's credential.
+  if (item.portalMemberId !== deps.config.portalMemberId) {
+    stats.internalErrors += 1;
+    return { kind: 'refused', rateLimited: false, failure: await recordItemFailure(deps, item, 'internal_error', false, stats) };
+  }
+
+  // Source object must be known and consistent before any provider call.
+  if (item.sourceObject === null) {
+    stats.internalErrors += 1;
+    return { kind: 'refused', rateLimited: false, failure: await recordItemFailure(deps, item, 'internal_error', false, stats) };
+  }
+
+  let apply: () => Promise<Pick<ApplyResult, 'outcome' | 'reasonCode'>>;
+  let facts: DealFactsPayload | LeadSourceFacts | null = null;
+  try {
+    if (item.sourceObject === 'lead') {
+      const read = tripFactsOn
+        ? await deps.bitrix.getLead(item.sourceDealId, { facts: true })
+        : await deps.bitrix.getLead(item.sourceDealId);
+      // Not found (deleted / no access): apply with null -> needs_review.
+      const lead = read.kind === 'not_found' ? null : toLeadSnapshot(read.lead);
+      if (lead && lead.id !== item.sourceDealId) throw new BitrixClientError('provider_bad_response', 200);
+      if (tripFactsOn && read.kind === 'ok' && read.facts) facts = toLeadSourceFacts(read.facts);
+      apply = () => applyBitrixLead(deps.rpc, item, lead);
+    } else {
+      // Deals listed in one prefetch call (sync) are not fetched again.
+      const cached = flags.prefetched?.get(item.sourceDealId);
+      const read = cached ? { kind: 'ok' as const, deal: cached } : await deps.bitrix.getDeal(item.sourceDealId);
+      // Not found (deleted / no access): apply with null -> needs_review, source_deal_not_found.
+      const deal = read.kind === 'not_found' ? null : toDealSnapshot(read.deal);
+      if (deal && deal.id !== item.sourceDealId) throw new BitrixClientError('provider_bad_response', 200);
+      if ((tripFactsOn || tripDetailsOn) && read.kind === 'ok') facts = toDealFactsPayload(read.deal, tripFactsOn, tripDetailsOn);
+      apply = () => applyBitrixDeal(deps.rpc, item, deal);
+    }
+  } catch (error) {
+    const code: IntakeErrorCode = error instanceof BitrixClientError ? error.code : 'internal_error';
+    if (code === 'internal_error') stats.internalErrors += 1;
+    else stats.providerErrors += 1;
+    const failure = await recordItemFailure(deps, item, code, RETRYABLE[code], stats);
+    return { kind: 'read_failed', code, rateLimited: code === 'provider_rate_limited', failure };
+  }
+
+  try {
+    const applied = await apply();
+    const summary = stats.summary;
+    switch (applied.outcome) {
+      case 'created':
+        summary.created += 1;
+        break;
+      case 'updated':
+        summary.updated += 1;
+        break;
+      case 'needs_review':
+        summary.needsReview += 1;
+        break;
+      case 'ignored':
+      case 'stale_ignored':
+        summary.ignored += 1;
+        break;
+    }
+    // B1.2: the row is finished; the facts are a separate, retry-safe step
+    // (a failure here never fails the inbox row; the next read repeats it).
+    // 'stale_ignored' is also the answer for an unchanged Deal, so its facts
+    // are stored too (a facts-only correction shows).
+    let factsOutcome: TripFactsOutcome | null = null;
+    let rateLimited = false;
+    if (facts && (applied.outcome === 'created' || applied.outcome === 'updated' || applied.outcome === 'stale_ignored')) {
+      factsOutcome = await storeTripFactsDetailed(deps, item.inboxId, facts, flags.rateLimited, {
+        rereadParties: flags.rereadParties === true,
+      });
+      const step = factsOutcome.step;
+      if (step === 'rate_limited') rateLimited = true;
+      if (step === 'rate_limited' || step === 'provider_error') stats.providerErrors += 1;
+      if (step === 'internal_error') stats.internalErrors += 1;
+    }
+    return { kind: 'applied', outcome: applied.outcome, reasonCode: applied.reasonCode ?? null, facts: factsOutcome, rateLimited };
+  } catch {
+    // A refused answer after a committed apply is counted by the row's real status, not as an error.
+    const failure = await recordItemFailure(deps, item, 'internal_error', true, stats);
+    if (failure === 'recorded') stats.internalErrors += 1;
+    return { kind: 'apply_failed', rateLimited: false, failure };
+  }
+}
+
 export type TripFactsStep = 'done' | 'rate_limited' | 'provider_error' | 'internal_error';
+
+/** The facts step and whether it stored anything new (facts or a Contact / Company snapshot). */
+export interface TripFactsOutcome {
+  step: TripFactsStep;
+  changed: boolean;
+}
 
 /**
  * B1.2 (DEC-36): stores the facts of a finished inbox row, then reads and stores
@@ -299,14 +382,34 @@ export async function storeTripFacts(
   facts: DealFactsPayload | LeadSourceFacts,
   rateLimited = false,
 ): Promise<TripFactsStep> {
+  return (await storeTripFactsDetailed(deps, inboxId, facts, rateLimited)).step;
+}
+
+/**
+ * storeTripFacts with the "changed" flag. With `rereadParties` (refresh only)
+ * the Deal's primary Contact and its Company are read even when the database
+ * asks for neither; the database accepts only a party linked from the stored
+ * facts, so nothing else can be stored.
+ */
+export async function storeTripFactsDetailed(
+  deps: Pick<WorkerDeps, 'rpc' | 'bitrix'>,
+  inboxId: string,
+  facts: DealFactsPayload | LeadSourceFacts,
+  rateLimited = false,
+  options: { rereadParties?: boolean } = {},
+): Promise<TripFactsOutcome> {
   let parties: Array<{ kind: 'contact' | 'company'; id: string }>;
+  let changed = false;
   try {
-    parties = (await applyBitrixTripFacts(deps.rpc, inboxId, facts)).parties;
+    const stored = await applyBitrixTripFacts(deps.rpc, inboxId, facts);
+    parties = stored.parties;
+    changed = stored.outcome === 'stored';
   } catch {
-    return 'internal_error';
+    return { step: 'internal_error', changed };
   }
+  if (options.rereadParties) parties = withLinkedParties(parties, facts);
   // After a rate limit no provider call is made; a missing snapshot is asked for again on the next read.
-  if (rateLimited) return 'done';
+  if (rateLimited) return { step: 'done', changed };
   for (const party of parties) {
     try {
       let snapshot = null;
@@ -319,15 +422,38 @@ export async function storeTripFacts(
       }
       // Not found, no reader, or an answer for another id: nothing is stored.
       if (!snapshot || snapshot.id !== party.id) continue;
-      await applyBitrixParty(deps.rpc, inboxId, snapshot);
+      const result = await applyBitrixParty(deps.rpc, inboxId, snapshot);
+      if (result.outcome === 'stored') changed = true;
     } catch (error) {
       if (error instanceof BitrixClientError) {
-        return error.code === 'provider_rate_limited' ? 'rate_limited' : error.code === 'internal_error' ? 'internal_error' : 'provider_error';
+        const step = error.code === 'provider_rate_limited' ? 'rate_limited' : error.code === 'internal_error' ? 'internal_error' : 'provider_error';
+        return { step, changed };
       }
-      return 'internal_error';
+      return { step: 'internal_error', changed };
     }
   }
-  return 'done';
+  return { step: 'done', changed };
+}
+
+/**
+ * The parties the database asked for plus the Deal's primary Contact (the
+ * CONTACT_ID, else the lowest of CONTACT_IDS, as the database picks it) and
+ * its Company, without duplicates. Lead facts and payloads without the
+ * DEC-36 keys (that switch off) add nothing.
+ */
+export function withLinkedParties(
+  asked: ReadonlyArray<{ kind: 'contact' | 'company'; id: string }>,
+  facts: DealFactsPayload | LeadSourceFacts,
+): Array<{ kind: 'contact' | 'company'; id: string }> {
+  const out = [...asked];
+  const add = (kind: 'contact' | 'company', id: string | null | undefined) => {
+    if (id && !out.some((p) => p.kind === kind && p.id === id)) out.push({ kind, id });
+  };
+  if ('companyTitle' in facts) return out; // Lead facts
+  const ids = Array.isArray(facts.contactIds) ? [...facts.contactIds].sort((a, b) => Number(a) - Number(b)) : [];
+  add('contact', facts.contactId ?? ids[0] ?? null);
+  add('company', facts.companyId ?? null);
+  return out;
 }
 
 /**

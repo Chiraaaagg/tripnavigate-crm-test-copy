@@ -11,7 +11,7 @@ import {
   departmentEvidenceRemove,
 } from '../b11-commands';
 import { parseCostEntryRowForm, parseDepartmentCostForm, readDepartmentEvidenceKind } from '../b11-forms';
-import { asRpcClient } from '../commands';
+import { asRpcClient, BookingCommandError } from '../commands';
 import {
   type BookingActionResult,
   DEPARTMENT_COST_TEXT,
@@ -42,6 +42,21 @@ function revalidateTask(taskId: string): void {
   revalidatePath('/app/accounts/expenses');
 }
 
+/**
+ * Flight build (20261201000210, owner D3): the per-passenger fare breakup in
+ * the Flight workspace is the only flight cost record; this form refuses
+ * flight costs with hint flightFares.
+ */
+const FLIGHT_COST_REFUSED_TEXT =
+  'Flight costs now come from the fares confirmed with the tickets in the Flight workspace. Nothing was saved here.';
+
+function flightCostRefused(error: unknown): BookingActionResult<never> | null {
+  if (error instanceof BookingCommandError && error.code === 'invalid_input' && error.hintKeys.includes('flightFares')) {
+    return fail('invalid_input', undefined, FLIGHT_COST_REFUSED_TEXT);
+  }
+  return null;
+}
+
 const COST_HINTS = {
   amountPaise: FIELD.amountRupees,
   costKind: FIELD.costKind,
@@ -68,7 +83,7 @@ export async function saveDepartmentCostAction(
     return { ok: true, data: result, message: `Cost saved.${note}` };
   } catch (error) {
     if (isCode(error, 'version_changed') || isCode(error, 'cost_locked')) revalidateTask(v.taskId);
-    return failFrom(error, COST_HINTS);
+    return flightCostRefused(error) ?? failFrom(error, COST_HINTS);
   }
 }
 
@@ -87,7 +102,7 @@ export async function submitExpenseRecordAction(
     return { ok: true, data: result, message: DEPARTMENT_COST_TEXT.sentToAccounts };
   } catch (error) {
     if (isCode(error, 'version_changed') || isCode(error, 'cost_locked')) revalidateTask(v.taskId);
-    return failFrom(error, COST_HINTS);
+    return flightCostRefused(error) ?? failFrom(error, COST_HINTS);
   }
 }
 

@@ -6,6 +6,10 @@ import { loadPartyForCheck } from '@/modules/parties/server/party-check';
 import { checkPartyAction, returnPartyAction, saveCheckedPartyAction } from '@/modules/parties/server/party-check-actions';
 import type { B11Action } from '@/views/b11/shapes';
 import { CustomerCheckView } from '@/views/accounts/customer-check';
+import { setPartyTallyNameAction } from '@/modules/accounts-desk/server/tally-file-actions';
+import { loadPartyTallyName } from '@/modules/accounts-desk/server/tally-file-queries';
+import type { DecisionAction } from '@/views/accounts/supplier-forms';
+import { TallyPartyNameCard } from '@/views/tally-file/party-name';
 import { notFound } from 'next/navigation';
 
 export const metadata: Metadata = { title: 'Check customer' };
@@ -25,6 +29,9 @@ export default async function CustomerCheckPage({ params }: { params: Promise<{ 
   // An unexplained read failure reaches the route error boundary ("could not load"), never an empty page.
   const loaded = await loadPartyForCheck(staff, id);
   if (!loaded) notFound();
+  // Accounts phase 3 (contract 7.2 C1, screen 15.7): the Tally party name; null = not for this person.
+  const tally = await loadPartyTallyName(staff, loaded.party.partyId).catch(() => null);
+  const tallyName = tally && tally.ok ? tally.data : null;
   return (
     <WorkErrorBoundary title="Check customer">
       <CustomerCheckView
@@ -35,6 +42,7 @@ export default async function CustomerCheckPage({ params }: { params: Promise<{ 
         checkBlockedReason={loaded.checkBlockedReason}
         actions={{ save: saveCheckedPartyAction as unknown as B11Action, check: checkPartyAction as unknown as B11Action, returnParty: returnPartyAction as unknown as B11Action }}
       />
+      {tallyName ? <TallyPartyNameCard party={tallyName} action={setPartyTallyNameAction as unknown as DecisionAction} /> : null}
     </WorkErrorBoundary>
   );
 }

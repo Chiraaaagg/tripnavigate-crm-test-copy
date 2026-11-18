@@ -1,9 +1,8 @@
 import { createElement, type FunctionComponent } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { FlightTaskView, PurchaseTaskSummary, PurchaseTaskView, VisaQueueView } from '@/modules/fulfilment/contracts';
+import type { FlightTaskView, PurchaseTaskSummary, PurchaseTaskView } from '@/modules/fulfilment/contracts';
 import { taskTabsFor, type DepartmentTaskHistoryRecord, type TaskTab } from '@/modules/settings/contracts';
-import { VisaQueuePage } from '@/views/b11/visa-desk';
 import { filterQueue, parseQueueShow, queueShowHref, queueShowsFor } from '@/views/department/queue-show';
 import { budgetText, TASK_FILES_TEXT, taskNextText } from '@/views/department/task-frame';
 import { TASK_HISTORY_TEXT, toTaskHistoryVM } from '@/views/department/task-history-vm';
@@ -129,14 +128,14 @@ describe('department task tabs (Details · Work · Files · History)', () => {
     expect(currentIn(files, 'Task sections')).toBe('/app/purchase/f0000000-0000-4000-8000-000000000001?tab=files');
     expect(files).toContain('href="/app/purchase/f0000000-0000-4000-8000-000000000001"');
     expect(files).not.toMatch(/>Money</);
-    expect(files).not.toContain('Check-in');
+    expect(files).not.toContain('What Sales booked');
     expect(files).toContain('/app/purchase/files/p1');
     expect(files).toContain('Customer payment proofs and acceptance messages are never listed here.');
-    // Header primary: the assignee off the Work tab gets a link to it.
-    expect(files).toContain('Record supplier confirmation');
+    // Header primary: the assignee off the Work tab gets a link to it (Purchase build: its next step depends on the work).
+    expect(files).toContain('Open the Work tab');
     const work = render(PurchaseTaskPage, { task: view({ assigneeName: 'Synthetic Purchase Jodhpur', assignedToYou: true, status: 'in_progress' }), tabs: tabsOf('work'), work: 'WORK-SLOT' });
     expect(work).toContain('WORK-SLOT');
-    expect(work).not.toContain('Record supplier confirmation');
+    expect(work).not.toContain('Open the Work tab');
   });
 
   it('every Purchase and Flight tab is free of money words (T-B4-02 to T-B4-08)', () => {
@@ -172,7 +171,7 @@ describe('department task tabs (Details · Work · Files · History)', () => {
   it('no tabs prop keeps the one long page (older callers)', () => {
     const html = render(PurchaseTaskPage, { task: view(), work: 'WORK-SLOT' });
     expect(html).not.toContain('Task sections');
-    expect(html).toContain('Check-in');
+    expect(html).toContain('What Sales booked for this hotel');
     expect(html).toContain('WORK-SLOT');
   });
 
@@ -240,14 +239,8 @@ describe('task History (DA-270, T-B4-05)', () => {
   });
 });
 
-describe('Visa desk launch is three-state (Unknown is not Off)', () => {
-  const q = (launch: VisaQueueView['launch']): VisaQueueView => ({ launch, waitingCount: launch === 'off' ? 2 : null, tasks: [] });
-  it('Off says the desk is not started; Unknown never does', () => {
-    expect(render(VisaQueuePage, { queue: q('off') })).toContain('Not started yet');
-    const unknown = render(VisaQueuePage, { queue: q('unknown') });
-    expect(unknown).toContain('Desk state could not be read');
-    expect(unknown).not.toContain('Not started yet');
-    expect(unknown).not.toContain('Not launched yet');
-    expect(render(VisaQueuePage, { queue: q('on') })).not.toMatch(/Not started yet|could not be read/);
-  });
-});
+// Visa build (contract 8 Nov 2026, VL21 and 11.1): the old desk (views/b11/visa-desk.tsx) is retired and the new
+// queue (views/visa) has no launch states, so the "Visa desk launch is three-state (Unknown is not Off)" block
+// (Off -> "Not started yet", Unknown -> "Desk state could not be read") no longer applies. The new queue's states
+// are covered by tests/e2e/visa-screens.e2e.ts (visa-queue, -empty, -error, -loading).
+

@@ -269,7 +269,10 @@ describe('services (owner items 4, 7, 8)', () => {
 describe('Deal facts view (owner item 1)', () => {
   it('passes only values the server takes from Bitrix; scope only when classified; counts only when consistent', () => {
     const facts = TripFactsSchema.parse(TRIP_FACTS);
-    expect(dealFactsView(facts)).toEqual({ destination: 'Goa', start: '2026-12-10', end: '2026-12-15', total: 5, adults: 3, children: 2, infants: 0, scope: 'domestic', readAt: '2026-10-24T09:00:00Z' });
+    expect(dealFactsView(facts)).toEqual({ destination: 'Goa', start: '2026-12-10', end: '2026-12-15', total: 5, adults: 3, children: 2, infants: 0, scope: 'domestic', readAt: '2026-10-24T09:00:00Z', bitrixDealHref: null });
+    // Book now v2: the loader passes the Bitrix Deal link through.
+    const href = 'https://example.bitrix24.in/crm/deal/details/101/';
+    expect(dealFactsView(facts, href)).toMatchObject({ bitrixDealHref: href });
     const unclassified = TripFactsSchema.parse({ ...TRIP_FACTS, fields: { ...TRIP_FACTS.fields, scope: { bitrix: null, booking: null, source: 'missing', classified: false } }, countsConsistent: false });
     expect(dealFactsView(unclassified)).toMatchObject({ scope: null, adults: null, children: null, infants: null, total: 5 });
     expect(dealFactsView(TripFactsSchema.parse({ ...TRIP_FACTS, enabled: false }))).toBeNull();

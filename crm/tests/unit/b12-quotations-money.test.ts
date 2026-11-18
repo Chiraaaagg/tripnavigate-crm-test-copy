@@ -37,10 +37,13 @@ import {
 describe('rupee input parsing (never rounds)', () => {
   it('customer amounts are whole rupees; paise, letters, negatives and huge values are refused', () => {
     expect(parseWholeRupees('12,500')).toBe('1250000');
-    expect(parseWholeRupees('₹ 1,20,000')).toBe('12000000');
+    expect(parseWholeRupees(' 1,20,000 ')).toBe('12000000');
+    expect(parseWholeRupees('9999999999999')).toBe('999999999999900');
     expect(parseWholeRupees('12500.00')).toBe('1250000');
     expect(parseWholeRupees('')).toBeNull();
     for (const bad of ['12500.50', '12500.5', '-1', '12a', '1.234', '99999999999999']) expect(parseWholeRupees(bad), bad).toBeUndefined();
+    // One money rule (D4): a rupee sign, spaces inside and odd commas are refused.
+    for (const bad of ['₹ 1,20,000', '₹12500', '12 500', '1,2,3', '₹']) expect(parseWholeRupees(bad), bad).toBeUndefined();
   });
 
   it('cost estimates may carry paise but never a third decimal', () => {
@@ -48,6 +51,9 @@ describe('rupee input parsing (never rounds)', () => {
     expect(parseRupeesWithPaise('0.05')).toBe('5');
     expect(parseRupeesWithPaise('')).toBeNull();
     expect(parseRupeesWithPaise('1.234')).toBeUndefined();
+    expect(parseRupeesWithPaise(' 12,500.50 ')).toBe('1250050');
+    // One money rule (D4): a rupee sign, spaces inside and odd commas are refused.
+    for (const bad of ['₹12,500.5', '12 500', '1,2,3', '₹']) expect(parseRupeesWithPaise(bad), bad).toBeUndefined();
   });
 
   it('formats exactly with Indian grouping, including beyond Number precision', () => {

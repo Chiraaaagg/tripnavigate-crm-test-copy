@@ -152,7 +152,8 @@ test.describe('Home: content and permissions', () => {
     await expect(rowLabels(page).nth(0)).toHaveText('Booking drafts you can continue');
     await expect(needs(page).locator('tbody tr td:nth-child(2)').nth(0)).toHaveText('3');
     await expect(needs(page).locator('tbody tr', { hasText: 'Purchase tasks not taken yet, or yours in progress' })).toContainText('4');
-    await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link')).toHaveText(['Home', 'Deals', 'Purchase tasks', 'Suppliers']);
+    // Accounts phase 3 (contract 15 Nav): Purchase also has "Rate contracts".
+    await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link')).toHaveText(['Home', 'Deals', 'Purchase tasks', 'Suppliers', 'Rate contracts']);
   });
 
   test('the Visa desk is one click from Home', async ({ page }) => {

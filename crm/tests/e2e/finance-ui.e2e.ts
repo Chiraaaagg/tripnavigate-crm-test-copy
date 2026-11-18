@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page, test } from '@playwright/test';
+import { pageReady } from '../helpers/page-ready';
 
 /**
  * Phase 5A Accounts screens through the design-preview gallery (synthetic
@@ -68,7 +69,7 @@ async function noHorizontalScroll(page: Page) {
 async function open(page: Page, state: string) {
   await page.goto(`/preview/${state}`);
   await expect(page.getByRole('heading', { level: 1 })).toBeAttached();
-  await page.waitForLoadState('networkidle');
+  await pageReady(page);
 }
 
 test.describe('Phase 5A previews: accessibility and the disclaimer on desktop and 390 px', () => {

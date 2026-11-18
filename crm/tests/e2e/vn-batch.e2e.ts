@@ -59,12 +59,14 @@ test.describe('Customer & trip from the Bitrix Deal (items 1 and 2)', () => {
     await expect(line).toContainText('Himachal');
     await expect(line).toContainText('4 travellers (2 adults, 1 child, 1 infant)');
     await expect(line).toContainText('Domestic');
-    await expect(line).toContainText('From the Bitrix Deal');
+    // Book now v2 (change 1): "Trip facts from the Bitrix Deal", locked here.
+    await expect(line).toContainText('Trip facts from the Bitrix Deal');
     for (const label of ['Destination', 'Travel date', 'Return date', 'Trip', 'Adults', 'Children', 'Infants']) await expect(card.getByLabel(label, { exact: true })).toHaveCount(0);
     await card.getByRole('button', { name: 'Correct' }).click();
     const dialog = page.getByRole('dialog', { name: 'Correct trip details in Bitrix' });
-    await expect(dialog).toContainText('These come from the Bitrix Deal');
-    await dialog.getByRole('button', { name: 'OK' }).click();
+    await expect(dialog).toContainText('come from the Bitrix Deal');
+    await expect(dialog.getByRole('button', { name: 'Refresh from Bitrix now' })).toBeVisible();
+    await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
     await expect(card.getByRole('button', { name: 'Correct' })).toBeFocused();
   });
@@ -75,36 +77,33 @@ test.describe('Customer & trip from the Bitrix Deal (items 1 and 2)', () => {
     await expect(card.getByLabel('Destination', { exact: true })).toHaveCount(0);
     await expect(card.getByLabel('Travel date', { exact: true })).toHaveCount(0);
     await expect(card.getByLabel('Trip', { exact: true })).toBeVisible();
-    await expect(card).toContainText('This Bitrix destination is not classified yet.');
+    // The Deal gave a total but no split: the counts are asked, the total stays the Deal's.
+    await expect(card.getByRole('spinbutton', { name: 'Adults' })).toBeVisible();
     await expect(card.locator('#bf-pax-total')).toContainText('Total: 4 (from the Deal)');
   });
 
   test('a split that does not add up is refused in words and the typed counts stay', async ({ page }) => {
     await open(page, 'bookform-vn-gaps--travellers');
     const card = main(page).locator('section#customer');
-    await card.getByRole('button', { name: 'One adult more' }).click();
-    const alert = card.locator('#bf-counts-error');
-    await expect(alert).toContainText('add up to 5, but the trip has 4 passengers');
-    await expect(card.getByLabel('Adults', { exact: true })).toHaveAttribute('aria-invalid', 'true');
-    await card.getByRole('button', { name: 'Save customer details' }).click();
-    await expect(card.getByLabel('Adults', { exact: true })).toHaveValue('4');
-    await expect(alert).toBeVisible();
-    // The step's save reports the part as not sent; nothing moves on.
-    await page.getByRole('button', { name: 'Save and go to step 2' }).click();
-    await expect(page).toHaveURL(/vn-gaps--travellers$/);
-    await expect(page.locator('#bf-report')).toBeVisible();
-    await card.getByRole('button', { name: 'One adult fewer' }).click();
-    await expect(alert).toHaveCount(0);
+    const adults = card.getByRole('spinbutton', { name: 'Adults' });
+    await adults.fill('4');
+    // Book now v2 (change 2, D1): the card is not saved while the counts do not add up; the reason is under it.
+    await expect(card).toContainText('Adults, children and infants add up to 5, but the trip has 4 passengers.');
+    await expect(page.locator('#pill-customer')).toHaveAttribute('data-state', 'fix');
+    await expect(adults).toHaveValue('4');
+    await expect(main(page)).toContainText(/Not saved: Customer & trip/);
+    await adults.fill('3');
+    await expect(card).not.toContainText('add up to 5');
+    await expect(page.locator('#pill-customer')).not.toHaveAttribute('data-state', 'fix');
   });
 
-  test('gate finding: a contact-only save goes through when no count or total is entered and the Deal has no total', async ({ page }) => {
+  test('D1: a contact-only card is not saved; it names the first missing value and no count is marked wrong', async ({ page }) => {
     await open(page, 'bookform-vn-nodeal--travellers');
     const card = main(page).locator('section#customer');
     await card.getByLabel('Name', { exact: true }).fill('Sample Contact Only');
     await card.getByLabel('Phone', { exact: true }).fill('9876500031');
-    await card.getByRole('button', { name: 'Save customer details' }).click();
-    await expect(card.getByRole('button', { name: 'Save customer details' })).toHaveCount(0);
-    await expect(card.locator('#bf-counts-error')).toHaveCount(0);
+    await expect(page.locator('#pill-customer')).toHaveAttribute('data-state', 'fix');
+    await expect(card).toContainText('Enter the destination.');
     await expect(card).not.toContainText('Enter the total number of passengers first.');
     await expect(card.getByLabel('Adults', { exact: true })).not.toHaveAttribute('aria-invalid', 'true');
   });
@@ -121,35 +120,34 @@ test.describe('Passenger slots and details (items 2 and 3)', () => {
   test('rows appear per type from the counts; no "Add passenger"; lowering a count keeps named passengers', async ({ page }) => {
     await open(page, 'bookform-vn-gaps--travellers');
     const pax = main(page).locator('section#passengers');
+    const counts = main(page).locator('section#customer');
+    const adultRows = pax.getByRole('textbox', { name: /^Passenger \d full name$/ }).and(page.getByPlaceholder('Adult · full name'));
     await expect(pax.getByRole('button', { name: 'Add passenger' })).toHaveCount(0);
+    // Book now v2: the Deal gave only the total; the rows follow the adults typed here.
+    await counts.getByRole('spinbutton', { name: 'Adults' }).fill('3');
     // 3 adults (2 named + 1 empty slot), 1 child; the named infant is over the count of 0.
-    await expect(pax.getByRole('textbox', { name: /name \(adult\)/ })).toHaveCount(3);
+    await expect(adultRows).toHaveCount(3);
     await expect(pax).toContainText('1 infant named, but the booking has 0.');
     await expect(pax).toContainText('Nobody is removed unless you choose.');
-    const counts = main(page).locator('section#customer');
-    // One step at a time, each awaited: a click sent before the page has hydrated is
-    // replayed with older values, which once hid that the infant already lowers the adults.
-    await counts.getByRole('button', { name: 'One infant more' }).click();
-    await expect(pax).not.toContainText('infant named');
-    // Total 4 from the Deal, 1 child, 1 infant: adults work out to 2. The empty slot goes, both named adults stay.
-    await expect(counts.locator('#bf-adults')).toHaveAttribute('placeholder', '2');
-    await expect(pax.getByRole('textbox', { name: /name \(adult\)/ })).toHaveCount(2);
-    await counts.getByRole('button', { name: 'One adult fewer' }).click();
-    await expect(counts.locator('#bf-adults')).toHaveValue('1');
-    await expect(pax.getByRole('textbox', { name: /name \(adult\)/ })).toHaveCount(2);
+    await expect(pax.getByRole('button', { name: 'Remove Sample Infant D' })).toBeVisible();
+    // Lowering the adults below the named adults keeps both named rows and says so.
+    await counts.getByRole('spinbutton', { name: 'Adults' }).fill('1');
+    await expect(adultRows).toHaveCount(2);
     await expect(pax).toContainText('2 adults named, but the booking has 1.');
-    await expect(pax.getByLabel('Passenger 1 name (adult)')).toHaveValue('Sample Traveller A');
-    await expect(pax.getByLabel('Passenger 2 name (adult)')).toHaveValue('Sample Traveller B');
+    await expect(pax.getByLabel('Passenger 1 full name')).toHaveValue('Sample Traveller A');
+    await expect(pax.getByLabel('Passenger 2 full name')).toHaveValue('Sample Traveller B');
   });
 
-  test('typing into an empty slot keeps focus and the text; the row joins the unsaved passengers', async ({ page }) => {
+  test('typing into an empty slot keeps focus and the text; the row saves itself (change 2)', async ({ page }) => {
     await open(page, 'bookform-vn-gaps--travellers');
-    const slot = main(page).getByLabel('Passenger 3 name (adult)');
+    await main(page).locator('section#customer').getByRole('spinbutton', { name: 'Adults' }).fill('3');
+    const slot = main(page).getByLabel('Passenger 3 full name');
     await slot.fill('');
     await slot.pressSequentially('Sample New Adult');
     await expect(slot).toBeFocused();
     await expect(slot).toHaveValue('Sample New Adult');
-    await expect(main(page)).toContainText('Unsaved changes in: Passengers');
+    await expect(page.locator('#pill-passengers')).toHaveAttribute('data-state', /saving|saved/);
+    await expect(main(page).locator('#bf-pax-named')).toHaveText('5 of 5 named');
   });
 
   test('"Attach ID proof" is on every row and opens the private upload with the consent tick', async ({ page }) => {
@@ -166,9 +164,12 @@ test.describe('Passenger slots and details (items 2 and 3)', () => {
 
   test('an empty slot asks for the name before attaching', async ({ page }) => {
     await open(page, 'bookform-vn-gaps--travellers');
-    await main(page).getByRole('button', { name: 'Attach ID proof for passenger 3' }).click();
-    await expect(main(page).locator('#passengers-3-name-error')).toContainText('Enter the name first');
-    await expect(main(page).getByLabel('Passenger 3 name (adult)')).toBeFocused();
+    await main(page).locator('section#customer').getByRole('spinbutton', { name: 'Adults' }).fill('3');
+    const attach = main(page).getByRole('button', { name: 'Attach ID proof for passenger 3' });
+    await expect(attach).toHaveAttribute('aria-disabled', 'true');
+    await attach.click({ force: true });
+    await expect(page.getByText('Enter the name first, then attach the ID proof.')).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 
   test('details: standard requests list plus free text, optional dates, other phones', async ({ page }) => {
@@ -176,9 +177,14 @@ test.describe('Passenger slots and details (items 2 and 3)', () => {
     await main(page).getByRole('button', { name: 'Details for passenger 1' }).click();
     const drawer = page.getByRole('dialog', { name: 'Passenger details' });
     await settled(page);
-    await drawer.getByRole('button', { name: /Choose requests/ }).click();
-    await drawer.getByRole('checkbox', { name: 'Jain meals' }).check();
-    await drawer.getByRole('checkbox', { name: 'Wheelchair help' }).check();
+    // Book now v2 (change 17, D6): the same dropdown as hotel and flight requests, fixed request codes only.
+    const requests = drawer.getByRole('combobox', { name: /Special requests/ });
+    await requests.click();
+    await drawer.getByRole('option', { name: 'Jain meals' }).click();
+    await requests.click();
+    await drawer.getByRole('option', { name: 'Wheelchair help' }).click();
+    await requests.fill('Synthetic own request');
+    await expect(drawer.getByRole('option', { name: /Synthetic own request/ })).toHaveCount(0);
     await page.keyboard.press('Escape');
     // Escape closed only the list, not the drawer.
     await expect(drawer).toBeVisible();
@@ -192,19 +198,18 @@ test.describe('Passenger slots and details (items 2 and 3)', () => {
 });
 
 test.describe('Hotel, car and flight editors (items 4, 6, 7, 8)', () => {
-  test('hotel: no "More details", adults read-only, child ages only with children, stored hotel search', async ({ page }) => {
+  test('hotel (Book now v2, change 16): no "More details", no counts or budget boxes, people from the chips, stored hotel search', async ({ page }) => {
     await open(page, 'bookform-vn-deal--stay');
-    await main(page).getByRole('button', { name: 'Add stay' }).click();
+    await main(page).getByRole('button', { name: 'Add hotel' }).click();
     const drawer = page.getByRole('dialog', { name: 'Add hotel stay' });
     await settled(page);
     await expect(drawer.getByText('More details')).toHaveCount(0);
-    await expect(drawer.getByRole('spinbutton', { name: 'Adults' })).toHaveCount(0);
-    await expect(drawer.locator('#svc-adults')).toContainText('2');
-    await expect(drawer.locator('#svc-adults')).toContainText('(from the booking)');
-    await expect(drawer.getByLabel('Child ages')).toHaveCount(0);
-    await drawer.getByLabel('Children in this stay').fill('1');
-    await expect(drawer.getByLabel('Child ages')).toBeVisible();
-    for (const label of ['Room category', 'Meal plan', 'Inclusions', 'Exclusions', 'Special request', 'Customer asked for']) await expect(drawer.getByLabel(label, { exact: false }).first()).toBeVisible();
+    for (const label of ['Adults', 'Children in this stay', 'Child ages', 'Customer asked for', 'Area', 'Purchase budget', 'Exclusions']) await expect(drawer.getByLabel(label, { exact: true })).toHaveCount(0);
+    await expect(drawer.getByLabel(/budget/i)).toHaveCount(0);
+    await expect(drawer.getByRole('group', { name: 'Who stays here' })).toBeVisible();
+    await expect(drawer).toContainText('4 people · 1 room');
+    for (const label of ['Room category', 'Meal plan', 'Inclusions, exclusions or other notes']) await expect(drawer.getByLabel(label, { exact: false }).first()).toBeVisible();
+    await expect(drawer.getByRole('combobox', { name: /Special requests/ })).toBeVisible();
     const hotel = drawer.getByRole('combobox', { name: 'Hotel' });
     await hotel.fill('Sample P');
     const list = drawer.getByRole('listbox', { name: 'Matches' });
@@ -225,6 +230,8 @@ test.describe('Hotel, car and flight editors (items 4, 6, 7, 8)', () => {
     const vehicle = drawer.getByLabel('Vehicle', { exact: true });
     await expect(vehicle.locator('xpath=following-sibling::*[local-name()="svg"]')).toHaveCount(1);
     await vehicle.selectOption('other');
+    // Book now v2: the car type comes first; Full trip asks the route, the others pickup and drop.
+    await expect(drawer.getByRole('radiogroup', { name: 'Type of car booking' })).toBeVisible();
     const other = drawer.getByLabel('Other vehicle');
     await expect(other).toBeFocused();
     await expect(other).toHaveAttribute('maxlength', '60');
@@ -238,34 +245,38 @@ test.describe('Hotel, car and flight editors (items 4, 6, 7, 8)', () => {
     await expect(qty).toHaveValue('2');
     // Save without typing the other vehicle: refused here, typed values kept.
     await drawer.getByRole('button', { name: 'Save car' }).click();
-    await expect(drawer.getByRole('alert')).toContainText('Type the vehicle');
+    await expect(drawer.getByRole('alert')).toContainText(/Choose the vehicle|Type the vehicle/);
     await expect(qty).toHaveValue('2');
   });
 
-  test('flight: passengers chosen in a searchable list in the main area; count follows; attach beside it', async ({ page }) => {
+  test('flight: passengers are chips in the main area; the count follows; no separate attach step', async ({ page }) => {
     await open(page, 'bookform-vn-deal--stay');
-    await main(page).getByRole('button', { name: /Edit flight/ }).click();
+    await main(page).getByRole('button', { name: 'Edit flight 1' }).click();
     const drawer = page.getByRole('dialog', { name: 'Edit flight' });
     await settled(page);
-    await expect(drawer.getByText('4 of 4 passengers fly.')).toBeVisible();
-    await drawer.getByRole('button', { name: 'Remove Sample Infant D' }).click();
-    await expect(drawer.getByText('3 of 4 passengers fly.')).toBeVisible();
-    await expect(drawer.locator('input[name="participantSeq"]')).toHaveCount(3);
-    await expect(drawer.locator('input[name="passengers"]')).toHaveValue('3');
-    await expect(drawer.getByRole('button', { name: 'Attach ticket screenshot' })).toBeVisible();
-    await expect(drawer).toContainText('A screenshot is not an issued ticket.');
+    const who = drawer.getByRole('group', { name: 'Passengers flying' });
+    await expect(drawer.locator('#svc-who-line')).toContainText('4 of 4 chosen');
+    await who.getByRole('button', { name: 'Sample Infant D' }).click();
+    await expect(who.getByRole('button', { name: 'Sample Infant D' })).toHaveAttribute('aria-pressed', 'false');
+    await expect(drawer.locator('#svc-who-line')).toContainText('3 of 4 chosen');
+    // Book now v2 (change 19): screenshots are part of the drawer ("Attach a screenshot"), not a second step.
+    await expect(drawer.getByRole('button', { name: /Attach ticket screenshot|Save and attach screenshot/ })).toHaveCount(0);
+    await expect(drawer).toContainText('Requested flight, not an issued ticket.');
   });
 
-  test('new flight: "Save and attach screenshot"; nobody chosen is refused in words', async ({ page }) => {
+  test('new flight: nobody chosen is refused in words; the picked airports stay', async ({ page }) => {
     await open(page, 'bookform-vn-deal--stay');
     await main(page).getByRole('button', { name: 'Add flight' }).click();
     const drawer = page.getByRole('dialog', { name: 'Add flight' });
     await settled(page);
-    await drawer.getByLabel('From', { exact: true }).fill('Delhi');
-    await drawer.getByLabel('To', { exact: true }).fill('Jodhpur');
-    await drawer.getByRole('button', { name: 'Save and attach screenshot' }).click();
-    await expect(drawer.getByRole('alert')).toContainText('Choose the passengers who fly.');
-    await expect(drawer.getByLabel('From', { exact: true })).toHaveValue('Delhi');
+    await drawer.locator('#ap-from').fill('DEL');
+    await drawer.locator('#ap-from').press('Enter');
+    await drawer.locator('#ap-to').fill('JDH');
+    await drawer.locator('#ap-to').press('Enter');
+    await drawer.getByRole('group', { name: 'Passengers flying' }).getByRole('button', { name: /^All \d/ }).click();
+    await drawer.getByRole('button', { name: 'Save flight' }).click();
+    await expect(drawer.locator('#svc-problem')).toContainText('Choose who flies.');
+    await expect(drawer.locator('#ap-from')).toHaveValue(/DEL/);
   });
 });
 
@@ -475,14 +486,12 @@ test.describe('Fix round (Echo-B M2, L1, L2, L5; Echo-A M1, L6)', () => {
 
   test('L5: a sum error marks only the count that was changed', async ({ page }) => {
     await open(page, 'bookform-vn-gaps--travellers');
+    // Book now v2 (change 2): a sum error is not saved and is said once under the card; no count is marked
+    // wrong before the database answers (the card never posts counts that do not add up).
     const card = main(page).locator('section#customer');
-    await card.getByRole('button', { name: 'One adult more' }).click();
-    await expect(card.locator('#bf-counts-error')).toBeVisible();
-    await expect(card.getByLabel('Adults', { exact: true })).toHaveAttribute('aria-invalid', 'true');
+    await card.getByRole('spinbutton', { name: 'Adults' }).fill('4');
+    await expect(card).toContainText('add up to 5, but the trip has 4 passengers');
     await expect(card.getByLabel('Children', { exact: true })).not.toHaveAttribute('aria-invalid', 'true');
-    await expect(card.getByLabel('Infants', { exact: true })).not.toHaveAttribute('aria-invalid', 'true');
-    await card.getByRole('button', { name: 'One child more' }).click();
-    await expect(card.getByLabel('Children', { exact: true })).toHaveAttribute('aria-invalid', 'true');
     await expect(card.getByLabel('Infants', { exact: true })).not.toHaveAttribute('aria-invalid', 'true');
   });
 

@@ -134,7 +134,7 @@ describe('CHECKLIST_STEP (every code, Terra contract §1.4)', () => {
   const codes: BookChecklistCode[] = [...new Set<BookChecklistCode>([...INTAKE_CHECKLIST_CODES, ...ISSUE_CODES])];
 
   it('covers every checklist and readiness code with a section on its step', () => {
-    expect(codes.length).toBe(66); // + quote_party_differs (E5-6), prefill_unchecked (0600), 14 booking form codes
+    expect(codes.length).toBe(67); // + quote_party_differs (E5-6), prefill_unchecked (0600), 14 booking form codes, flight_screenshot_missing (Book now v2)
     for (const code of codes) {
       const t = CHECKLIST_STEP[code];
       expect(t, code).toBeDefined();
@@ -183,6 +183,7 @@ describe('CHECKLIST_STEP (every code, Terra contract §1.4)', () => {
     expect(bySection('services')).toEqual([
       'budget_missing',
       'dates_outside_trip',
+      'flight_screenshot_missing',
       'missing_purchase_budget',
       'no_services',
       'participation_count_mismatch',

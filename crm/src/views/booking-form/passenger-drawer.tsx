@@ -1,31 +1,35 @@
 'use client';
 
-import { Lock, Plus, Trash2, X } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { Lock, Plus, X } from 'lucide-react';
+import { useRef, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Drawer, DrawerBody, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
-import { MultiSelect } from '@/components/ui/multi-select';
+import { Field, fieldDescribedBy } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { fieldDescribedBy } from '@/components/ui/field';
-import { SPECIAL_REQUEST_CODES, SPECIAL_REQUEST_LABEL, TRAVELLER_TYPES, isSpecialRequestCode, type BookTravellerView, type SpecialRequestCode, type TravellerIdentity, type TravellerType } from '@/modules/fulfilment/contracts';
+import { SuggestMultiSelect } from '@/components/ui/suggest-multiselect';
+import { SPECIAL_REQUEST_CODES, SPECIAL_REQUEST_LABEL, isSpecialRequestCode, type BookTravellerView, type SpecialRequestCode, type TravellerIdentity, type TravellerType } from '@/modules/fulfilment/contracts';
 import { EXTRA_PHONES_MAX } from './vn-types';
-import { AreaField, SelectField, TextField } from '../b11/controls';
+import { AreaField, TextField } from '../b11/controls';
 import { maskPassport } from '../b11/book-fields';
 import { useSectionForm } from '../b11/draft-sync';
 import { refusedFields, ResultBox, type FieldRef, type UiResult } from '../b11/form-kit';
-import { TravellerIdProofSlot } from '../b11/id-proof-slot';
 import type { BookNowView } from '../b11/shapes';
+import { useSaveQueue } from './autosave-queue';
+import { escapeClosesListFirst } from './service-editor';
 import { errFor } from './form-helpers';
+import { useFormToast } from './form-toast';
 import type { PassengerActions } from './passengers-card';
 
 /*
- * Passenger Details drawer (approved preview PassengerEditor; contract §2.3):
- * name, type, age, standard requests (owner list, 24 October 2026) and other
- * requirements go back into the passenger rows and save with them; date of birth, marriage date, contact and passport details are the
- * restricted identity record (saveIdentity, own row version, only for a saved
- * passenger); ID proofs use the existing private upload slot with its own
- * consent tick. The proof slot is a sibling of this drawer's form, so forms
- * never nest.
+ * Passenger details drawer (Book now v2, owner-approved prototype
+ * openPaxDrawer): full name, the type set by the traveller counts, age for a
+ * child or infant, special requests (the same dropdown as hotel requests;
+ * fixed request codes only, lead ruling D6) and other requirements go back
+ * into the passenger rows and save with them. Date of birth, marriage date,
+ * contact and passport details are the restricted identity record
+ * (saveIdentity, its own row version, only for a saved passenger). Extra
+ * phones and the passport block stay for the passengers who need them
+ * (privacy and ID rules unchanged). ID proof is attached from the row.
  */
 
 export interface PassengerRow {
@@ -51,11 +55,11 @@ interface IdentityValues {
   nationality: string;
   passportNumber: string;
   passportExpiry: string;
-  /** Other phone numbers (optional, up to EXTRA_PHONES_MAX). */
   extraPhones: string[];
 }
 
 const TYPE_TEXT: Record<TravellerType, string> = { adult: 'Adult', child: 'Child', infant: 'Infant' };
+const REQUEST_OPTIONS = SPECIAL_REQUEST_CODES.map((c) => ({ value: c, label: SPECIAL_REQUEST_LABEL[c] }));
 
 function identityValues(t: BookTravellerView | null): IdentityValues {
   const id = (t?.identity ?? null) as IdentityView | null;
@@ -89,12 +93,10 @@ export function PassengerDrawer({
   traveller,
   editable,
   actions,
-  reloadHref,
   passengersResult,
   passengerRefs,
   onSave,
   onClose,
-  onRemove,
 }: {
   view: BookNowView;
   rowNo: number;
@@ -103,14 +105,13 @@ export function PassengerDrawer({
   traveller: BookTravellerView | null;
   editable: boolean;
   actions: PassengerActions;
-  reloadHref: string;
   passengersResult: UiResult | null;
   passengerRefs: FieldRef[];
   onSave: (row: PassengerRow) => Promise<boolean>;
   onClose: () => void;
-  /** Absent for an empty slot (nothing to remove). */
-  onRemove?: () => void;
 }) {
+  const queue = useSaveQueue();
+  const toast = useFormToast();
   const [p, setP] = useState<PassengerRow>(row);
   const [nameError, setNameError] = useState<string | null>(null);
   const [rowRefused, setRowRefused] = useState(false);
@@ -136,11 +137,20 @@ export function PassengerDrawer({
   const rowDirty = JSON.stringify(p) !== JSON.stringify(row);
   const showPassport = Boolean(traveller?.identityRequired || traveller?.identity?.passportNumber || traveller?.identity?.nationality);
   const identityLocked = seq === null;
-  const ok = (r: UiResult | null) => Boolean(r && r.ok);
 
+  // Change 4: a synchronous in-flight flag as well as the state.
+  const inflight = useRef(false);
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!editable || busy) return;
+    if (!editable || busy || inflight.current) return;
+    inflight.current = true;
+    try {
+      await submitOnce();
+    } finally {
+      inflight.current = false;
+    }
+  }
+  async function submitOnce() {
     if (!p.name.trim()) {
       setNameError('Enter the passenger’s name.');
       requestAnimationFrame(() => document.getElementById('pax-name')?.focus());
@@ -170,11 +180,12 @@ export function PassengerDrawer({
         fd.set('passportNumber', iv.passportNumber.trim().toUpperCase());
         fd.set('passportExpiry', iv.passportExpiry);
         for (const extra of iv.extraPhones.map((x) => x.trim()).filter(Boolean)) fd.append('passengerPhoneExtra', extra);
-        const r = await idf.post(fd);
-        if (!ok(r)) return;
-        // A partial save ("… save after the database update.") stays on screen so it is read, not lost with the drawer.
-        if (r.ok && 'message' in r && typeof r.message === 'string' && /database update/i.test(r.message)) return;
+        const r = await queue.run(() => idf.post(fd));
+        if (!r.ok) return;
+        // A partial save ("… save after the database update.") stays on screen so it is read.
+        if ('message' in r && typeof r.message === 'string' && /database update/i.test(r.message)) return;
       }
+      toast('Passenger details saved. They are visible only to the people who need them.');
       onClose();
     } finally {
       setBusy(false);
@@ -186,61 +197,55 @@ export function PassengerDrawer({
     <Drawer
       open
       onOpenChange={(o) => {
-        if (!o) onClose();
+        if (!o && !busy) onClose();
       }}
     >
-      <DrawerContent className="w-[min(42.5rem,100vw)] max-sm:rounded-none" closeLabel="Close without saving">
+      <DrawerContent className="w-[min(42.5rem,100vw)] max-sm:rounded-none" closeLabel="Close without saving" onEscapeKeyDown={escapeClosesListFirst}>
         <DrawerHeader>
           <DrawerTitle className="m-0 text-lg font-semibold text-ink">Passenger details</DrawerTitle>
           <DrawerDescription className="sr-only">Edit passenger {rowNo}. Private details are shown only to the people who need them.</DrawerDescription>
         </DrawerHeader>
-        <DrawerBody className="flex flex-col gap-5">
-          {rowRefused ? <ResultBox result={passengersResult} fields={passengerRefs} reloadHref={reloadHref} /> : null}
-          <ResultBox result={idf.state} fields={IDENTITY_REFS} reloadHref={reloadHref} className="[&:empty]:hidden" />
-          <form id={FORM} onSubmit={submit} noValidate className="flex flex-col gap-5">
+        <DrawerBody className="flex flex-col gap-4">
+          <form
+            id={FORM}
+            onSubmit={submit}
+            onKeyDown={(e) => {
+              // Enter inside a field never saves the drawer (change 4).
+              if (e.key === 'Enter' && e.target instanceof HTMLInputElement) e.preventDefault();
+            }}
+            noValidate
+            className="flex flex-col gap-4"
+          >
             <div className="grid grid-cols-1 gap-4 min-[381px]:grid-cols-2">
               <TextField id="pax-name" name="name" label="Full name" value={p.name} onChange={(x) => setP((s) => ({ ...s, name: x }))} error={nameError} maxLength={120} disabled={!editable} />
-              <SelectField
-                id="pax-type"
-                name="type"
-                label="Passenger type"
-                value={p.type}
-                onChange={(x) => setP((s) => ({ ...s, type: x as TravellerType, age: x === 'adult' ? '' : s.age }))}
-                options={TRAVELLER_TYPES.map((t) => ({ value: t, label: TYPE_TEXT[t] }))}
-                disabled={!editable}
-              />
-              {p.type !== 'adult' ? (
-                <TextField id="pax-age" name="age" label="Age at travel" type="number" min={0} max={17} value={p.age} onChange={(x) => setP((s) => ({ ...s, age: x }))} disabled={!editable} />
-              ) : null}
+              <Field htmlFor="pax-type" label="Passenger type" hint="Set by the traveller counts.">
+                <Input id="pax-type" readOnly value={TYPE_TEXT[p.type]} aria-describedby={fieldDescribedBy('pax-type', { hint: true })} className="bg-wash text-quiet" />
+              </Field>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <span id="pax-requests-label" className="font-semibold text-ink">
-                Special requests <span className="font-normal text-quiet">(optional)</span>
-              </span>
-              <MultiSelect
-                id="pax-requests"
-                labelId="pax-requests-label"
-                options={SPECIAL_REQUEST_CODES.map((c) => ({ value: c, label: SPECIAL_REQUEST_LABEL[c] }))}
-                selected={p.requests}
-                onChange={(next) => setP((s) => ({ ...s, requests: next.filter(isSpecialRequestCode) }))}
-                placeholder="Choose requests"
-                noun="requests"
-                searchFrom={12}
-                disabled={!editable}
-              />
-            </div>
+            {p.type !== 'adult' ? (
+              <TextField id="pax-age" name="age" label="Age at travel" type="number" min={0} max={17} value={p.age} onChange={(x) => setP((s) => ({ ...s, age: x }))} disabled={!editable} className="max-w-30" />
+            ) : null}
+            <SuggestMultiSelect
+              id="pax-requests"
+              label="Special requests"
+              options={REQUEST_OPTIONS}
+              items={p.requests.map((value) => ({ value, forKey: null }))}
+              onChange={(next) => setP((s) => ({ ...s, requests: next.map((x) => x.value).filter(isSpecialRequestCode) }))}
+              allowCustom={false}
+              disabled={!editable}
+            />
             <AreaField id="pax-needs" name="needs" label="Other requirements" optional rows={2} maxLength={500} value={p.needs} onChange={(x) => setP((s) => ({ ...s, needs: x }))} disabled={!editable} />
 
-            <fieldset className="m-0 min-w-0 border-0 border-t border-line p-0 pt-5" disabled={!editable || identityLocked}>
-              <legend className="float-left mb-3.5 w-full p-0 text-base font-semibold text-ink">Private details</legend>
-              <p className="clear-both m-0 mb-3.5 flex gap-2 text-sm text-quiet">
-                <Lock aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-faint" />
-                <span>
+            <fieldset className="m-0 flex min-w-0 flex-col gap-3.5 border-0 border-t border-line p-0 pt-4" disabled={!editable || identityLocked}>
+              <legend className="float-left w-full p-0 text-base font-semibold text-ink">Private details</legend>
+              <div className="clear-both flex gap-2.5 rounded-control border border-line bg-wash px-3.5 py-3 text-sm text-copy">
+                <Lock aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-quiet" />
+                <p className="m-0">
                   {identityLocked
-                    ? 'Save the passenger first to add these details and the ID proof.'
+                    ? 'Save the passenger first to add these details.'
                     : 'Only the deal owner, the branch Manager and the Flight or Visa & Passport colleague who needs them see these. Purchase never does.'}
-                </span>
-              </p>
+                </p>
+              </div>
               <div className="grid grid-cols-1 gap-4 min-[381px]:grid-cols-2">
                 <TextField id="pax-dob" name="dateOfBirth" label="Date of birth" type="date" optional={!showPassport} value={iv.dateOfBirth} onChange={(x) => setI('dateOfBirth', x)} error={ierr('dateOfBirth')} />
                 <TextField id="pax-dom" name="dateOfMarriage" label="Date of marriage" type="date" optional value={iv.dateOfMarriage} onChange={(x) => setI('dateOfMarriage', x)} error={ierr('dateOfMarriage')} />
@@ -267,47 +272,17 @@ export function PassengerDrawer({
               </div>
             </fieldset>
           </form>
-
-          <section aria-labelledby="pax-docs-heading" className="flex flex-col gap-3 border-t border-line pt-5">
-            <h3 id="pax-docs-heading" className="m-0 text-base font-semibold text-ink">
-              Documents
-            </h3>
-            {seq !== null && traveller && traveller.idProofs !== undefined && view.idProofLimits ? (
-              <TravellerIdProofSlot
-                dealId={view.dealId}
-                seq={seq}
-                rowNo={rowNo}
-                name={p.name}
-                savedName={traveller.fullName}
-                type={p.type}
-                proofs={traveller.idProofs ?? []}
-                limits={view.idProofLimits}
-                canEdit={view.idProofCanEdit}
-                canRemove={view.idProofCanRemove}
-                uploadAction={actions.uploadIdProof}
-                removeAction={actions.removeIdProof}
-                retryCopyAction={actions.retryIdProofCopy}
-              />
-            ) : (
-              <p className="m-0 text-sm text-quiet">{seq === null ? 'Save the passenger first to attach an ID proof.' : 'ID proofs are not shown to you.'}</p>
-            )}
-          </section>
-
-          {editable && onRemove ? (
-            <div className="border-t border-line pt-4">
-              <Button variant="ghost" onClick={onRemove}>
-                <Trash2 aria-hidden="true" />
-                Remove passenger
-              </Button>
-            </div>
-          ) : null}
+          {rowRefused ? <ResultBox result={passengersResult} fields={passengerRefs} /> : null}
+          <ResultBox result={idf.state && !idf.state.ok ? idf.state : null} fields={IDENTITY_REFS} className="[&:empty]:hidden" />
         </DrawerBody>
-        <DrawerFooter className="sticky bottom-0 bg-card">
-          <div className="flex justify-end gap-2">
-            <Button onClick={onClose}>{editable ? 'Cancel' : 'Close'}</Button>
+        <DrawerFooter className="sticky bottom-0 bg-card" data-drawer-footer="">
+          <div className="flex justify-end gap-2.5">
+            <Button onClick={onClose} disabled={busy}>
+              {editable ? 'Cancel' : 'Close'}
+            </Button>
             {editable ? (
               <Button type="submit" form={FORM} variant="primary" loading={busy}>
-                Save passenger
+                {busy ? 'Saving…' : 'Save passenger'}
               </Button>
             ) : null}
           </div>
@@ -317,7 +292,7 @@ export function PassengerDrawer({
   );
 }
 
-/** Other phone numbers of a passenger (optional; owner item 3). */
+/** Other phone numbers of a passenger (optional; voice-note batch owner item 3). */
 function ExtraPhones({ values, set, error }: { values: string[]; set: (fn: (x: string[]) => string[]) => void; error: string | null }) {
   return (
     <div className="flex flex-col gap-2 min-[381px]:col-span-2">

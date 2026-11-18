@@ -7,7 +7,10 @@ import {
   type SupplierDetailView,
   type SupplierSummary,
 } from '@/modules/procurement/contracts';
-import { PurchaseWorkSection, SupplierDetailPage, SupplierListPage } from '@/views/procurement-views';
+import { SupplierDetailPage, SupplierListPage } from '@/views/procurement-views';
+import type { ProcUiResult } from '@/views/procurement-forms';
+import { PurchaseWorkTab } from '@/views/purchase/work-tab';
+import { PB_ACTIONS } from './pb-actions';
 import { PurchaseTaskPage } from '@/views/purchase-views';
 import { StaffShell, type ShellViewer } from '@/views/StaffShell';
 import { KeepValuesProbe } from './keep-values-probe';
@@ -68,8 +71,8 @@ export const task: PurchaseTaskView = {
 };
 
 const choices = [
-  { supplierId: S1, name: 'Synthetic Stays Pvt (example)', verificationStatus: 'unverified' as const },
-  { supplierId: S2, name: 'Example Lakeview Partners', verificationStatus: 'unverified' as const },
+  { supplierId: S1, name: 'Synthetic Stays Pvt (example)', verificationStatus: 'unverified' as const, email: 'reservations@synthetic-stays.example' },
+  { supplierId: S2, name: 'Example Lakeview Partners', verificationStatus: 'unverified' as const, email: null },
 ];
 
 const PURCHASE_USER = 'a0000000-0000-4000-8000-000000000003';
@@ -92,6 +95,11 @@ const empty: PurchaseWorkspaceView = {
   costVersions: [],
   evidence: [],
   supplierChoices: choices,
+  // Purchase build fields (20261130000100).
+  goAhead: { state: 'not_requested', requestId: null, costVersionNo: null, requestedAt: null, requestedByName: null, decidedAt: null, decidedByName: null, returnReason: null },
+  emails: [],
+  cancellation: null,
+  emailSendingEnabled: false,
 };
 
 const quotes: PurchaseWorkspaceView['quotes'] = [
@@ -109,6 +117,8 @@ const quotes: PurchaseWorkspaceView['quotes'] = [
     status: 'open',
     createdAt: '2026-10-03T05:10:00Z',
     createdByName: 'Synthetic Purchase Jodhpur',
+    perRoomNightPaise: null,
+    note: null,
   },
   {
     quoteId: Q2,
@@ -124,6 +134,8 @@ const quotes: PurchaseWorkspaceView['quotes'] = [
     status: 'withdrawn',
     createdAt: '2026-10-03T05:12:00Z',
     createdByName: 'Synthetic Purchase Jodhpur',
+    perRoomNightPaise: null,
+    note: null,
   },
 ];
 
@@ -132,8 +144,33 @@ const costs: PurchaseWorkspaceView['costVersions'] = [
   { versionNo: 1, quoteId: Q1, stage: 'proposed', amountPaise: '4200000', dueDate: null, note: null, payableStatus: 'not_requested', createdAt: '2026-10-03T05:20:00Z', createdByName: 'Synthetic Purchase Jodhpur', overBudgetApprovedAt: null, overBudgetApprovedByName: null },
 ];
 
+/** Purchase build: the booking request for a cost version was marked as sent and Accounts gave the go-ahead. */
+function bookingSentAndApproved(versionNo: number): Pick<PurchaseWorkspaceView, 'emails' | 'goAhead'> {
+  return {
+    emails: [
+      {
+        emailId: `a2000000-0000-4000-8000-00000000000${versionNo}`,
+        kind: 'booking_request',
+        supplierId: S1,
+        supplierName: 'Synthetic Stays Pvt (example)',
+        toEmail: 'reservations@synthetic-stays.example',
+        ccEmails: [],
+        subject: 'Booking request · SYN-DEL-001 · Synthetic Lakeside Hotel · 14–17 Nov 2026',
+        body: 'Dear Synthetic Stays Pvt (example) team,\n\nPlease confirm the following booking at the rate we agreed (synthetic).',
+        status: 'marked_sent',
+        costVersionNo: versionNo,
+        sentAt: '2026-10-03T06:10:00Z',
+        sentByName: 'Synthetic Purchase Jodhpur',
+        failed: false,
+      },
+    ],
+    goAhead: { state: 'approved', requestId: 'a3000000-0000-4000-8000-000000000001', costVersionNo: versionNo, requestedAt: '2026-10-03T06:10:00Z', requestedByName: 'Synthetic Purchase Jodhpur', decidedAt: '2026-10-03T06:15:00Z', decidedByName: 'Synthetic Accounts Jodhpur', returnReason: null },
+  };
+}
+
 export const inProgress: PurchaseWorkspaceView = {
   ...empty,
+  ...bookingSentAndApproved(2),
   issues: ['missing_supplier_confirmation_proof'],
   quotes,
   costVersions: costs,
@@ -207,10 +244,10 @@ export const managerView: PurchaseWorkspaceView = {
 
 const ENTITIES = [{ id: 'e1000000-0000-4000-8000-000000000001', name: 'Holiday Chacha Pvt LTD' }];
 
-function workPage(viewer: ShellViewer, ws: PurchaseWorkspaceView, confirmState?: Parameters<typeof PurchaseWorkSection>[0]['confirmState']): ReactNode {
+function workPage(viewer: ShellViewer, ws: PurchaseWorkspaceView, confirmState?: ProcUiResult | null): ReactNode {
   return (
     <StaffShell viewer={viewer} currentPath="/app/purchase">
-      <PurchaseTaskPage task={ws.task} work={<PurchaseWorkSection ws={ws} confirmState={confirmState} />} />
+      <PurchaseTaskPage task={ws.task} work={<PurchaseWorkTab ws={ws} payments={null} actions={PB_ACTIONS} senderName="Synthetic Purchase Jodhpur" confirmState={confirmState} />} />
     </StaffShell>
   );
 }
@@ -223,6 +260,7 @@ const states: Record<string, () => ReactNode> = {
   'procurement-over-budget-approved': () =>
     workPage(purchase, {
       ...ready,
+      ...bookingSentAndApproved(3),
       costVersions: [{ ...overCosts[0]!, overBudgetApprovedAt: '2026-10-03T06:20:00Z', overBudgetApprovedByName: 'Synthetic Manager Delhi' }, ...costs],
     }),
   'procurement-manager-view': () => workPage(manager, managerView),

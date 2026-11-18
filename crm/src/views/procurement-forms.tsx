@@ -407,9 +407,9 @@ export function ProposeCostForm({
 
 const ACCEPT = EVIDENCE_MIME_TYPES.join(',');
 
-export function UploadPurchaseFileForm({ taskId, fileCount }: { taskId: string; fileCount: number }) {
+export function UploadPurchaseFileForm({ taskId, fileCount, onlyKind }: { taskId: string; fileCount: number; /** Accounts phase 3 (review finding 1): fixed kind, no picker (reconfirmation proof on a confirmed task). */ onlyKind?: PurchaseEvidenceKind }) {
   const [state, action] = useActionState(guard(uploadPurchaseEvidenceAction), null);
-  const [kind, setKind] = useState<PurchaseEvidenceKind>('supplier_confirmation');
+  const [kind, setKind] = useState<PurchaseEvidenceKind>(onlyKind ?? 'supplier_confirmation');
   // Submitted by hand (no React reset, so the kind stays as chosen); the file input empties after a save.
   const savedKey = useSavedKey(state);
   if (fileCount >= 10) return <p className="note info">You have uploaded the maximum of 10 files. Remove one to add another.</p>;
@@ -418,16 +418,20 @@ export function UploadPurchaseFileForm({ taskId, fileCount }: { taskId: string; 
       <ProcResultMessage result={state} />
       <input type="hidden" name={PFIELD.taskId} value={taskId} />
       <div className="form-grid">
-        <div className="field">
-          <label htmlFor="pfile-kind">What is this file?</label>
-          <select id="pfile-kind" name={PFIELD.kind} value={kind} onChange={(e) => setKind(e.target.value as PurchaseEvidenceKind)}>
-            {(Object.keys(PURCHASE_EVIDENCE_KIND_LABEL) as PurchaseEvidenceKind[]).map((k) => (
-              <option key={k} value={k}>
-                {PURCHASE_EVIDENCE_KIND_LABEL[k]}
-              </option>
-            ))}
-          </select>
-        </div>
+        {onlyKind ? (
+          <input type="hidden" name={PFIELD.kind} value={onlyKind} />
+        ) : (
+          <div className="field">
+            <label htmlFor="pfile-kind">What is this file?</label>
+            <select id="pfile-kind" name={PFIELD.kind} value={kind} onChange={(e) => setKind(e.target.value as PurchaseEvidenceKind)}>
+              {(Object.keys(PURCHASE_EVIDENCE_KIND_LABEL) as PurchaseEvidenceKind[]).map((k) => (
+                <option key={k} value={k}>
+                  {PURCHASE_EVIDENCE_KIND_LABEL[k]}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="field">
           <label htmlFor="pfile-file">File</label>
           <span id="pfile-file-hint" className="hint">

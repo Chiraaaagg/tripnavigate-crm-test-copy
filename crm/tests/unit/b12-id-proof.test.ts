@@ -311,6 +311,8 @@ describe('loadTaskIdProofs (department task screens)', () => {
       traveller_id_proofs_for_task: {
         data: {
           taskId: TASK,
+          // Accounts phase (contract 5.1): the task's current version needs adult ID proofs.
+          idProofRequired: true,
           travellers: [
             { seq: 1, fullName: 'Asha (synthetic)', type: 'adult', idProofs: [{ fileId: FILE, fileName: 'aadhaar front.jpg', mime: 'image/jpeg', sizeBytes: 1_200_000, storedAt: '2026-10-12T08:30:02Z' }] },
             { seq: 3, fullName: 'Ravi (synthetic)', type: 'child', idProofs: [] },
@@ -321,6 +323,7 @@ describe('loadTaskIdProofs (department task screens)', () => {
     const view = await loadTaskIdProofs(staff, TASK);
     expect(view).toEqual({
       taskId: TASK,
+      idProofRequired: true,
       travellers: [
         {
           seq: 1,

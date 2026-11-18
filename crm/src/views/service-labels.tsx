@@ -9,6 +9,11 @@ import {
   type FlightSegment,
   PURCHASE_TASK_STATUS_LABEL,
   VISA_TASK_STATUS_LABEL,
+  VISA_FACT_LABEL,
+  VISA_JURISDICTION_LABEL,
+  VISA_KIND_LABEL,
+  VISA_NEXT_STEP_TEXT,
+  VISA_NOT_DECIDED_TEXT,
   SERVICE_DEPARTMENT_LABEL,
   SERVICE_NEXT_STEP_TEXT,
   SERVICE_TYPE_LABEL,
@@ -108,7 +113,19 @@ export function serviceStateInfo(item: Pick<ServiceItemView, 'state' | 'departme
         return { tone: 'warning', icon: Clock, label: VISA_TASK_STATUS_LABEL.not_started };
     }
   }
-  const labels = item.department === 'flight' ? FLIGHT_TASK_STATUS_LABEL : PURCHASE_TASK_STATUS_LABEL;
+  // Flight build (contract 7): Waiting · In progress · Done · ticket issued (never "Confirmed by supplier").
+  if (item.department === 'flight') {
+    switch (item.task.status) {
+      case 'completed':
+      case 'supplier_confirmed':
+        return { tone: 'success', icon: CircleCheck, label: FLIGHT_TASK_STATUS_LABEL.completed };
+      case 'in_progress':
+        return { tone: 'info', icon: PlayCircle, label: FLIGHT_TASK_STATUS_LABEL.in_progress };
+      default:
+        return { tone: 'warning', icon: Clock, label: FLIGHT_TASK_STATUS_LABEL.not_started };
+    }
+  }
+  const labels = PURCHASE_TASK_STATUS_LABEL;
   switch (item.task.status) {
     case 'supplier_confirmed':
       return { tone: 'success', icon: CircleCheck, label: labels.supplier_confirmed };
@@ -137,18 +154,47 @@ export function serviceOwnerText(item: Pick<ServiceItemView, 'department' | 'tas
   return item.task.assigneeName ?? `${dept} · not taken yet`;
 }
 
-/** Where "next step" leads: the task page once a task exists, otherwise the intake screen. */
-export function serviceNextHref(item: Pick<ServiceItemView, 'department' | 'task'>, dealId: string): string {
-  if (item.task) return item.department === 'flight' ? `/app/flight/${item.task.taskId}` : item.department === 'visa' ? `/app/visa/${item.task.taskId}` : `/app/purchase/${item.task.taskId}`;
+/**
+ * Where "next step" leads: the task page once a task exists, otherwise the intake screen.
+ * Flight build: a flight item leads to the Deal's Flight workspace only for viewers who can open it
+ * (Flight role, branch Manager: `canOpenFlightWorkspace`); everyone else goes to the Deal page's
+ * flight card (#deal-flights), never to a page that says "not available".
+ * Visa build: a visa or passport item leads to the desk task page only for viewers who can open it
+ * (Visa role, branch Manager: `canOpenVisaDesk`); everyone else goes to the Deal page's visa card
+ * (#deal-visa).
+ */
+export interface ServiceLinkOptions {
+  canOpenFlightWorkspace?: boolean;
+  canOpenVisaDesk?: boolean;
+}
+
+/** Visa build: the Deal page's visa card (Deal page, Services tab). */
+export const DEAL_VISA_ANCHOR = 'deal-visa';
+
+export function serviceNextHref(item: Pick<ServiceItemView, 'department' | 'task'>, dealId: string, opts: ServiceLinkOptions = {}): string {
+  if (item.task && item.department === 'flight') return opts.canOpenFlightWorkspace ? `/app/flight/deals/${dealId}?flight=${item.task.taskId}` : `/app/deals/${dealId}?tab=services#deal-flights`;
+  if (item.task && item.department === 'visa') return opts.canOpenVisaDesk ? `/app/visa/${item.task.taskId}` : `/app/deals/${dealId}?tab=services#${DEAL_VISA_ANCHOR}`;
+  if (item.task) return `/app/purchase/${item.task.taskId}`;
   return `/app/deals/${dealId}/intake`;
 }
 
-export function serviceNextLinkText(item: Pick<ServiceItemView, 'task' | 'department'>): string {
+export function serviceNextLinkText(item: Pick<ServiceItemView, 'task' | 'department'>, opts: ServiceLinkOptions = {}): string {
   if (!item.task) return 'Open intake';
-  return item.department === 'flight' ? 'Open Flight task' : item.department === 'visa' ? 'Open Visa & Passport task' : 'Open Purchase task';
+  if (item.department === 'flight') return opts.canOpenFlightWorkspace ? 'Open the flights' : 'See the flight details';
+  if (item.department === 'visa') return opts.canOpenVisaDesk ? 'Open Visa & Passport task' : 'See the visa details';
+  return 'Open Purchase task';
 }
 
-export function serviceNextStepText(item: Pick<ServiceItemView, 'nextStep'>): string {
+/** Flight build: flight items say what Flight is doing (contract 7 words), not the hotel "supplier" steps. */
+const FLIGHT_NEXT_STEP_TEXT: Partial<Record<ServiceItemView['nextStep'], string>> = {
+  take_task: 'Waiting for Flight to take it',
+  supplier_confirmation: 'Flight is confirming the tickets',
+  done: 'Done · ticket issued',
+};
+
+export function serviceNextStepText(item: Pick<ServiceItemView, 'nextStep'> & { department?: ServiceItemView['department'] }): string {
+  if (item.department === 'flight') return FLIGHT_NEXT_STEP_TEXT[item.nextStep] ?? SERVICE_NEXT_STEP_TEXT[item.nextStep];
+  if (item.department === 'visa') return VISA_NEXT_STEP_TEXT[item.nextStep] ?? SERVICE_NEXT_STEP_TEXT[item.nextStep];
   return SERVICE_NEXT_STEP_TEXT[item.nextStep];
 }
 
@@ -194,17 +240,27 @@ export function factsSummary(facts: ServiceFacts): string {
     }
     case 'flight': {
       const f = facts.facts;
-      return [f.segments.map(segmentText).join(', '), f.passengers ? plural(f.passengers, 'passenger', 'passengers') : ''].filter(Boolean).join(' · ');
+      const v2 = f as typeof f & FlightV2Facts;
+      // Book now v2: a screenshot flight has no typed legs.
+      const route = (f.segments ?? []).length > 0 ? f.segments.map(segmentText).join(', ') : v2.entryMode === 'screenshot' ? `From screenshot${v2.screenshotNote ? ` · ${v2.screenshotNote}` : ''}` : '';
+      return [route, f.passengers ? plural(f.passengers, 'passenger', 'passengers') : ''].filter(Boolean).join(' · ');
     }
     case 'visa': {
       const f = facts.facts;
-      return [f.country, f.purpose, f.travelDate ? shortDate(f.travelDate) : ''].filter(Boolean).join(' · ');
+      return [f.country, f.purpose, f.visaKind ? VISA_KIND_LABEL[f.visaKind] : '', f.travelDate ? shortDate(f.travelDate) : ''].filter(Boolean).join(' · ');
     }
     case 'passport': {
       const f = facts.facts;
       return [f.officeCity, f.neededBy ? `needed by ${shortDate(f.neededBy)}` : ''].filter(Boolean).join(' · ');
     }
   }
+}
+
+/** Book now v2 flight keys (frozen contract FlightFactKeysV2), read where present. */
+interface FlightV2Facts {
+  entryMode?: 'typed' | 'screenshot';
+  screenshotNote?: string | null;
+  preferences?: string | null;
 }
 
 /** Label/value pairs of the facts, in reading order, for facts blocks on every screen. */
@@ -251,8 +307,18 @@ export function factsLines(facts: ServiceFacts): Array<[string, string]> {
     }
     case 'flight': {
       const f = facts.facts;
+      const v2 = f as typeof f & FlightV2Facts;
+      if (v2.entryMode === 'screenshot') {
+        return [
+          ['Flight', 'From screenshot: book from the attached screenshots'],
+          ['Note for the Flight team', or(v2.screenshotNote)],
+          ['Passengers', or(f.passengers, 'Not set')],
+          ['Preferences', or(v2.preferences)],
+        ];
+      }
       return [
-        ['Segments', f.segments.length > 0 ? f.segments.map(segmentText).join('; ') : 'Not set'],
+        ['Segments', (f.segments ?? []).length > 0 ? f.segments.map(segmentText).join('; ') : 'Not set'],
+        ...(v2.preferences ? ([['Preferences', v2.preferences]] as Array<[string, string]>) : []),
         ['Passengers', or(f.passengers, 'Not set')],
         ['Preferred time', or(f.preferredTime, 'Not set')],
         ['Cabin', or(f.cabin, 'Not set')],
@@ -267,6 +333,11 @@ export function factsLines(facts: ServiceFacts): Array<[string, string]> {
         ['Planned travel date', formatIsoDate(f.travelDate)],
         ['Apply by', f.applyBy ? formatIsoDate(f.applyBy) : 'Not set'],
         ['Government fee paid by', or(f.feePaidBy, 'Not set')],
+        // Visa build (contract 5.5)
+        [VISA_FACT_LABEL.visaKind, f.visaKind ? VISA_KIND_LABEL[f.visaKind] : VISA_NOT_DECIDED_TEXT],
+        [VISA_FACT_LABEL.jurisdiction, f.jurisdiction ? VISA_JURISDICTION_LABEL[f.jurisdiction] : VISA_NOT_DECIDED_TEXT],
+        ...(f.jurisdiction === 'yes' ? ([[VISA_FACT_LABEL.jurisdictionPlace, or(f.jurisdictionPlace, 'Not set')]] as Array<[string, string]>) : []),
+        [VISA_FACT_LABEL.documentsNeeded, (f.documentsNeeded ?? []).length > 0 ? f.documentsNeeded!.join('; ') : 'None'],
         ['Notes', or(f.notes)],
       ];
     }

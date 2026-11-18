@@ -11,10 +11,11 @@ export async function generateMetadata({ params }: { params: Promise<{ step: str
 /**
  * One step address of the booking form. The form itself is loaded and
  * rendered by the layout of this route group (Echo review B-H2), so this
- * page renders nothing visible. The six B1.1 step addresses redirect to the
- * new step and section before any read (static mapping, reveals nothing);
- * any other unknown step goes to the overview, which opens the first step
- * that needs input.
+ * page renders nothing. (Accounts phase 3: the Deal's customer language and
+ * WhatsApp card is loaded by the layout and shown on the customer step.)
+ * The six B1.1 step addresses redirect to the new step and section before
+ * any read (static mapping, reveals nothing); any other unknown step goes to
+ * the overview, which opens the first step that needs input.
  */
 export default async function BookStepPage({ params }: { params: Promise<{ id: string; step: string }> }) {
   const { id, step } = await params;

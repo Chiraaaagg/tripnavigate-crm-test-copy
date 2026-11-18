@@ -144,19 +144,24 @@ describe('processOneJob', () => {
     expect(final.calls.complete).toHaveBeenCalledWith(JOB, false, 'placeholders_present', null);
   });
 
-  it('DEC-50: a Delhi final (GSTIN not given yet) is refused before any PDF; a Jodhpur final is printed', async () => {
+  it('DEC-50 / LD1: a final with no known branch (GSTIN placeholder) is refused before any PDF; Jodhpur and Delhi finals are printed', async () => {
+    const unknown = deps({ kind: 'final', branchCode: null });
+    expect(await processOneJob(unknown.d)).toMatchObject({ errorCode: 'placeholders_present' });
+    expect(unknown.d.renderPdf).not.toHaveBeenCalled();
+    expect(unknown.calls.upload).not.toHaveBeenCalled();
+
     const del = deps({ kind: 'final', branchCode: 'DEL' });
-    expect(await processOneJob(del.d)).toMatchObject({ errorCode: 'placeholders_present' });
-    expect(del.d.renderPdf).not.toHaveBeenCalled();
-    expect(del.calls.upload).not.toHaveBeenCalled();
+    expect(await processOneJob(del.d)).toMatchObject({ kind: 'final', status: 'succeeded', placeholders: 0 });
+    expect(String((del.d.renderPdf as ReturnType<typeof vi.fn>).mock.calls[0]![0])).toContain('GSTIN 08AAFCH9191M1ZV (Rajasthan)');
 
     const jdh = deps({ kind: 'final', branchCode: 'JDH' });
     expect(await processOneJob(jdh.d)).toMatchObject({ kind: 'final', status: 'succeeded', placeholders: 0 });
     expect(String((jdh.d.renderPdf as ReturnType<typeof vi.fn>).mock.calls[0]![0])).toContain('GSTIN 08AAFCH9191M1ZV (Rajasthan)');
   });
 
-  it('DEC-50: a final requested for one branch but rendered for another fails input_invalid', async () => {
-    const { d, calls } = deps({ kind: 'final', branchCode: 'JDH', requestedBranchCode: 'AMD' });
+  it('DEC-50: a final requested for one identity but rendered for another fails input_invalid', async () => {
+    // LD1: known branches share the company identity; a missing branch prints the placeholder line.
+    const { d, calls } = deps({ kind: 'final', branchCode: 'JDH', requestedBranchCode: null });
     await processOneJob(d);
     expect(calls.upload).not.toHaveBeenCalled();
     expect(calls.complete.mock.calls[0]!.slice(1, 3)).toEqual([false, 'input_invalid']);

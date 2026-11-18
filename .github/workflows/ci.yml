@@ -31,12 +31,23 @@ env:
   # verified against the 2.119.0 CLI reference.
   SUPABASE_CLI_VERSION: 2.119.0
   NEXT_TELEMETRY_DISABLED: '1'
+  # Node heap for the TypeScript checks (`tsc --noEmit` and the type check
+  # inside `next build`). From 8 November 2026 both ran out of memory at the
+  # default heap of about 2 GB on the private-repository runner (2 CPUs, about
+  # 8 GB of memory, part of it used by the local Supabase containers).
+  # Set per step (env NODE_OPTIONS), not for the whole job, so the Supabase CLI
+  # and other tools never see it.
+  NODE_HEAP_OPTIONS: --max-old-space-size=4096
 
 jobs:
   checks:
-    name: Typecheck, lint, unit and policy tests, build, browser tests
+    name: Typecheck, lint, unit and policy tests, build, production CSP
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The routing and accessibility browser tests moved to the browser-e2e job
+    # (four shards): on one runner they were cut off at 80 minutes on 2 and
+    # 5 November 2026, after more than 50 minutes in that step alone. This job
+    # is now about 30 minutes, most of it the unit and PGlite step (22 to 25).
+    timeout-minutes: 60
     env:
       # Placeholder, non-secret values: the build must not need real credentials.
       APP_ENV: local
@@ -70,6 +81,8 @@ jobs:
       - name: Markdown links (relative targets exist)
         run: node scripts/ci/check-doc-links.mjs
       - run: npm run typecheck
+        env:
+          NODE_OPTIONS: ${{ env.NODE_HEAP_OPTIONS }}
       - run: npm run lint
       # Phase 5: the Bitrix receiver Edge Function runs on Deno; type-check it as Deno would.
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
@@ -84,7 +97,11 @@ jobs:
       - name: Annotate unit and PGlite results
         if: always()
         run: node scripts/ci/annotate-test-results.mjs "unit+db (PGlite)" test-results/vitest-unit-db.json
-      - run: npm run build
+      - name: Production build
+        id: build
+        env:
+          NODE_OPTIONS: ${{ env.NODE_HEAP_OPTIONS }}
+        run: npm run build
       - name: Client bundle must not reference the secret key
         # Next.js inlines values, not names: check the name and, when this job
         # has one, the value. A missing bundle directory is a failure, not a pass.
@@ -97,26 +114,87 @@ jobs:
             echo "::error title=client bundle::the secret key value appears in the client bundle"; exit 1
           fi
       - run: npx playwright install --with-deps chromium
-      # Four test files at a time (playwright.config.ts workers, owner decision 25 October 2026);
-      # production CSP and the real journeys stay one at a time.
-      - name: Routing and accessibility (axe) browser tests
-        run: npx playwright test --project=e2e --workers=4
-      - name: Annotate browser results
-        if: always()
-        run: node scripts/ci/annotate-test-results.mjs "e2e (mock server)" test-results/playwright-e2e.json --playwright
+      # Runs only on a finished build: without one it can only fail with
+      # "Could not find a production build", which hid the real cause in the
+      # November 2026 runs.
       - name: Production CSP (next start on the build above, providerless)
-        if: always()
+        if: always() && steps.build.outcome == 'success'
         env:
           PROD_CSP_SKIP_BUILD: '1'
         run: npx playwright test --config=playwright.prod.config.ts --project=prod-csp
       - name: Annotate production CSP results
-        if: always()
+        if: always() && steps.build.outcome == 'success'
         run: node scripts/ci/annotate-test-results.mjs "prod-csp" test-results/playwright-prod-csp.json --playwright
+
+  browser-e2e:
+    name: Routing and accessibility (axe) browser tests, shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    # Each shard runs about a sixth of the test files against its own
+    # `next dev` mock server (no Supabase stack, no build needed).
+    # Six shards (17 November 2026): with four, shard 3 took 50 to 56 minutes
+    # of the 60 allowed (runs 44082291961 and 44082298518).
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/6', '2/6', '3/6', '4/6', '5/6', '6/6']
+    env:
+      APP_ENV: local
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder_not_a_key
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5)
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crm/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Four test files at a time (playwright.config.ts workers, owner decision 25 October 2026);
+      # production CSP and the real journeys stay one at a time.
+      # One retry on GitHub-hosted runners (26 October 2026): under four workers a few
+      # unrelated pages timed out waiting for "networkidle". A retried pass is
+      # reported as flaky in the annotation below, never hidden.
+      # 90 seconds per test (default 30; a test's own test.setTimeout still wins).
+      # The runner has 2 CPUs shared by four browsers and `next dev`. Tests that
+      # open many states or run axe at four sizes timed out at 30 seconds on
+      # both tries, before any assertion failed: on 2 November 2026 (run
+      # 41405946365, before sharding) and on 17 November (runs 44082291961 and
+      # 44082298518). Every assertion is unchanged.
+      - name: Routing and accessibility (axe) browser tests
+        run: npx playwright test --project=e2e --workers=4 --retries=1 --timeout=90000 --shard=${{ matrix.shard }}
+      - name: Annotate browser results
+        if: always()
+        run: node scripts/ci/annotate-test-results.mjs "e2e (mock server) shard ${{ matrix.shard }}" test-results/playwright-e2e.json --playwright
+      # A shard that runs no test at all is a failure, not a pass.
+      - name: This shard ran tests
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const report = JSON.parse(readFileSync("test-results/playwright-e2e.json", "utf8"));
+            const s = report.stats ?? {};
+            const ran = (s.expected ?? 0) + (s.unexpected ?? 0) + (s.flaky ?? 0);
+            if (ran === 0) { console.log("::error title=browser e2e::this shard ran no tests"); process.exit(1); }
+            console.log(`::notice title=browser e2e::${ran} tests ran in this shard`);
+          '
+      - name: Upload failure screenshots and traces
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (= v6)
+        with:
+          name: browser-e2e-${{ strategy.job-index }}
+          path: crm/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
 
   supabase-integration:
     name: Real local Supabase stack (Auth + Data API + Postgres + Mailpit)
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    # 50 minutes (17 November 2026): about 24 minutes of the 35 were already
+    # used on 14 November with the app build failing early and the Accounts
+    # speed tests not reached; the real RLS step alone grew from 6 to 15 minutes.
+    timeout-minutes: 50
     env:
       REQUIRE_REAL_STACK: '1'
       LOCAL_FIXTURE_PASSWORD: ci-Synthetic-Only-Password-1
@@ -148,7 +226,9 @@ jobs:
       - run: npm ci
       - run: supabase --version
       # Mailpit (inbucket) stays running: tests read invitation/recovery emails.
-      - run: supabase start -x realtime,imgproxy,edge-runtime,logflare,vector,supavisor
+      # Retries rate-limited image pulls; leaves out the services no test uses.
+      - name: Start the local Supabase stack
+        run: bash scripts/ci/supabase-start.sh
       - name: Export local stack connection values
         run: >
           supabase status -o env
@@ -192,6 +272,8 @@ jobs:
         run: node scripts/ci/annotate-test-results.mjs "db (real Postgres)" test-results/vitest-db-real.json
       - name: Build and start the app against the local stack (port 3000)
         if: always()
+        env:
+          NODE_OPTIONS: ${{ env.NODE_HEAP_OPTIONS }}
         run: |
           npm run build
           nohup npx next start --port 3000 --hostname 127.0.0.1 > "$RUNNER_TEMP/next.log" 2>&1 &
@@ -206,27 +288,73 @@ jobs:
         if: always()
         run: >
           npx vitest run --project supabase
+          --exclude 'tests/supabase/speed-accounts-phase*.real.test.ts'
           --reporter=default --reporter=json --outputFile.json=test-results/vitest-supabase.json
       - name: Annotate real-stack results
         if: always()
         run: node scripts/ci/annotate-test-results.mjs "supabase (real Auth/Data API)" test-results/vitest-supabase.json
-      - name: Required real suites (intake, Phase 5A finance, B1 journey, B1.1 Won-only, booking form) ran (not skipped) and passed
+      - name: Accounts speed tests on the disposable stack with full synthetic volumes
+        # Owner decision 17 November 2026: on the shared CI runner the speed
+        # budgets are information only. They must run, and a missed budget is a
+        # warning, not a failure; real speed is checked on the live site after
+        # each release.
+        continue-on-error: true
+        env:
+          ACCOUNTS_SPEED: '1'
+        run: |
+          # Fresh schema and fixtures first: the real-stack suites above change
+          # memberships and leave data the volume seeds refuse.
+          supabase db reset
+          DATABASE_URL="$TEST_DATABASE_URL" node scripts/seed-local.mjs
+          for file in accounts-volume accounts2-volume accounts3-volume; do
+            psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f "scripts/perf/$file.sql"
+          done
+          npx vitest run --project supabase tests/supabase/speed-accounts-phase \
+            --reporter=default --reporter=json --outputFile.json=test-results/vitest-supabase-accounts-speed.json
+      - name: Required real suites ran (not skipped) and passed
         if: always()
         run: |
           node --input-type=module -e '
             import { readFileSync } from "node:fs";
-            const report = JSON.parse(readFileSync("test-results/vitest-supabase.json", "utf8"));
-            const want = ["tests/supabase/intake.real.test.ts", "tests/supabase/intake-routes.real.test.ts", "tests/supabase/intake-receiver.real.test.ts", "tests/supabase/finance-concurrency.real.test.ts", "tests/supabase/b1-journey.real.test.ts", "tests/supabase/b11-won-only.real.test.ts", "tests/supabase/booking-form.real.test.ts"];
+            const reports = {
+              "vitest-supabase": ["intake", "intake-routes", "intake-receiver", "finance-concurrency", "b1-journey", "b11-won-only", "booking-form", "booking", "booking-flow"],
+            };
+            // Speed suites must run, but a missed budget is only a warning (owner, 17 November 2026).
+            const informational = {
+              "vitest-supabase-accounts-speed": ["speed-accounts-phase1", "speed-accounts-phase2", "speed-accounts-phase3"],
+            };
             let failed = false;
-            for (const file of want) {
-              const suite = report.testResults.find((r) => r.name.endsWith(file));
-              const tests = suite?.assertionResults ?? [];
-              const passed = tests.filter((t) => t.status === "passed").length;
-              if (!suite || tests.length === 0 || passed !== tests.length) {
-                console.log(`::error title=phase-2 intake::${file}: ${passed}/${tests.length} passed (missing, skipped or failed)`);
-                failed = true;
-              } else {
-                console.log(`::notice title=phase-2 intake::${file}: ${passed}/${tests.length} passed`);
+            for (const [name, files] of Object.entries(reports)) {
+              const report = JSON.parse(readFileSync(`test-results/${name}.json`, "utf8"));
+              for (const file of files) {
+                const suite = report.testResults.find((r) => r.name.endsWith(`/tests/supabase/${file}.real.test.ts`));
+                const tests = suite?.assertionResults ?? [];
+                const passed = tests.filter((t) => t.status === "passed").length;
+                if (tests.length === 0 || passed !== tests.length) {
+                  console.log(`::error title=Required real suite::${file}: ${passed}/${tests.length} passed (missing, skipped or failed)`);
+                  failed = true;
+                } else {
+                  console.log(`::notice title=Required real suite::${file}: ${passed}/${tests.length} passed`);
+                }
+              }
+            }
+            for (const [name, files] of Object.entries(informational)) {
+              let report;
+              try { report = JSON.parse(readFileSync(`test-results/${name}.json`, "utf8")); }
+              catch { console.log(`::error title=Speed suite::${name}.json missing: the speed tests did not run`); failed = true; continue; }
+              for (const file of files) {
+                const suite = report.testResults.find((r) => r.name.endsWith(`/tests/supabase/${file}.real.test.ts`));
+                const tests = suite?.assertionResults ?? [];
+                const passed = tests.filter((t) => t.status === "passed").length;
+                const skipped = tests.filter((t) => t.status === "skipped" || t.status === "pending").length;
+                if (tests.length === 0 || skipped > 0) {
+                  console.log(`::error title=Speed suite::${file}: missing or skipped`);
+                  failed = true;
+                } else if (passed !== tests.length) {
+                  console.log(`::warning title=Speed budget missed on the CI runner::${file}: ${passed}/${tests.length} within budget (information only)`);
+                } else {
+                  console.log(`::notice title=Speed suite::${file}: ${passed}/${tests.length} within budget`);
+                }
               }
             }
             process.exit(failed ? 1 : 0);
@@ -301,7 +429,9 @@ jobs:
         run: |
           sed -i 's#^site_url = "http://127.0.0.1:3000"#site_url = "http://127.0.0.1:3100"#' supabase/config.toml
           grep -q '^site_url = "http://127.0.0.1:3100"' supabase/config.toml
-      - run: supabase start -x realtime,imgproxy,edge-runtime,logflare,vector,supavisor
+      # Retries rate-limited image pulls; leaves out the services no test uses.
+      - name: Start the local Supabase stack
+        run: bash scripts/ci/supabase-start.sh
       - name: Export local stack connection values
         run: |
           supabase status -o env \
@@ -328,6 +458,8 @@ jobs:
         run: DATABASE_URL="$TEST_DATABASE_URL" node scripts/seed-local.mjs
       - run: npx playwright install --with-deps chromium
       - name: Production build against the local stack
+        env:
+          NODE_OPTIONS: ${{ env.NODE_HEAP_OPTIONS }}
         run: npm run build
       - name: Client bundle must not reference the secret key
         # Next.js inlines values, not names: check the name and, when this job
@@ -376,3 +508,139 @@ jobs:
           if-no-files-found: warn
       - if: always()
         run: supabase stop --no-backup
+
+  # UX redesign (build plan 4.3): the approved forms must look exactly as they
+  # do on main. No pictures are kept in Git: each run records them from the
+  # pull request's base commit, using the pull request's own test file and
+  # config, then compares the pull request with zero tolerance on the same
+  # runner (same system, browser and fonts on both sides).
+  frozen-forms-visual:
+    name: Frozen forms pictures (pull request against its base, zero tolerance)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: .
+    env:
+      APP_ENV: local
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder_not_a_key
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      # Two pages at a time, as the R0 check was run by hand.
+      E2E_WORKERS: '2'
+    steps:
+      # The pull request as it would merge (GitHub's merge commit). Depth 2 so
+      # its first parent, the exact base it was merged onto, is known.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+        with:
+          path: head
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Does this pull request contain the picture check?
+        id: detect
+        run: |
+          test_file=head/crm/tests/e2e/frozen-forms-visual.e2e.ts
+          config_file=head/crm/playwright.visual.config.ts
+          if [ ! -f "$test_file" ] || [ ! -f "$config_file" ]; then
+            echo "::notice title=frozen forms pictures::skipped: this pull request does not contain $test_file and $config_file yet"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          elif grep -q "process.platform !== 'darwin'" "$test_file"; then
+            echo "::warning title=frozen forms pictures::skipped: $test_file still runs on macOS only; apply the CI patch (build-notes/ci-fix.md) to run it here"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            base_sha="$(git -C head rev-parse HEAD^1)"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+            echo "BASE_SHA=$base_sha" >> "$GITHUB_ENV"
+            echo "FROZEN_BASELINE_DIR=$RUNNER_TEMP/frozen-forms-baseline" >> "$GITHUB_ENV"
+            echo "Pictures are recorded from base commit $base_sha"
+          fi
+      # The untouched forms: the base commit (main) the merge commit was built on.
+      - if: steps.detect.outputs.present == 'true'
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+        with:
+          ref: ${{ steps.detect.outputs.base_sha }}
+          path: base
+          persist-credentials: false
+      - if: steps.detect.outputs.present == 'true'
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5)
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            head/crm/package-lock.json
+            base/crm/package-lock.json
+      - name: Install dependencies (pull request and base)
+        if: steps.detect.outputs.present == 'true'
+        run: |
+          (cd head/crm && npm ci)
+          (cd base/crm && npm ci)
+      - name: Install the browser (pull request and base)
+        if: steps.detect.outputs.present == 'true'
+        run: |
+          (cd head/crm && npx playwright install --with-deps chromium)
+          # Same version: no download. A different Playwright version on the base gets its own browser.
+          (cd base/crm && npx playwright install chromium)
+      # Base app code with the pull request's test code: only the app differs.
+      - name: Put the pull request's test file and config on the base
+        if: steps.detect.outputs.present == 'true'
+        run: |
+          rm -rf base/crm/tests
+          cp -R head/crm/tests base/crm/tests
+          cp head/crm/playwright.config.ts head/crm/playwright.visual.config.ts base/crm/
+          mkdir -p "$FROZEN_BASELINE_DIR"
+      - name: Record the pictures from the base (main)
+        if: steps.detect.outputs.present == 'true'
+        working-directory: base/crm
+        run: npx playwright test --config=playwright.visual.config.ts --update-snapshots=all
+      - name: The base recording is complete
+        if: steps.detect.outputs.present == 'true'
+        working-directory: base/crm
+        run: |
+          node --input-type=module -e '
+            import { readFileSync, readdirSync } from "node:fs";
+            const s = JSON.parse(readFileSync("test-results/playwright-e2e.json", "utf8")).stats ?? {};
+            const pictures = readdirSync(process.env.FROZEN_BASELINE_DIR).filter((f) => f.endsWith(".png")).length;
+            console.log(`recorded ${pictures} pictures; tests passed ${s.expected ?? 0}, failed ${s.unexpected ?? 0}, flaky ${s.flaky ?? 0}, skipped ${s.skipped ?? 0}`);
+            if (pictures === 0 || (s.skipped ?? 0) > 0 || (s.unexpected ?? 0) > 0) {
+              console.log("::error title=frozen forms pictures::the base recording is incomplete (no pictures, or skipped or failed tests)");
+              process.exit(1);
+            }
+            console.log(`::notice title=frozen forms pictures::${pictures} pictures recorded from base ${process.env.BASE_SHA}`);
+          '
+          chmod -R a-w "$FROZEN_BASELINE_DIR"
+      - name: Compare the pull request with the base pictures (zero tolerance)
+        id: compare
+        if: steps.detect.outputs.present == 'true'
+        working-directory: head/crm
+        run: npx playwright test --config=playwright.visual.config.ts --update-snapshots=none
+      - name: Every picture was compared (none skipped)
+        if: always() && steps.compare.outcome != 'skipped'
+        working-directory: head/crm
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const s = JSON.parse(readFileSync("test-results/playwright-e2e.json", "utf8")).stats ?? {};
+            const ran = (s.expected ?? 0) + (s.unexpected ?? 0) + (s.flaky ?? 0);
+            if (ran === 0 || (s.skipped ?? 0) > 0) {
+              console.log(`::error title=frozen forms pictures::${ran} compared, ${s.skipped ?? 0} skipped: every picture must be compared`);
+              process.exit(1);
+            }
+          '
+      - name: Annotate picture results
+        if: always() && steps.compare.outcome != 'skipped'
+        working-directory: head/crm
+        run: node scripts/ci/annotate-test-results.mjs "frozen forms pictures" test-results/playwright-e2e.json --playwright
+      # Expected, actual and diff pictures for every failed comparison (and the
+      # base run's output when the recording itself failed).
+      - name: Upload picture differences
+        if: failure() && steps.detect.outputs.present == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (= v6)
+        with:
+          name: frozen-forms-differences
+          path: |
+            head/crm/test-results/
+            base/crm/test-results/
+          retention-days: 14
+          if-no-files-found: ignore

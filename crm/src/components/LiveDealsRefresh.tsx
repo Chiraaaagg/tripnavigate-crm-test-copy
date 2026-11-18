@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { type LiveMode, startLiveRefresh } from '@/modules/deals/live-refresh';
-import { getRealtimeAccessToken } from '@/modules/deals/server/realtime';
+import { fetchRealtimeToken } from '@/modules/notices/feed-client';
 
 /** A click on an internal link counts as a pending navigation for this long (it ends earlier when the page changes). */
 const NAVIGATION_GRACE_MS = 10_000;
@@ -62,7 +62,8 @@ export function LiveDealsRefresh({
   useEffect(() => {
     const client = createClient(supabaseUrl, supabasePublishableKey, {
       // No browser Auth client: the token comes from the server on demand.
-      accessToken: async () => (await getRealtimeAccessToken().catch(() => null)) ?? '',
+      // GET /api/realtime-token, not a Server Action (actions run one at a time per client).
+      accessToken: async () => (await fetchRealtimeToken()) ?? '',
     });
     const stop = startLiveRefresh({
       refresh: () => router.refresh(),

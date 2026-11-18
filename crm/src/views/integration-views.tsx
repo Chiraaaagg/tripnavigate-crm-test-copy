@@ -278,10 +278,12 @@ const STATUS_TONE: Partial<Record<InboxStatus, string>> = { needs_review: 'warn'
 /** Statuses integration_retry_inbox accepts. */
 const RETRYABLE: ReadonlySet<InboxStatus> = new Set(['needs_review', 'failed', 'dead_letter']);
 
-const ORIGIN_LABEL: Record<InboxOrigin, string> = {
+/** 'staff_refresh': "Refresh from Bitrix now" on the booking form (Book now v2). */
+const ORIGIN_LABEL: Record<InboxOrigin | 'staff_refresh', string> = {
   event: 'Bitrix event',
   reconcile: 'Missed-deal check',
   manual_retry: 'Manual retry',
+  staff_refresh: 'Staff refresh',
 };
 
 const ENVIRONMENT_LABEL: Record<IntegrationStatusView['environment'], string> = {

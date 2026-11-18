@@ -1,77 +1,44 @@
 'use client';
 
-import { CircleCheck, CircleX, Pencil, TriangleAlert, UserRound, Users } from 'lucide-react';
+import { CalendarDays, ChevronRight, CircleAlert, FileText, Info, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useCallback, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn, focusRing } from '@/components/ui/cn';
+import { Field } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { MoneyInput } from '@/components/ui/money-input';
 import { Notice } from '@/components/ui/notice';
-import { BOOKING_FORM_STEP_LABEL, type BookingFormSection } from '@/modules/fulfilment/booking-form-contract';
-import type { BookingFormChecklistItem, BookingFormVM } from '@/modules/fulfilment/booking-form-vm';
-import { BOOKING_FORM_FIELD_ID } from '@/modules/fulfilment/booking-form-model';
+import { SaveStatus } from '@/components/ui/save-status';
+import { useChangeMode } from './change-mode-context';
+import { EVIDENCE_MIME_TYPES } from '@/modules/fulfilment/contracts';
+import type { BookingFormVM } from '@/modules/fulfilment/booking-form-vm';
+import { formatInr, isIsoDate, paiseToRupeesText, rupeesToPaise } from '@/modules/fulfilment/booking-form-model';
+import { guard } from '../booking-forms';
 import { dateText } from '../b11/book-fields';
 import { SalesClaimsPanel } from '../b11/book-claims';
-import { AcceptanceUploadForm, ChangeClassForm, DiscardRevisionForm, ProofRow, SubmitBookingForm } from '../b11/book-review';
-import { PlanSection } from '../b11/book-steps';
+import { ChangeClassForm, DiscardRevisionForm, SubmitBookingForm } from '../b11/book-review';
 import { QuotationSourceNote } from '../b11/quotation-source';
+import { useSectionForm } from '../b11/draft-sync';
+import { newRequestId, normaliseResult, type UiResult } from '../b11/form-kit';
 import type { BookNowView } from '../b11/shapes';
-import { editableOf } from './form-helpers';
+import { refusalReason, useAutosave, useSaveQueue } from './autosave-queue';
+import { HiddenDraftInputs, editableOf } from './form-helpers';
+import { useFormToast } from './form-toast';
 import { SectionBody, SectionCard } from './parts';
-import { RowFor, SERVICE_ICON } from './services-step';
 import { SERVICE_CHIPS } from './service-labels';
 import { useFormStep } from './step-context';
-import { TYPE_TEXT } from './passengers-card';
 import type { BookingFormActions } from './types';
 
 /*
- * Step 3 · "Before you submit" (contract §2.3): one closed group holding what
- * the preview left out but the booking still needs: what blocks submission,
- * the payment plan, payments the customer reported, the customer's written
- * acceptance (and the change class of a returned booking), the final review
- * of trip and services (closed), and the existing submit with its
- * confirmation. Opened by the footer's "Review and submit" and by any link
- * to a field inside it.
+ * Step 3 cards after Bill To (Book now v2, change 9): Payment plan (its own
+ * card, saves itself), Customer's written OK (its own card), "Payment already
+ * received? (optional)" and "Review trip and services" (both collapsed), and
+ * the submit card. The shared Book now parts (payment reports, submit with
+ * its confirmation, the revision forms) are wrapped, not changed.
  */
 
 export const SUBMIT_TRIGGER_ID = 'bf-submit-trigger';
-export const BEFORE_SUBMIT_ID = 'bf-before-submit';
-
-/** Where a checklist link lands when the row names no field: the section's heading. */
-export const SECTION_TARGET: Record<BookingFormSection, string> = {
-  customer: 'customer-heading',
-  passengers: 'passengers-heading',
-  services: BOOKING_FORM_FIELD_ID.services,
-  price: 'price-heading',
-  billTo: 'billTo-heading',
-  submit: 'bf-submit-heading',
-};
-
-/** A row naming a passenger opens that passenger's Details (Echo B-M1); otherwise its field or section heading. */
-function targetOf(r: BookingFormChecklistItem, rowOfSeq: Map<number, number>): string {
-  const row = r.travellerSeqs.length > 0 ? rowOfSeq.get(r.travellerSeqs[0]!) : undefined;
-  if (row !== undefined && (r.section === 'passengers' || r.fieldId === BOOKING_FORM_FIELD_ID.passengers)) return `passengers-${row}-details`;
-  return r.fieldId ?? SECTION_TARGET[r.section];
-}
-
-function CheckLines({ rows, tone, rowOfSeq }: { rows: BookingFormChecklistItem[]; tone: 'blocking' | 'warning'; rowOfSeq: Map<number, number> }) {
-  const Icon = tone === 'blocking' ? CircleX : TriangleAlert;
-  return (
-    <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
-      {rows.map((r, i) => (
-        <li key={`${r.code}-${r.section}-${i}`} className="m-0 flex gap-2.5">
-          <Icon aria-hidden="true" className={cn('mt-0.5 size-4 shrink-0', tone === 'blocking' ? 'text-status-danger' : 'text-status-warning')} />
-          <span className="min-w-0">
-            <span className="sr-only">{tone === 'blocking' ? 'Blocking: ' : 'Check: '}</span>
-            <a href={`#${targetOf(r, rowOfSeq)}`} className={cn('rounded-chip font-medium text-brand-strong underline underline-offset-4 hover:text-brand-deep', focusRing)}>
-              {BOOKING_FORM_STEP_LABEL[r.step]}
-            </a>
-            {': '}
-            {r.travellerSeqs.length > 0 ? `passenger ${r.travellerSeqs.join(', ')}: ` : ''}
-            {r.text}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 export function submitBlockedReason(view: BookNowView): string | null {
   const blocking = view.checklist.filter((i) => i.blocking);
@@ -79,200 +46,371 @@ export function submitBlockedReason(view: BookNowView): string | null {
   if (!view.version) return 'Start the booking draft first.';
   if (view.dealNotActive) return 'This deal is lost or rejected in Bitrix, so the booking cannot change.';
   if (stageWaiting && blocking.length === 1) return 'Waiting for Won - Payment Received in Bitrix. You can keep preparing.';
-  if (blocking.length > 0) return `Finish ${blocking.length} ${blocking.length === 1 ? 'thing' : 'things'} first.`;
   if (!view.canSubmit) return view.submitBlockedReason ?? 'Only the deal owner or the branch Manager can submit this booking.';
   return null;
 }
 
-export function BeforeSubmit({ vm, view, actions, reloadHref }: { vm: BookingFormVM; view: BookNowView; actions: BookingFormActions; reloadHref: string }) {
-  const version = view.version;
-  const editable = editableOf(view);
-  const revision = Boolean(version?.revisesVersionId);
-  const rowOfSeq = new Map([...view.travellers].sort((a, b) => a.seq - b.seq).map((t, i) => [t.seq, i + 1]));
-  const blocking = vm.checklist.filter((r) => r.blocking);
-  const warnings = vm.checklist.filter((r) => !r.blocking);
-  const reason = submitBlockedReason(view);
-  const canSubmit = editable && view.canSubmit && blocking.length === 0 && Boolean(version);
-  const evidence = view.evidence.filter((e) => e.status !== 'removed');
-  const stale = view.checklist.some((i) => i.code === 'quote_acceptance_stale');
+interface PlanRow {
+  label: string;
+  amount: string;
+  due: string;
+}
+
+/** Plan checks before it saves (the server's rules, said per instalment). */
+export function planIssues(rows: readonly PlanRow[]): string[] {
+  const out: string[] = [];
+  rows.forEach((r, i) => {
+    if (!r.label.trim() && !r.amount.trim() && !r.due) return;
+    if (!r.label.trim() || r.label.trim().length > 60) out.push(`Instalment ${i + 1}: label (up to 60 characters).`);
+    const p = rupeesToPaise(r.amount);
+    if (!p || BigInt(p) <= 0n) out.push(`Instalment ${i + 1}: amount in rupees.`);
+    if (!isIsoDate(r.due)) out.push(`Instalment ${i + 1}: due date.`);
+  });
+  return out;
+}
+
+export function PlanCard({ view, action, totalPaise }: { view: BookNowView; action: BookingFormActions['savePlan']; totalPaise: string | null }) {
+  const editable = editableOf(view) && view.canEditCommercials;
+  const loaded: PlanRow[] = (view.plan ?? []).map((p) => ({ label: p.label, amount: paiseToRupeesText(p.amountPaise), due: p.dueDate }));
+  const f = useSectionForm({ id: 'plan', section: 'payment', label: 'Payment plan', order: 80, action, initial: { rows: loaded }, versionBound: true, rowVersion: view.version?.rowVersion ?? 0, saveable: false, tracksDirty: true });
+  const rows = f.values.rows;
+  const setRows = (fn: (x: PlanRow[]) => PlanRow[]) => f.setValues((s) => ({ rows: fn(s.rows) }));
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const bindForm = f.bindForm;
+  const setForm = useCallback(
+    (el: HTMLFormElement | null) => {
+      formRef.current = el;
+      bindForm(el);
+    },
+    [bindForm],
+  );
+  const save = useAutosave({
+    key: 'plan',
+    values: f.values,
+    dirty: f.dirty,
+    enabled: editable,
+    hasStored: loaded.length > 0,
+    check: () => planIssues(f.values.rows),
+    send: () => (formRef.current ? f.post(new FormData(formRef.current)) : Promise.resolve({ ok: false, code: 'unexpected', message: '' } as UiResult)),
+  });
+  const sum = rows.reduce((s, r) => {
+    const p = rupeesToPaise(r.amount);
+    return s + (typeof p === 'string' ? BigInt(p) : 0n);
+  }, 0n);
+  const total = totalPaise ? BigInt(totalPaise) : null;
+  const diff = total === null ? null : sum - total;
+  const sumText = total === null ? 'of a total not worked out yet' : diff === 0n ? `of ${formatInr(String(total))} · matches the total` : `of ${formatInr(String(total))} · ${diff! > 0n ? 'more' : 'less'} than the total by ${formatInr(String(diff! < 0n ? -diff! : diff!))}`;
   return (
-    <details id={BEFORE_SUBMIT_ID} className="group/bs rounded-card border border-line bg-card shadow-card">
-      <summary className={cn('flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 rounded-card px-5 py-4 font-semibold text-copy max-sm:px-4 [&::-webkit-details-marker]:hidden', focusRing)}>
-        <span id="bf-submit-heading" className="flex items-center gap-2">
-          <span aria-hidden="true" className="inline-block transition-transform group-open/bs:rotate-90 motion-reduce:transition-none">
-            ▸
-          </span>
-          Before you submit
-        </span>
-        <span className="text-sm font-normal text-quiet">{blocking.length === 0 ? 'Ready to submit' : `${blocking.length} ${blocking.length === 1 ? 'item' : 'items'} to finish`}</span>
+    <SectionCard id="plan" title="Payment plan" icon={CalendarDays} action={editable ? <SaveStatus id="pill-plan" state={save.state} reason={save.reason} label="Payment plan" /> : null}>
+      {/* Old links to #payment and #bf-plan land here. */}
+      <span id="payment" data-focus-target="plan-heading" />
+      <span id="bf-plan" data-focus-target="plan-heading" />
+      <form ref={setForm} onSubmit={(e) => e.preventDefault()} noValidate aria-labelledby="plan-heading">
+        <SectionBody>
+          <HiddenDraftInputs view={view} base={f.base} result={f.state} />
+          <p className="m-0 mb-3.5 text-sm text-quiet">When the customer will pay. Instalments must add up to the final total. No advance is required. A plan is not money received.</p>
+          {!view.commercials ? <p className="m-0 mb-3.5 text-quiet">The payment plan is filled by Sales on this deal.</p> : null}
+          <ol className="m-0 list-none p-0" aria-label="Instalments">
+            {rows.map((r, i) => (
+              <li key={i} className="mb-2.5 grid grid-cols-[1.2fr_1fr_1fr_2.25rem] items-end gap-2.5 max-sm:grid-cols-2">
+                <Field htmlFor={`payment-${i + 1}-label`} label={`Instalment ${i + 1}`}>
+                  <Input id={`payment-${i + 1}-label`} name="instalmentLabel" value={r.label} maxLength={60} onChange={(e) => setRows((x) => x.map((y, j) => (j === i ? { ...y, label: e.target.value } : y)))} disabled={!editable} />
+                </Field>
+                <Field htmlFor={`payment-${i + 1}-amount`} label="Amount ₹">
+                  <MoneyInput id={`payment-${i + 1}-amount`} name="instalmentAmountRupees" value={r.amount} onChange={(e) => setRows((x) => x.map((y, j) => (j === i ? { ...y, amount: e.target.value } : y)))} disabled={!editable} />
+                </Field>
+                <Field htmlFor={`payment-${i + 1}-due`} label="Due date">
+                  <Input id={`payment-${i + 1}-due`} name="instalmentDueDate" type="date" value={r.due} onChange={(e) => setRows((x) => x.map((y, j) => (j === i ? { ...y, due: e.target.value } : y)))} disabled={!editable} />
+                </Field>
+                {editable ? (
+                  <Button variant="ghost" size="icon" className="size-9 max-sm:col-start-2 max-sm:justify-self-end" aria-label={`Remove instalment ${i + 1}`} onClick={() => setRows((x) => x.filter((_, j) => j !== i))}>
+                    <Trash2 aria-hidden="true" />
+                  </Button>
+                ) : (
+                  <span />
+                )}
+              </li>
+            ))}
+          </ol>
+          {editable ? (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {rows.length < 12 ? (
+                <Button size="sm" onClick={() => setRows((x) => [...x, { label: x.length ? 'Balance' : 'Advance', amount: '', due: '' }])}>
+                  <Plus aria-hidden="true" />
+                  Add instalment
+                </Button>
+              ) : null}
+              {total !== null ? (
+                <Button size="sm" onClick={() => setRows(() => [{ label: 'Full payment', amount: paiseToRupeesText(String(total)), due: '' }])}>
+                  Use the full total as one instalment
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          <p className="m-0 flex justify-between gap-3 rounded-control bg-wash px-3 py-2.5 text-sm" aria-live="polite">
+            <span>Plan total</span>
+            <b className="text-right tabular-nums">
+              {formatInr(String(sum), '₹0')} {sumText}
+            </b>
+          </p>
+          {save.state === 'fix' && save.reason ? (
+            <p id="why-plan" className="m-0 mt-3 flex items-start gap-1.5 text-sm font-medium text-status-danger">
+              <CircleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+              <span>{save.reason}</span>
+            </p>
+          ) : null}
+        </SectionBody>
+      </form>
+    </SectionCard>
+  );
+}
+
+async function run(action: unknown, fd: FormData): Promise<UiResult> {
+  return normaliseResult(await guard(action as never)(null, fd)) as UiResult;
+}
+
+/** "Customer’s written OK for this version": its own card (change 9). Choosing a file uploads it. */
+export function OkCard({ view, actions }: { view: BookNowView; actions: BookingFormActions }) {
+  const router = useRouter();
+  const queue = useSaveQueue();
+  const toast = useFormToast();
+  const editable = editableOf(view);
+  const version = view.version;
+  const evidence = view.evidence.filter((e) => e.status !== 'removed');
+  const stored = evidence.filter((e) => e.status === 'stored');
+  const stale = view.checklist.some((i) => i.code === 'quote_acceptance_stale');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [key, setKey] = useState(0);
+  const upload = async (file: File | undefined) => {
+    if (!file || !version || busy) return;
+    if (file.size > 4 * 1024 * 1024 || !(EVIDENCE_MIME_TYPES as readonly string[]).includes(file.type)) {
+      setProblem('Use a PDF, JPG, PNG or WebP file up to 4 MB. Nothing was uploaded.');
+      return;
+    }
+    setBusy(true);
+    setProblem(null);
+    const fd = new FormData();
+    fd.set('dealId', view.dealId);
+    fd.set('versionId', version.versionId);
+    fd.set('kind', 'acceptance_message');
+    fd.set('file', file);
+    const r = await queue.run(() => run(actions.uploadEvidence, fd));
+    setBusy(false);
+    setKey((k) => k + 1);
+    if (r.ok) {
+      router.refresh();
+      toast('Acceptance proof stored for this version.');
+    } else setProblem(r.code === 'upload_failed' ? 'The upload did not finish. The file is not stored. Try again.' : refusalReason(r));
+  };
+  const remove = async (id: string) => {
+    const fd = new FormData();
+    fd.set('dealId', view.dealId);
+    fd.set('evidenceId', id);
+    const r = await queue.run(() => run(actions.removeEvidence, fd));
+    if (r.ok) router.refresh();
+    else setProblem(refusalReason(r));
+  };
+  return (
+    <SectionCard id="ok" title="Customer’s written OK for this version" icon={FileText} action={stored.length > 0 || (view.quotationSource && !stale) ? <SaveStatus state="saved" text="Stored" label="Customer’s written OK" /> : null}>
+      <span id="bf-acceptance" data-focus-target="ok-heading" />
+      <SectionBody className="flex flex-col gap-3">
+        <p className="m-0 text-sm text-quiet">A Bitrix stage is not proof. If you change anything after uploading, upload a new OK.</p>
+        <QuotationSourceNote source={view.quotationSource} stale={stale} />
+        {!view.evidenceVisible ? (
+          <Notice tone="locked">Only Sales on this deal and the branch Manager can open proof files.</Notice>
+        ) : (
+          <>
+            {evidence.map((e) => (
+              <div key={e.id} className="flex flex-wrap items-center justify-between gap-2.5 rounded-chip border border-line bg-card px-2.5 py-2 text-sm">
+                <span className="inline-flex min-w-0 items-center gap-1.5 wrap-anywhere">
+                  <FileText aria-hidden="true" className="size-4 shrink-0" />
+                  {e.status === 'stored' ? (
+                    <a href={`/app/bookings/evidence/${e.id}`} rel="noopener" className={cn('text-copy underline-offset-4 hover:underline', focusRing)}>
+                      {e.fileName}
+                    </a>
+                  ) : (
+                    e.fileName
+                  )}
+                  {' · '}
+                  {e.status === 'stored' ? 'Stored' : 'Upload did not finish: not stored'}
+                </span>
+                {editable ? (
+                  <Button variant="link" size="sm" onClick={() => void remove(e.id)}>
+                    Remove<span className="sr-only"> {e.fileName}</span>
+                  </Button>
+                ) : null}
+              </div>
+            ))}
+            {editable && version && evidence.length === 0 ? (
+              <div className="flex flex-col gap-2.5 rounded-control border border-dashed border-control bg-canvas p-3.5">
+                <label htmlFor="bk-proof-file" className="font-semibold text-ink">
+                  Acceptance file
+                </label>
+                <input
+                  key={key}
+                  id="bk-proof-file"
+                  type="file"
+                  accept={EVIDENCE_MIME_TYPES.join(',')}
+                  aria-describedby="bk-proof-hint"
+                  disabled={busy}
+                  onChange={(e) => void upload(e.target.files?.[0])}
+                  className={cn('block w-full text-base text-ink file:mr-3 file:cursor-pointer file:rounded-control file:border file:border-line-strong file:bg-card file:px-3 file:py-1.5 file:font-semibold file:text-ink', focusRing)}
+                />
+                <p id="bk-proof-hint" className="m-0 text-sm text-quiet" aria-live="polite">
+                  {busy ? 'Uploading…' : 'Screenshot or PDF of the customer saying yes. PDF, JPG, PNG or WebP, up to 4 MB.'}
+                </p>
+              </div>
+            ) : null}
+            {problem ? (
+              <p role="alert" className="m-0 flex items-start gap-1.5 text-sm font-medium text-status-danger">
+                <CircleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+                {problem}
+              </p>
+            ) : null}
+          </>
+        )}
+      </SectionBody>
+    </SectionCard>
+  );
+}
+
+function Collapsed({ id, summary, children }: { id?: string; summary: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <details id={id} className="group/col rounded-card border border-line bg-card shadow-card">
+      <summary className={cn('flex cursor-pointer list-none items-center gap-2 rounded-card px-5 py-4 font-semibold text-ink max-sm:px-4 [&::-webkit-details-marker]:hidden', focusRing)}>
+        <ChevronRight aria-hidden="true" className="size-4 text-quiet transition-transform group-open/col:rotate-90 motion-reduce:transition-none" />
+        {summary}
       </summary>
-      <div className="flex flex-col gap-6 border-t border-line px-5 py-5 max-sm:px-4">
-        <section aria-labelledby="review-heading" className="flex flex-col gap-3">
-          {/* Old links to #review land here. */}
-          <span id="review" />
-          <h4 id="review-heading" className="m-0 text-base font-semibold text-ink">
-            To finish before submitting <span className="font-normal text-quiet">({blocking.length})</span>
-          </h4>
-          {blocking.length === 0 ? (
-            <p className="m-0 flex items-center gap-2 text-copy">
-              <CircleCheck aria-hidden="true" className="size-4 text-status-success" /> Ready to submit
-            </p>
-          ) : (
-            <CheckLines rows={blocking} tone="blocking" rowOfSeq={rowOfSeq} />
-          )}
-          {warnings.length > 0 ? (
-            <>
-              <h4 className="m-0 text-base font-semibold text-ink">
-                Worth checking <span className="font-normal text-quiet">({warnings.length})</span>
-              </h4>
-              <CheckLines rows={warnings} tone="warning" rowOfSeq={rowOfSeq} />
-            </>
-          ) : null}
-        </section>
-
-        <section id="bf-plan" tabIndex={-1} aria-labelledby="payment-heading" className="flex flex-col gap-3 border-t border-line pt-5 outline-none">
-          {/* Old links to #payment land here. */}
-          <span id="payment" />
-          <h4 id="payment-heading" className="m-0 text-base font-semibold text-ink">
-            Payment plan
-          </h4>
-          {view.commercials ? (
-            <PlanSection view={view} reloadHref={reloadHref} saveAction={actions.savePlan} />
-          ) : (
-            <p className="m-0 text-quiet">The payment plan is filled by Sales on this deal.</p>
-          )}
-        </section>
-
-        {view.claims ? (
-          <div className="border-t border-line pt-5">
-            <SalesClaimsPanel dealId={view.dealId} claims={view.claims} reportAction={actions.reportClaim} withdrawAction={actions.withdrawClaim} headingLevel={4} />
-          </div>
-        ) : null}
-
-        {revision && version ? (
-          <div className="border-t border-line pt-5">
-            <ChangeClassForm view={view} action={actions.classifyRevision} reloadHref={reloadHref} />
-          </div>
-        ) : null}
-
-        <section id="bf-acceptance" tabIndex={-1} aria-labelledby="bf-acceptance-heading" className="flex flex-col gap-3 border-t border-line pt-5 outline-none">
-          <h4 id="bf-acceptance-heading" className="m-0 text-base font-semibold text-ink">
-            Customer’s written OK for this version
-          </h4>
-          <p className="m-0 text-sm text-quiet">A Bitrix stage is not proof. If you change anything after uploading, upload a new OK.</p>
-          <QuotationSourceNote source={view.quotationSource} stale={stale} />
-          {!view.evidenceVisible ? (
-            <Notice tone="locked">Only Sales on this deal and the branch Manager can open proof files.</Notice>
-          ) : evidence.length === 0 ? (
-            view.quotationSource && !stale ? null : <p className="m-0 text-copy">No acceptance uploaded yet.</p>
-          ) : (
-            <ul className="m-0 flex list-none flex-col gap-2 p-0" aria-label="Proof files">
-              {evidence.map((e) => (
-                <ProofRow key={e.id} item={e} dealId={view.dealId} editable={editable} action={actions.removeEvidence} />
-              ))}
-            </ul>
-          )}
-          {editable && version && view.evidenceVisible ? <AcceptanceUploadForm dealId={view.dealId} versionId={version.versionId} fileCount={evidence.length} action={actions.uploadEvidence} /> : null}
-        </section>
-
-        <FinalReview vm={vm} view={view} />
-
-        <section aria-label="Submit" className="flex flex-col gap-3 border-t border-line pt-5">
-          <Notice tone="info">
-            <p>
-              {revision
-                ? 'Saving the fixed booking replaces the returned version. Accounts checks it again; departments keep their tasks. Nothing is booked or paid.'
-                : 'Submitting locks this version and creates one task per service.'}
-            </p>
-          </Notice>
-          {reason ? (
-            <p id="bf-submit-reason" className="m-0 text-copy">
-              {reason}
-            </p>
-          ) : null}
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            {revision && editable && version ? <DiscardRevisionForm view={view} action={actions.discardRevision} /> : null}
-            {version ? <SubmitBookingForm view={view} disabled={!canSubmit} describedBy={reason ? 'bf-submit-reason' : undefined} action={actions.submit} reloadHref={reloadHref} triggerId={SUBMIT_TRIGGER_ID} /> : null}
-          </div>
-        </section>
-      </div>
+      <div className="border-t border-line p-5 max-sm:p-4">{children}</div>
     </details>
   );
 }
 
-/** Closed "Review trip and services" (preview): customer, passengers and services, each with Edit. */
-function FinalReview({ vm, view }: { vm: BookingFormVM; view: BookNowView }) {
+/** "Payment already received? (optional)", collapsed: the live payment report, unchanged. */
+export function ClaimCard({ view, actions }: { view: BookNowView; actions: BookingFormActions }) {
+  if (!view.claims) return null;
+  return (
+    <Collapsed
+      id="sec-claim"
+      summary={
+        <>
+          Payment already received? <span className="font-normal text-quiet">(optional)</span>
+        </>
+      }
+    >
+      <SalesClaimsPanel dealId={view.dealId} claims={view.claims} reportAction={actions.reportClaim} withdrawAction={actions.withdrawClaim} headingLevel={4} />
+    </Collapsed>
+  );
+}
+
+/** "Review trip and services", collapsed. */
+export function ReviewCard({ vm, view, travellersText }: { vm: BookingFormVM; view: BookNowView; travellersText: string | null }) {
   const { go } = useFormStep();
   const c = view.contacts;
-  const items = [...vm.items].sort((a, b) => a.itemNo - b.itemNo);
-  const estimatesVisible = view.commercials !== undefined;
-  const edit = (step: 'travellers' | 'stay', what: string) => (
-    <Button variant="ghost" size="sm" onClick={() => go(step)} aria-label={`Edit ${what}`}>
-      <Pencil aria-hidden="true" />
-      Edit
-    </Button>
-  );
+  const counts = SERVICE_CHIPS.map((s) => ({ label: s.label, n: vm.items.filter((i) => i.serviceType === s.type).length })).filter((s) => s.n > 0);
   return (
-    <details className="group/rv rounded-card border border-line bg-card">
-      <summary className={cn('cursor-pointer rounded-card px-5 py-4 font-semibold text-copy max-sm:px-4', focusRing)}>Review trip and services</summary>
-      <div className="flex flex-col gap-4 px-5 pb-5 max-sm:px-4">
-        <SectionCard id="bf-review-customer" title="Customer" icon={UserRound} action={edit('travellers', 'customer')}>
-          <SectionBody>
-            <dl className="m-0 grid gap-3 text-base">
-              {[
-                ['Name', c?.contactName || 'Not entered'],
-                ['Contact', [c?.mobile, c?.email].filter(Boolean).join(' · ') || 'Not entered'],
-                ['Destination', vm.trip.destination || 'Not entered'],
-                ['Travel', vm.trip.start ? `${dateText(vm.trip.start)}${vm.trip.end ? ` – ${dateText(vm.trip.end)}` : ''}` : 'Date not set'],
-                ['Passengers', `${vm.party.total ?? 'Not set'}${view.travellers.length > 0 ? ` · ${view.travellers.length} named` : ''}`],
-              ].map(([k, val]) => (
-                <div key={k} className="flex items-baseline justify-between gap-5">
-                  <dt className="text-quiet">{k}</dt>
-                  <dd className="m-0 text-right wrap-anywhere text-ink">{val}</dd>
-                </div>
-              ))}
-            </dl>
-          </SectionBody>
-        </SectionCard>
-        {view.travellers.length > 0 ? (
-          <SectionCard id="bf-review-passengers" title="Passenger list" icon={Users} count={view.travellers.length} action={edit('travellers', 'passengers')}>
-            <SectionBody className="flex flex-col gap-3">
-              {[...view.travellers]
-                .sort((a, b) => a.seq - b.seq)
-                .map((t, i) => (
-                  <div key={t.seq} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                    <span>
-                      {i + 1}. {t.fullName || 'Name missing'}
-                    </span>
-                    <span className="text-sm text-quiet">
-                      {TYPE_TEXT[t.type]}
-                      {(t.idProofs ?? []).some((p) => p.status === 'stored') ? ' · ID proof attached' : ''}
-                      {t.specialNeeds ? ' · Special request' : ''}
-                    </span>
-                  </div>
-                ))}
-            </SectionBody>
-          </SectionCard>
-        ) : null}
-        {SERVICE_CHIPS.filter((s) => items.some((i) => i.serviceType === s.type)).map(({ type, label }) => {
-          const rows = items.filter((i) => i.serviceType === type);
-          return (
-            <SectionCard key={type} id={`bf-review-${type}`} title={label} icon={SERVICE_ICON[type]} count={rows.length} action={edit('stay', label.toLowerCase())}>
-              {rows.map((item) => (
-                <div key={item.itemId} className="border-b border-line px-5 py-4 last:border-b-0 max-sm:px-4">
-                  <RowFor item={item} estimatesVisible={estimatesVisible} />
-                </div>
-              ))}
-            </SectionCard>
-          );
-        })}
-        {items.length === 0 ? (
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-card border border-line p-5 text-quiet">
-            No services added.
-            <Button onClick={() => go('stay')}>Add services</Button>
-          </div>
-        ) : null}
+    <Collapsed summary="Review trip and services">
+      <span id="review" data-focus-target="bf-ready-heading" />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <b>Customer</b>
+          <p className="m-0 text-sm text-quiet">
+            {c?.contactName || '—'} · {c?.mobile || c?.email || '—'}
+          </p>
+          <p className="m-0 text-sm text-quiet">
+            {vm.trip.destination || '—'} · {vm.trip.start ? dateText(vm.trip.start) : '—'}
+            {vm.trip.end ? ` – ${dateText(vm.trip.end)}` : ''}
+          </p>
+          <p className="m-0 text-sm text-quiet">{travellersText ?? '—'}</p>
+          <Button variant="link" className="mt-1.5" onClick={() => go('travellers')}>
+            <Pencil aria-hidden="true" />
+            Edit<span className="sr-only"> customer and passengers</span>
+          </Button>
+        </div>
+        <div>
+          <b>Services</b>
+          <ul className="m-0 my-1 pl-4.5 text-sm text-quiet">
+            {counts.length > 0 ? (
+              counts.map((s) => (
+                <li key={s.label}>
+                  {s.label}: {s.n}
+                </li>
+              ))
+            ) : (
+              <li>No services added.</li>
+            )}
+          </ul>
+          <Button variant="link" onClick={() => go('stay')}>
+            <Pencil aria-hidden="true" />
+            Edit<span className="sr-only"> services</span>
+          </Button>
+        </div>
       </div>
-    </details>
+    </Collapsed>
+  );
+}
+
+/** The submit card: the note, the live submit with its confirmation, and "Finish N things first". */
+export function SubmitCard({ view, actions, left, reloadHref, onShowList }: { view: BookNowView; actions: BookingFormActions; left: number; reloadHref: string; onShowList: () => void }) {
+  const editable = editableOf(view);
+  const version = view.version;
+  const revision = Boolean(version?.revisesVersionId);
+  const reason = submitBlockedReason(view);
+  const canSubmit = editable && view.canSubmit && left === 0 && view.checklist.every((i) => !i.blocking) && Boolean(version);
+  const changeMode = useChangeMode();
+  if (changeMode) return <ChangeModeSubmitNote refNo={changeMode.refNo} />;
+  return (
+    <section aria-label="Submit" className="flex flex-col gap-3 rounded-card border border-line bg-card px-5 py-4.5 shadow-card max-sm:px-4">
+      {revision && version ? <ChangeClassForm view={view} action={actions.classifyRevision} reloadHref={reloadHref} /> : null}
+      <div className="flex gap-2.5 rounded-control border border-status-info-line bg-status-info-tint px-3.5 py-3 text-sm text-copy">
+        <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-info" />
+        <p className="m-0">
+          {revision
+            ? 'Saving the fixed booking replaces the returned version. Accounts checks it again; departments keep their tasks. Nothing is booked or paid.'
+            : 'Submitting locks this version and creates one task per service.'}
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        {version ? <SubmitBookingForm view={view} disabled={!canSubmit} describedBy="bf-submit-reason" action={actions.submit} reloadHref={reloadHref} triggerId={SUBMIT_TRIGGER_ID} /> : null}
+        {revision && editable && version ? <DiscardRevisionForm view={view} action={actions.discardRevision} /> : null}
+        <span id="bf-submit-reason" className="text-sm text-quiet">
+          {left > 0 ? (
+            <>
+              Finish {left} {left === 1 ? 'thing' : 'things'} first (see{' '}
+              <button type="button" onClick={onShowList} className={cn('cursor-pointer border-0 bg-transparent p-0 text-sm text-brand-strong underline underline-offset-4', focusRing)}>
+                the list at the top
+              </button>
+              ).
+            </>
+          ) : (
+            reason
+          )}
+        </span>
+      </div>
+    </section>
+  );
+}
+
+export { newRequestId };
+
+/**
+ * Accounts phase 3 (Addendum O2, review finding 4): in change mode this version is sent with "Send change" in
+ * the banner at the top (the Manager approves exactly that version). The revision class, "Submit booking" and
+ * "Discard revision" do not apply to a change version (the database refuses them: use_change_flow).
+ */
+function ChangeModeSubmitNote({ refNo }: { refNo: string }) {
+  return (
+    <section aria-label="Send the change" className="flex flex-col gap-3 rounded-card border border-line bg-card px-5 py-4.5 shadow-card max-sm:px-4">
+      <div className="flex gap-2.5 rounded-control border border-status-info-line bg-status-info-tint px-3.5 py-3 text-sm text-copy">
+        <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-info" />
+        <p className="m-0">
+          This is the change version of {refNo}. When it is ready, send it with <strong className="text-ink">Send change</strong> at the top of the form; the branch Manager approves exactly this version. To drop the change, withdraw it on the Deal page.
+        </p>
+      </div>
+      <a href="#change-mode" className={cn('self-start text-sm font-semibold text-brand-strong underline underline-offset-4', focusRing)}>
+        Go to &quot;Send change&quot;
+      </a>
+    </section>
   );
 }

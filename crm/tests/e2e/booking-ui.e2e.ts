@@ -79,6 +79,11 @@ test.describe('booking previews: accessibility on desktop and 390 px mobile', ()
       await page.goto(`/preview/${state}`);
       await expect(page.getByRole('heading', { level: 1 })).toBeAttached();
       await page.waitForLoadState('networkidle');
+      // These previews open the confirm dialog after hydration. Wait until it is open, so its
+      // fade-in has started before axe() waits for animations, never during the contrast scan.
+      if (state === 'booking-confirm-dialog' || state === 'booking-confirm-conflict') {
+        await expect(page.locator('dialog.confirm-dialog[open]')).toBeVisible();
+      }
       expect(await axe(page)).toEqual([]);
       await page.setViewportSize({ width: 390, height: 844 });
       await noHorizontalScroll(page);

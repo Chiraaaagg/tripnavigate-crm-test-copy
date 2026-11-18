@@ -5,7 +5,7 @@
 //
 // Usage:
 //   APP_ENV=local SUPABASE_SECRET_KEY=... NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321 \
-//     node scripts/render-worker.mjs [--once | --loop [--interval-ms 5000]] [--worker local-1]
+//     node scripts/render-worker.mjs [--once | --loop [--interval-ms 5000]] [--worker local-1] [--queue itinerary|customer]
 //   node scripts/render-worker.mjs --sample view.json --out document.pdf   (no database)
 //
 // A non-local target (review E6-2) needs BOTH WORKER_ALLOW=1 and WORKER_PROJECT_REF equal to
@@ -18,6 +18,10 @@
 // codes. A final document with placeholders, unsafe words or layout issues is never
 // uploaded. Output: one JSON line per job with ids, codes, sizes and timings only;
 // never facts, names, amounts, keys or URLs.
+//
+// --queue customer (Accounts phase 2, contract 6.8): customer documents (Advance Invoice,
+// Invoice, Credit Note) from their frozen content; every customer document is final.
+// Default queue: itinerary.
 //
 // Exit codes: 0 done (or idle), 1 refused to start / failure, 2 sample refused.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -39,6 +43,8 @@ const stop = (reason) => {
 
 const LOOPBACK = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?(\/|$)/;
 const sample = value('--sample');
+const queue = value('--queue') ?? 'itinerary';
+if (queue !== 'itinerary' && queue !== 'customer') stop('queue_unknown');
 
 if (!sample) {
   // Environment guard: local stack, or an explicit, approved override.
@@ -103,13 +109,14 @@ try {
     }
   } else {
     const worker = (value('--worker') ?? `local-${process.pid}`).slice(0, 60);
-    const deps = mod.createLocalWorkerDeps({ worker, browser });
+    const deps = queue === 'customer' ? mod.createLocalCustomerWorkerDeps({ worker, browser }) : mod.createLocalWorkerDeps({ worker, browser });
+    const processOne = queue === 'customer' ? mod.processOneCustomerJob : mod.processOneJob;
     const loop = flag('--loop');
     const interval = Math.max(1000, Number(value('--interval-ms') ?? 5000) || 5000);
     for (;;) {
       let result;
       try {
-        result = await mod.processOneJob(deps);
+        result = await processOne(deps);
       } catch (error) {
         // Codes only: a database call or an unexpected failure (no message text).
         result = { outcome: 'error', code: error?.name === 'RenderWorkerError' ? `${error.command}:${error.sqlState ?? 'unknown'}${error.hint ? `:${error.hint}` : ''}` : 'unexpected' };

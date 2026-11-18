@@ -25,6 +25,7 @@ import {
   type AccountsExpenseRecordsPage,
   PAYMENT_CLAIM_DISPLAY_STATUSES,
   PAYMENT_CLAIM_STATUSES,
+  REVIEW_RETURN_BLOCKS,
   type SalesPaymentClaims,
 } from './contracts';
 
@@ -218,6 +219,10 @@ const BookingSchema = z.object({
   reviewedAt: timestamp.nullable(),
   canApprove: z.boolean(),
   approveBlock: z.union([actionBlock, z.literal('billing_not_verified')]),
+  // Accounts phase (20261203000110): no return after commitment or issued tickets.
+  // Optional so a database without it still parses (then today's rule: Return unless already returned).
+  canReturn: z.boolean().optional(),
+  returnBlock: z.enum(REVIEW_RETURN_BLOCKS).nullable().optional(),
   // B1.1 additive keys (0200 / 0300): optional so a database without B1.1 still parses.
   serviceType: z.enum(['hotel', 'package']).optional(),
   listPricePaise: nonNegativePaise.nullable().optional(),
@@ -465,6 +470,8 @@ export const AccountsExpenseRecordsPageSchema = z
           .optional()
           .transform((v) => v ?? []),
         actions: z.object({ accept: expenseBlock, return: expenseBlock }),
+        // Visa build (20261202000120): absent before that migration and on non-visa rows.
+        applicantName: nullableText.optional().transform((v) => v ?? null),
       }),
     ).max(ACCOUNTS_QUEUE_PAGE_MAX),
     hasMore: z.boolean(),
@@ -481,7 +488,7 @@ export const AccountsDealDetailSchema = z.object({
   branchId: uuid,
   branchName: text,
   isSynthetic: z.boolean(),
-  booking: BookingSchema.nullable(),
+  booking: BookingSchema.transform((b) => ({ ...b, canReturn: b.canReturn ?? b.reviewStatus !== 'returned', returnBlock: b.returnBlock ?? null })).nullable(),
   billing: BillingSchema.nullable(),
   money: MoneySchema,
   receipts: z.array(ReceiptSchema),

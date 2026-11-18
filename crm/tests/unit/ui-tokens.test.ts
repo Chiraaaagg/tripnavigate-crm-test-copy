@@ -21,7 +21,26 @@ const read = (path: string) => readFileSync(path, 'utf8');
 const entryPath = join(src, 'app/app.css');
 const tokensPath = join(src, 'components/ui/tokens.css');
 const legacyPath = join(src, 'app/globals.css');
-const UI_DIRS = [join(src, 'components/ui'), join(src, 'app/preview/ui-gallery'), join(src, 'views/b11'), join(src, 'views/b12'), join(src, 'views/deal-workspace'), join(src, 'views/booking-form'), join(src, 'views/settings'), join(src, 'views/department'), join(src, 'views/accounts')];
+const UI_DIRS = [join(src, 'components/ui'), join(src, 'app/preview/ui-gallery'), join(src, 'views/b11'), join(src, 'views/b12'), join(src, 'views/deal-workspace'), join(src, 'views/booking-form'), join(src, 'views/settings'), join(src, 'views/department'), join(src, 'views/accounts'), join(src, 'views/purchase'),
+  // Flight build (4 November 2026, Track C): the new Flight screens folder (matches the new @source line in app.css).
+  join(src, 'views/flight'),
+  // Visa build (8 November 2026, Track D): the new Visa desk screens folder (matches the new @source line in app.css).
+  join(src, 'views/visa'),
+  // Accounts phase (10 November 2026, Track D): Accounts desk screens and the notification bell (match the new @source lines in app.css).
+  join(src, 'views/accounts-desk'),
+  join(src, 'views/notices'),
+  // Accounts phase 2 (11 November 2026, Track E): the new screen folders (match the new @source lines in app.css).
+  join(src, 'views/customer-documents'),
+  join(src, 'views/refunds'),
+  join(src, 'views/suppliers'),
+  join(src, 'views/tally-mapping'),
+  join(src, 'views/cancellations'),
+  // Accounts phase 3 (13 November 2026, Track U): the new screen folders (match the new @source lines in app.css).
+  join(src, 'views/customer-messages'),
+  join(src, 'views/write-offs'),
+  join(src, 'views/tally-file'),
+  join(src, 'views/rate-contracts'),
+  join(src, 'views/booking-changes')];
 /** Single files of screens already moved to the design system (one @source line each). */
 const UI_FILES = [
   join(src, 'views/StaffShell.tsx'),
@@ -59,6 +78,20 @@ const UI_FILES = [
   join(src, 'views/finance-cash-views.tsx'),
   join(src, 'views/finance-destination-views.tsx'),
   join(src, 'app/preview/[state]/batch4-dept-states.tsx'),
+  // Flight build (4 November 2026, Track C): the flight preview states (matches the new @source line in app.css).
+  join(src, 'app/preview/[state]/flight-states.tsx'),
+  // Visa build (8 November 2026, Track D): the visa preview states (matches the new @source line in app.css).
+  join(src, 'app/preview/[state]/visa-states.tsx'),
+  // Accounts phase (10 November 2026, Track D): the Accounts phase preview states.
+  join(src, 'app/preview/[state]/acc-states.tsx'),
+  // Accounts phase 2 (Track E): preview states with their own layout classes.
+  join(src, 'app/preview/[state]/acc2-docs-states.tsx'),
+  join(src, 'app/preview/[state]/acc2-refund-states.tsx'),
+  join(src, 'app/preview/[state]/acc2-supplier-states.tsx'),
+  join(src, 'app/preview/[state]/acc2-settings-states.tsx'),
+  join(src, 'app/preview/[state]/acc2-cancel-states.tsx'),
+  // Accounts phase 3 (Track U): preview states with their own layout classes.
+  ...['messages', 'bills', 'writeoffs', 'tally', 'alerts', 'rates', 'changes'].map((f) => join(src, `app/preview/[state]/acc3-${f}-states.tsx`)),
 ];
 const scannedFiles = () => [...UI_DIRS.flatMap((d) => filesUnder(d, /\.(tsx?|css)$/)), ...UI_FILES];
 

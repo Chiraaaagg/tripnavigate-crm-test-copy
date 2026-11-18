@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { AuthCard } from '@/components/AuthCard';
+import { PushSignOutForm } from '@/components/PushSignOutForm';
 import type { FormState } from '@/lib/forms';
 import type { OwnRecoveryView } from '@/modules/identity/contracts';
 import { signOutAction } from '@/modules/identity/server/actions';
@@ -47,11 +48,11 @@ function RecoverySteps({ status }: { status: OwnRecoveryView['status'] }) {
 
 function SignOutButton() {
   return (
-    <form action={signOutAction} className="mt-15">
+    <PushSignOutForm action={signOutAction} className="mt-15">
       <button type="submit" className="button secondary">
         Sign out
       </button>
-    </form>
+    </PushSignOutForm>
   );
 }
 
@@ -156,11 +157,11 @@ export function AccountRecoveryView({
             Your administrator must also finish removing your old authenticators. If you still cannot get in after
             signing in again, ask them to check that step.
           </p>
-          <form action={signOutAction}>
+          <PushSignOutForm action={signOutAction}>
             <button type="submit" className="button">
               Sign out and sign in again
             </button>
-          </form>
+          </PushSignOutForm>
         </AuthCard>
       );
   }

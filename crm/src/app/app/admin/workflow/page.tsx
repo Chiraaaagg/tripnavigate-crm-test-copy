@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { administeredEntityIds, holdsPurchaseAnywhere } from '@/modules/access/policy';
 import { requireStaff } from '@/modules/identity/server/session';
-import { SETTINGS_PATH } from '@/modules/settings/contracts';
+import { SETTINGS_CUSTOMER_MESSAGES_PATH, SETTINGS_PATH } from '@/modules/settings/contracts';
 import { changeSettingSwitchAction, previewVisaTasksAction } from '@/modules/settings/server/actions';
 import { featuresPageModel, loadSettingsStates } from '@/modules/settings/server/queries';
 import { FeaturesSettingsView, WorkflowNoPermissionView } from '@/views/workflow-views';
@@ -28,5 +28,13 @@ export default async function FeaturesRoute() {
   }
   const model = featuresPageModel(await loadSettingsStates(staff));
   const bitrixHref = holdsPurchaseAnywhere(staff.access) ? null : SETTINGS_PATH.bitrix;
-  return <FeaturesSettingsView model={model} actions={{ change: changeSettingSwitchAction, previewVisa: previewVisaTasksAction }} bitrixHref={bitrixHref} />;
+  return (
+    <FeaturesSettingsView
+      model={model}
+      actions={{ change: changeSettingSwitchAction, previewVisa: previewVisaTasksAction }}
+      bitrixHref={bitrixHref}
+      // Accounts phase 3 (screen 15.4): the page itself refuses anyone but a Super Admin.
+      customerMessagesHref={SETTINGS_CUSTOMER_MESSAGES_PATH}
+    />
+  );
 }

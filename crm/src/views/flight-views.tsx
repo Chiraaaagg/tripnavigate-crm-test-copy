@@ -109,13 +109,20 @@ export function FlightQueuePage({
                     </Link>
                   </TableCell>
                   <TableCell label="Segments" className="align-top text-sm">
-                    <ul className="m-0 list-none p-0">
-                      {t.facts.segments.map((s, i) => (
-                        <li key={i} className="m-0 whitespace-nowrap">
-                          {segmentText(s)}
-                        </li>
-                      ))}
-                    </ul>
+                    {screenshotOf(t.facts) ? (
+                      <span>
+                        From screenshot
+                        {screenshotOf(t.facts)!.note ? <span className="block text-quiet">{screenshotOf(t.facts)!.note}</span> : null}
+                      </span>
+                    ) : (
+                      <ul className="m-0 list-none p-0">
+                        {(t.facts.segments ?? []).map((s, i) => (
+                          <li key={i} className="m-0 whitespace-nowrap">
+                            {segmentText(s)}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </TableCell>
                   <TableCell label="Passengers" className="align-top tabular-nums">
                     {t.facts.passengers}
@@ -139,6 +146,37 @@ export function FlightQueuePage({
         )}
       </Card>
     </div>
+  );
+}
+
+/** Book now v2: a flight added from a screenshot (no typed legs) and its note. */
+function screenshotOf(facts: unknown): { note: string | null } | null {
+  const f = (facts ?? {}) as { entryMode?: string; screenshotNote?: string | null };
+  if (f.entryMode !== 'screenshot') return null;
+  return { note: f.screenshotNote?.trim() || null };
+}
+
+/** Book now v2 (change 18): fare per person on this flight and the typed totals for all flights; older flights keep the total. */
+function FareLines({ task }: { task: FlightTaskView }) {
+  const e = task.estimate?.estimate;
+  const fare = e && e.kind === 'flight' ? e : null;
+  const per = fare ? ([['Adult', fare.fareAdultPaise], ['Child', fare.fareChildPaise], ['Infant', fare.fareInfantPaise]] as const).filter(([, p]) => p) : [];
+  const totals = (task as FlightTaskView & { fareTotals?: { adultPaise: string | null; childPaise: string | null; infantPaise: string | null } | null }).fareTotals ?? null;
+  const typed = totals ? ([['Adult', totals.adultPaise], ['Child', totals.childPaise], ['Infant', totals.infantPaise]] as const).filter(([, p]) => p) : [];
+  return (
+    <>
+      <dt className="text-sm font-medium text-quiet">{per.length > 0 ? 'Fare per person' : 'Estimated fare (total)'}</dt>
+      <dd className="m-0 text-ink">
+        {per.length > 0 ? (
+          <span className="tabular-nums">{per.map(([l, p]) => `${l} ${formatInr(p)}`).join(' · ')}</span>
+        ) : (
+          // A flight saved before per-person fares keeps its total.
+          <span className="whitespace-nowrap tabular-nums">{formatInr(fare?.fareTotalPaise ?? task.estimate?.totalPaise ?? null, 'Not priced')}</span>
+        )}
+        {typed.length > 0 ? <span className="block tabular-nums">All flights, per person: {typed.map(([l, p]) => `${l} ${formatInr(p)}`).join(' · ')}</span> : null}
+        <span className="block text-sm text-quiet">An estimate of our cost only. It is not a price, a budget or a booking.</span>
+      </dd>
+    </>
   );
 }
 
@@ -169,16 +207,16 @@ function FlightDetails({ task, idProofs }: { task: FlightTaskView; idProofs?: Re
               <dd className="m-0 text-ink tabular-nums">{task.travellerCount}</dd>
               <dt className="text-sm font-medium text-quiet">Approved budget</dt>
               <dd className="m-0 whitespace-nowrap text-ink tabular-nums">{budgetText(task.purchaseBudgetPaise)}</dd>
-              {task.estimate ? (
-                <>
-                  <dt className="text-sm font-medium text-quiet">Estimated fare (total)</dt>
-                  <dd className="m-0 text-ink">
-                    <span className="whitespace-nowrap tabular-nums">{formatInr(task.estimate.totalPaise, 'Not priced')}</span>
-                    <span className="block text-sm text-quiet">An estimate only. It is not a price, a budget or a booking.</span>
-                  </dd>
-                </>
-              ) : null}
+              {task.estimate ? <FareLines task={task} /> : null}
             </dl>
+            {screenshotOf(task.facts) ? (
+              <div className="mt-3 rounded-control border border-line bg-wash px-3.5 py-3 text-sm text-copy">
+                <p className="m-0 font-semibold text-ink">From screenshot</p>
+                <p className="m-0">Sales attached the chosen flight or fare quote instead of typing the details. Book from the screenshots below.</p>
+                {screenshotOf(task.facts)!.note ? <p className="m-0 mt-[0.25rem]">Note for the Flight team: {screenshotOf(task.facts)!.note}</p> : null}
+                {!task.files || task.files.length === 0 ? <p className="m-0 mt-[0.25rem] text-quiet">The screenshots are shown to the Flight colleague who takes this task.</p> : null}
+              </div>
+            ) : null}
             {task.files && task.files.length > 0 ? (
               <ul className="m-0 mt-3 flex list-none flex-col gap-1.5 p-0" aria-label="Flight screenshots">
                 {task.files.map((f) => (

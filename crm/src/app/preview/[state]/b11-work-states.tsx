@@ -1,10 +1,9 @@
 import type { ReactNode } from 'react';
 import type { AccountsClaimView, AccountsClaimsPage, AccountsDealDetail, AccountsExpenseRecordsPage, AccountsExpenseFilter, AccountsClaimsFilter } from '@/modules/finance/contracts';
-import type { DepartmentCostView, DepartmentEvidenceView, MyWorkCounts, VisaApplicantView, VisaQueueView, VisaTaskView } from '@/modules/fulfilment/contracts';
+import type { DepartmentCostView, DepartmentEvidenceView, MyWorkCounts } from '@/modules/fulfilment/contracts';
 import type { IntakeEntryRuleView, PruneResult } from '@/modules/integration/won-only';
 import { AccountsClaimsListView, type ClaimActions } from '@/views/b11/accounts-claims';
 import { AccountsExpensesView, DepartmentCostCard, type CostActions } from '@/views/b11/department-cost';
-import { VisaQueueLoading, VisaQueuePage, VisaTaskNotAvailableView, VisaTaskPage, type VisaActions } from '@/views/b11/visa-desk';
 import { WonOnlyCard } from '@/views/b11/won-only-card';
 import { AccountsDealView } from '@/views/finance-views';
 import { FlightTaskPage } from '@/views/flight-views';
@@ -32,15 +31,12 @@ import type { B11Action } from '@/views/b11/shapes';
 import { previewCopyRetriedAction } from './b12-preview-actions';
 import { admin, delhiSales, flight, flightView, purchase, purchaseQueue, purchaseView, featuresPreview } from './b1-states';
 import {
-  previewB11DocumentsNotCheckedAction,
   previewB11FinanceOkAction,
   previewB11FinanceRefuseAction,
-  previewB11OutcomeDocumentAction,
   previewB11OverLimitAction,
   previewB11PruneDryRunAction,
   previewB11WonOnlySavedAction,
   previewB11SavedAction,
-  previewB11TaskConflictAction,
 } from './b11-preview-actions';
 import { accounts, accounts2, actions as financeActions, destinationOptions, detail as financeDetail } from './finance-states';
 
@@ -147,6 +143,7 @@ const expensePage = (status: 'submitted' | 'returned', own = false): AccountsExp
       department: 'visa',
       serviceType: 'visa',
       kind: 'government_fee',
+      applicantName: 'Synthetic Traveller One',
       amountPaise: '650000',
       paidBy: 'company',
       paymentMode: 'card',
@@ -195,86 +192,6 @@ const flightInternational = {
 };
 
 // --- Visa desk ----------------------------------------------------------------
-
-export const docs = (statuses: Array<'missing' | 'received' | 'checked'>) =>
-  ['passport_copy', 'photo', 'bank_statement'].map((code, i) => ({ code, label: ['Passport copy', 'Photo', 'Bank statement (6 months)'][i]!, status: statuses[i]! }));
-
-export function applicant(over: Partial<VisaApplicantView> = {}): VisaApplicantView {
-  return {
-    applicationId: 'va000000-0000-4000-8000-000000000001',
-    travellerSeq: 1,
-    fullName: 'Sample Traveller A',
-    type: 'adult',
-    ageYears: null,
-    identity: { dateOfBirth: '1988-04-12', nationality: 'Indian', passportNumber: 'Z1234567', passportExpiry: '2031-02-01', rowVersion: 1 },
-    documents: docs(['checked', 'received', 'missing']),
-    state: 'docs_pending',
-    reference: null,
-    appointmentAt: null,
-    appointmentPlace: null,
-    submittedAt: null,
-    outcomeAt: null,
-    customerInformedAt: null,
-    documentsReturnedAt: null,
-    documentsReturnedByName: null,
-    closed: false,
-    rowVersion: 3,
-    ...over,
-  };
-}
-
-export function visaTask(over: Partial<VisaTaskView> = {}): VisaTaskView {
-  return {
-    taskId: 'vt000000-0000-4000-8000-000000000001',
-    dealReference: 'SYN-JOD-012',
-    serviceType: 'visa',
-    itemTitle: 'United Arab Emirates · Tourism',
-    facts: { country: 'United Arab Emirates', purpose: 'Tourism', travelDate: '2026-11-18', applyBy: '2026-11-05', feePaidBy: 'company' },
-    status: 'in_progress',
-    assigneeName: 'Synthetic Visa Desk Jodhpur',
-    assignedToYou: true,
-    branchName: 'Jodhpur',
-    createdAt: '2026-11-02T09:00:00Z',
-    completedAt: null,
-    versionNo: 1,
-    confirmedAt: '2026-11-02T08:55:00Z',
-    canClaim: false,
-    canWork: true,
-    applicantCount: 2,
-    applicants: [applicant(), applicant({ applicationId: 'va2', travellerSeq: 2, fullName: 'Sample Traveller B', identity: { dateOfBirth: '1990-06-01', nationality: 'Indian', passportNumber: null, passportExpiry: null, rowVersion: 1 }, documents: docs(['missing', 'missing', 'missing']) })],
-    evidence: [],
-    costs: [],
-    ...over,
-  };
-}
-
-const notTaken: VisaApplicantView[] = [1, 2].map((seq) => ({
-  ...applicant({ travellerSeq: seq, fullName: `Sample Traveller ${seq === 1 ? 'A' : 'B'}`, identity: null, documents: [] }),
-  applicationId: null,
-  state: null,
-  rowVersion: null,
-}));
-
-export const visaActions: VisaActions = {
-  claim: previewB11SavedAction,
-  setDocument: previewB11SavedAction,
-  recordSubmission: previewB11SavedAction,
-  decisionPending: previewB11SavedAction,
-  recordOutcome: previewB11SavedAction,
-  withdraw: previewB11SavedAction,
-  documentsReturned: previewB11SavedAction,
-  customerInformed: previewB11SavedAction,
-  upload: previewB11SavedAction,
-  cost: costActions,
-};
-
-export const outcomeDoc: DepartmentEvidenceView = { id: 'de3', kind: 'authority_outcome', applicationId: 'va000000-0000-4000-8000-000000000001', fileName: 'synthetic-visa-grant.pdf', sizeLabel: '320 KB', status: 'stored', uploadedByYou: true, uploadedAt: '2026-11-09T10:00:00Z' };
-
-const visaQueue = (launched: boolean, empty = false): VisaQueueView => ({
-  launch: launched ? 'on' : 'off',
-  waitingCount: launched ? null : 3,
-  tasks: empty || !launched ? [] : [visaTask(), { ...visaTask({ taskId: 'vt2', serviceType: 'passport', itemTitle: 'Renewal · Jaipur', facts: { applicationType: 'renewal', officeCity: 'Jaipur', neededBy: '2026-11-01' }, status: 'not_started', assigneeName: null, assignedToYou: false }) }],
-});
 
 // --- Admin -----------------------------------------------------------------
 
@@ -372,83 +289,6 @@ const DEPT: Record<string, { viewer: ShellViewer; path: string; render: () => Re
     path: '/app/flight',
     render: () => <FlightTaskPage task={flightWithTravellers} claimAction={previewB11SavedAction} workForm={<DepartmentCostCard taskId="task-3" department="flight" costs={[cost({ expenseStatus: 'submitted', canEdit: false, canSubmit: false })]} evidence={[proof]} canRecord readOnlyReason={null} actions={costActions} />} />,
   },
-  'b11-visa-queue': { viewer: visaDesk, path: '/app/visa', render: () => <VisaQueuePage queue={visaQueue(true)} /> },
-  'b11-visa-queue-empty': { viewer: visaDesk, path: '/app/visa', render: () => <VisaQueuePage queue={visaQueue(true, true)} /> },
-  'b11-visa-queue-not-launched': { viewer: visaDesk, path: '/app/visa', render: () => <VisaQueuePage queue={visaQueue(false)} /> },
-  'b11-visa-queue-loading': { viewer: visaDesk, path: '/app/visa', render: () => <VisaQueueLoading /> },
-  'b11-visa-task-new': {
-    viewer: visaDesk,
-    path: '/app/visa',
-    render: () => <VisaTaskPage task={visaTask({ status: 'not_started', assigneeName: null, assignedToYou: false, canClaim: true, canWork: false, applicants: notTaken })} actions={visaActions} />,
-  },
-  'b11-visa-task-claim-conflict': {
-    viewer: visaDesk,
-    path: '/app/visa',
-    render: () => <VisaTaskPage task={visaTask({ status: 'not_started', assigneeName: null, assignedToYou: false, canClaim: true, canWork: false, applicants: [] })} actions={{ ...visaActions, claim: previewB11TaskConflictAction }} preview={{ claimState: { ok: false, code: 'task_conflict', message: 'Another desk colleague has already taken this task.' } }} />,
-  },
-  'b11-visa-task-docs-pending': { viewer: visaDesk, path: '/app/visa', render: () => <VisaTaskPage task={visaTask()} actions={visaActions} /> },
-  'b11-visa-task-submit-refused': {
-    viewer: visaDesk,
-    path: '/app/visa',
-    render: () => <VisaTaskPage task={visaTask()} actions={{ ...visaActions, recordSubmission: previewB11DocumentsNotCheckedAction }} preview={{ submitState: { ok: false, code: 'documents_not_checked', message: '' } }} />,
-  },
-  'b11-visa-task-submitted': {
-    viewer: visaDesk,
-    path: '/app/visa',
-    render: () => <VisaTaskPage task={visaTask({ applicants: [applicant({ state: 'submitted', documents: docs(['checked', 'checked', 'checked']), reference: 'SYN-VFS-55120', submittedAt: '2026-11-05T06:00:00Z', appointmentAt: '2026-11-05T05:00:00Z', appointmentPlace: 'Synthetic visa centre, Jaipur' })] })} actions={visaActions} />,
-  },
-  'b11-visa-task-outcome-refused': {
-    viewer: visaDesk,
-    path: '/app/visa',
-    render: () => (
-      <VisaTaskPage
-        task={visaTask({ applicants: [applicant({ state: 'decision_pending', documents: docs(['checked', 'checked', 'checked']), reference: 'SYN-VFS-55120', submittedAt: '2026-11-05T06:00:00Z' })] })}
-        actions={{ ...visaActions, recordOutcome: previewB11OutcomeDocumentAction }}
-        preview={{ outcomeState: { ok: false, code: 'outcome_document_required', message: '' } }}
-      />
-    ),
-  },
-  'b11-visa-task-issued': {
-    viewer: visaDesk,
-    path: '/app/visa',
-    render: () => <VisaTaskPage task={visaTask({ evidence: [outcomeDoc], applicants: [applicant({ state: 'issued', documents: docs(['checked', 'checked', 'checked']), reference: 'SYN-VFS-55120', submittedAt: '2026-11-05T06:00:00Z', outcomeAt: '2026-11-09T10:00:00Z' })] })} actions={visaActions} />,
-  },
-  'b11-visa-task-refused': {
-    viewer: visaDesk,
-    path: '/app/visa',
-    render: () => <VisaTaskPage task={visaTask({ evidence: [outcomeDoc], applicants: [applicant({ state: 'refused', documents: docs(['checked', 'checked', 'checked']), reference: 'SYN-VFS-55120', outcomeAt: '2026-11-09T10:00:00Z' })] })} actions={visaActions} />,
-  },
-  'b11-visa-task-returned': {
-    viewer: visaDesk,
-    path: '/app/visa',
-    render: () => (
-      <VisaTaskPage
-        task={visaTask({ status: 'completed', completedAt: '2026-11-10T10:00:00Z', canWork: false, evidence: [outcomeDoc], applicants: [applicant({ state: 'issued', closed: true, documents: docs(['checked', 'checked', 'checked']), reference: 'SYN-VFS-55120', outcomeAt: '2026-11-09T10:00:00Z', documentsReturnedAt: '2026-11-10T10:00:00Z', documentsReturnedByName: 'Synthetic Visa Desk Jodhpur' })] })}
-        actions={visaActions}
-      />
-    ),
-  },
-  'b11-visa-task-passport': {
-    viewer: visaDesk,
-    path: '/app/visa',
-    render: () => <VisaTaskPage task={visaTask({ serviceType: 'passport', itemTitle: 'Renewal · Jaipur', facts: { applicationType: 'renewal', officeCity: 'Jaipur', neededBy: '2026-11-01' }, applicants: [applicant({ documents: docs(['received', 'missing', 'missing']) })] })} actions={visaActions} />,
-  },
-  'b11-visa-task-fee-expense': {
-    viewer: visaDesk,
-    path: '/app/visa',
-    render: () => (
-      <VisaTaskPage
-        task={visaTask({ evidence: [{ ...proof, id: 'de4', kind: 'fee_receipt', fileName: 'synthetic-fee-receipt.pdf' }], costs: [cost({ department: 'visa', costKind: 'government_fee', amountPaise: '650000', taskId: 'vt000000-0000-4000-8000-000000000001', expenseStatus: 'submitted', canEdit: false, canSubmit: false, reference: 'SYN-FEE-0042' })] })}
-        actions={visaActions}
-      />
-    ),
-  },
-  'b11-visa-task-manager': {
-    viewer: { ...admin, displayName: 'Synthetic Manager Jodhpur', primaryRole: 'Manager', canAdministerStaff: false, canManageGrants: false, canManageIntegration: false },
-    path: '/app/deals',
-    render: () => <VisaTaskPage task={visaTask({ assignedToYou: false, canWork: false, applicants: [applicant({ identity: null })] })} actions={visaActions} />,
-  },
-  'b11-visa-task-not-visible': { viewer: purchase, path: '/app/purchase', render: () => <VisaTaskNotAvailableView /> },
   'b11-home-visa': {
     viewer: visaDesk,
     path: '/app',

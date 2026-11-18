@@ -16,13 +16,14 @@ describe('rupee amounts', () => {
     ['0', '0'],
     ['15000', '1500000'],
     ['1,23,456.5', '12345650'],
-    ['₹ 99.99', '9999'],
+    [' 99.99 ', '9999'],
     ['999999999999999.99', '99999999999999999'],
   ])('%s → %s paise', (input, out) => {
     expect(rupeesToPaise(input)).toBe(out);
   });
 
-  it.each(['-1', '1.234', '1e5', 'abc', '1000000000000000', '0x10'])('rejects %s', (input) => {
+  // One money rule (D4): a rupee sign, spaces inside and odd commas are refused.
+  it.each(['-1', '1.234', '1e5', 'abc', '1000000000000000', '0x10', '₹ 99.99', '₹99', '1 500', '1,2,3'])('rejects %s', (input) => {
     expect(rupeesToPaise(input)).toBeUndefined();
   });
 

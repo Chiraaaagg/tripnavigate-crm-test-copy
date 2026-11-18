@@ -114,6 +114,13 @@ const QUOTE_STATES: Record<string, () => ReactNode> = {
     d.version.subject = { ...d.version.subject, branchCode: 'DEL' };
     return screen(d);
   },
+  // Accounts phase 2 (LD1): every known branch prints the one company GSTIN, so the warning now shows only when
+  // the quotation's branch is missing or unknown (a data problem: "Tell the CRM team"). It still never blocks.
+  'b12-quote-ready-gstin-unknown-branch': () => {
+    const d = QUOTE_SCREENS.ready();
+    d.version.subject = { ...d.version.subject, branchCode: null };
+    return screen(d);
+  },
   'b12-quote-draft-prefill': () => {
     const d = QUOTE_SCREENS.draft();
     d.version.prefill = prefillView({ notesHidden: true, bookingNotes: null }, { 'contacts.contactName': 'from_bitrix', 'trip.start': 'from_bitrix' });
@@ -131,6 +138,7 @@ const QUOTE_STATES: Record<string, () => ReactNode> = {
   'b12-quote-preview': () => shell(<QuotationPreviewPage versionId={V2_ID} view={quoteDocumentView()} moneyVisible />),
   'b12-quote-preview-partial': () => shell(<QuotationPreviewPage versionId={V2_ID} view={quoteDocumentView({ days: [{ day: 1, city: null, title: 'Arrive in Bali', text: '' }] })} moneyVisible />),
   'b12-quote-preview-gstin-pending': () => shell(<QuotationPreviewPage versionId={V2_ID} view={quoteDocumentView({ branchCode: 'DEL' })} moneyVisible />),
+  'b12-quote-preview-gstin-unknown-branch': () => shell(<QuotationPreviewPage versionId={V2_ID} view={quoteDocumentView({ branchCode: null })} moneyVisible />),
   'b12-quote-preview-no-money': () => shell(<QuotationPreviewPage versionId={V2_ID} view={quoteDocumentView({ tiers: [] })} moneyVisible={false} />),
   'b12-quote-preview-blocked': () => shell(<QuotationPreviewPage versionId={V2_ID} view={quoteDocumentView({ includes: ['Daily breakfast', 'Best price in Bali'] })} moneyVisible />),
   'b12-quote-not-available': () => shell(<QuoteNotAvailableView />),

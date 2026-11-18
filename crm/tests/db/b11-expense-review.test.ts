@@ -28,16 +28,20 @@ const f = financeHelpers(() => db);
 const { one, refused, owner, deskTask, deskEvidence } = h;
 type Saved = { entryId: string; rowVersion: number; expenseStatus: string | null };
 type Page = { items: Array<Record<string, unknown>>; hasMore: boolean; nextAfter: string | null; totalCount: number };
-const FEE = { costKind: 'government_fee', amountPaise: '650000', paidBy: 'company', paymentMode: 'upi', paidOn: '2026-10-10' };
+// Visa build (C15, lead decision 16 / VL18): department_cost_save refuses task-level visa fees (hint visaFees); the manual
+// entry these suites review is now an "other" cost of one passenger (applicationId added per task). Was costKind government_fee.
+const FEE = { costKind: 'other', amountPaise: '650000', paidBy: 'company', paymentMode: 'upi', paidOn: '2026-10-10' };
 
 async function submittedFee() {
   const { taskId } = await deskTask();
   await one(DESK, VISA_CLAIM_SQL, [taskId]);
   const receipt = await deskEvidence(DESK, taskId, 'fee_receipt');
   await deskEvidence(DESK, taskId, 'applicant_document');
-  const saved = await one<Saved>(DESK, COST_SAVE_SQL, [taskId, null, 0, JSON.stringify({ ...FEE, receiptEvidenceId: receipt }), rid()]);
+  const [first] = await owner<{ id: string }>('select id from public.visa_applications where task_id = $1 order by traveller_seq limit 1', [taskId]);
+  const applicationId = first!.id;
+  const saved = await one<Saved>(DESK, COST_SAVE_SQL, [taskId, null, 0, JSON.stringify({ ...FEE, applicationId, receiptEvidenceId: receipt }), rid()]);
   const sub = await one<Saved>(DESK, COST_SUBMIT_SQL, [saved.entryId, saved.rowVersion]);
-  return { taskId, receipt, entryId: saved.entryId, rowVersion: sub.rowVersion };
+  return { taskId, receipt, applicationId, entryId: saved.entryId, rowVersion: sub.rowVersion };
 }
 
 describe('expense records for Accounts', () => {
@@ -52,7 +56,7 @@ describe('expense records for Accounts', () => {
       const before = await money();
       const page = await one<Page>(ACC, EXPENSE_LIST_SQL, ['submitted', null, null]);
       expect(page.totalCount).toBe(1);
-      expect(page.items[0]).toMatchObject({ entryId: e.entryId, department: 'visa', serviceType: 'visa', kind: 'government_fee', amountPaise: '650000',
+      expect(page.items[0]).toMatchObject({ entryId: e.entryId, department: 'visa', serviceType: 'visa', kind: 'other' /* Visa build: was government_fee (see FEE) */, amountPaise: '650000',
         status: 'submitted', submittedByName: 'Synthetic Visa Jodhpur', actions: { accept: null, return: null } });
       expect(page.items[0]!.evidence).toEqual([expect.objectContaining({ id: e.receipt, kind: 'fee_receipt', status: 'stored' })]);
       expect(AccountsExpenseRecordsPageSchema.safeParse(page).success).toBe(true);
@@ -84,7 +88,7 @@ describe('expense records for Accounts', () => {
       await refused(ACC, EXPENSE_RETURN_SQL, [e.entryId, e.rowVersion, 'short', rid()], '22023', 'invalid_input');
       const returned = await one<Record<string, unknown>>(ACC, EXPENSE_RETURN_SQL, [e.entryId, e.rowVersion, 'Synthetic: the receipt amount differs', rid()]);
       expect(returned).toMatchObject({ status: 'returned' });
-      const edited = await one<Saved>(DESK, COST_SAVE_SQL, [e.taskId, e.entryId, returned.rowVersion, JSON.stringify({ ...FEE, amountPaise: '600000', receiptEvidenceId: e.receipt }), rid()]);
+      const edited = await one<Saved>(DESK, COST_SAVE_SQL, [e.taskId, e.entryId, returned.rowVersion, JSON.stringify({ ...FEE, applicationId: e.applicationId, amountPaise: '600000', receiptEvidenceId: e.receipt }), rid()]);
       expect(edited.expenseStatus).toBe('returned');
       const resub = await one<Saved>(DESK, COST_SUBMIT_SQL, [e.entryId, edited.rowVersion]);
       expect(resub.expenseStatus).toBe('submitted');

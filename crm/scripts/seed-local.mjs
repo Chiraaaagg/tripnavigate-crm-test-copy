@@ -47,6 +47,17 @@ const users = {
   'a0000000-0000-4000-8000-000000000011': 'visa.jodhpur@example.test',
   'a0000000-0000-4000-8000-000000000012': 'invited.staff@example.test',
   'a0000000-0000-4000-8000-000000000013': 'manager.ahmedabad@example.test',
+  // Accounts phase 2 people (supabase/fixtures/accounts_phase2_people.sql; memberships start inactive).
+  'a0000000-0000-4000-8000-000000000014': 'accounts.jodhpur.2@example.test',
+  'a0000000-0000-4000-8000-000000000015': 'accounts.jodhpur.3@example.test',
+  'a0000000-0000-4000-8000-000000000016': 'manager.jodhpur@example.test',
+  'a0000000-0000-4000-8000-000000000017': 'manager.jodhpur.2@example.test',
+  'a0000000-0000-4000-8000-000000000018': 'manager.flight.delhi@example.test',
+  'a0000000-0000-4000-8000-000000000019': 'flight.jodhpur@example.test',
+  'a0000000-0000-4000-8000-000000000020': 'visa.jodhpur.2@example.test',
+  // Accounts phase 3 people (supabase/fixtures/accounts_phase3_people.sql; memberships start inactive).
+  'a0000000-0000-4000-8000-000000000021': 'manager.delhi.2@example.test',
+  'a0000000-0000-4000-8000-000000000022': 'manager.ahmedabad.2@example.test',
 };
 
 // Never seed a database labelled operational (Phase 6 contract 2.5) or one
@@ -89,7 +100,16 @@ try {
     await client.query('commit');
     console.log(`seed-local: synthetic fixtures loaded (${files.join(', ')}).`);
   } else {
-    console.log('seed-local: fixtures already present; skipped.');
+    // Fixture files whose first line is "-- seed-local: rerun-safe" only add
+    // missing rows, so they also load into a stack seeded before they existed.
+    const dir = join(import.meta.dirname, '..', 'supabase', 'fixtures');
+    const rerun = readdirSync(dir)
+      .filter((f) => f.endsWith('.sql') && readFileSync(join(dir, f), 'utf8').startsWith('-- seed-local: rerun-safe'))
+      .sort();
+    await client.query('begin');
+    for (const file of rerun) await client.query(readFileSync(join(dir, file), 'utf8'));
+    await client.query('commit');
+    console.log(`seed-local: fixtures already present; skipped${rerun.length ? ` except rerun-safe ${rerun.join(', ')}` : ''}.`);
   }
 } catch (error) {
   await client.query('rollback').catch(() => {});

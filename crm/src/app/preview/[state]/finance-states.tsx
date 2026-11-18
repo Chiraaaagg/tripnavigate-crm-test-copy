@@ -309,6 +309,8 @@ export const detail: AccountsDealDetail = {
     reviewedAt: null,
     canApprove: true,
     approveBlock: null,
+    canReturn: true,
+    returnBlock: null,
   },
   billing: {
     billingName: 'Synthetic Customer Pvt Ltd',
@@ -1138,6 +1140,12 @@ const states: Record<string, (tab?: AccountsDealTab) => ReactNode> = {
       <AccountsDealView {...dealTab('finance-deal-destination-changed', tab)} detail={partlyLiveDetail} actions={{ ...actions, recordReceiptAction: previewDestinationChangedAction }} destinationOptions={destinationOptions} />
     </StaffShell>
   ),
+  // Accounts phase 0 (contract 5.2, 11.4): the Return button is hidden once the Deal is committed (a supplier confirmed or tickets issued), with the reason.
+  'finance-deal-return-blocked-committed': (tab?: AccountsDealTab) => (
+    <StaffShell viewer={accounts} currentPath="/app/accounts">
+      <AccountsDealView {...dealTab('finance-deal-return-blocked-committed', tab ?? 'review')} detail={{ ...detail, booking: { ...detail.booking!, canReturn: false, returnBlock: 'committed' } }} actions={actions} destinationOptions={destinationOptions} />
+    </StaffShell>
+  ),
   'finance-not-configured': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <FinanceUnavailableView code="not_configured" title="To check" />
@@ -1146,7 +1154,7 @@ const states: Record<string, (tab?: AccountsDealTab) => ReactNode> = {
 };
 
 
-const DEAL_TAB_STATES = ['finance-deal-detail', 'finance-deal-blocked', 'finance-deal-not-live', 'finance-deal-partly-live', 'finance-deal-cash-off', 'finance-deal-no-booking', 'finance-deal-approved-after-return', 'finance-deal-unknown-outcome', 'finance-deal-returned', 'finance-deal-destinations', 'finance-deal-no-destination', 'finance-deal-destinations-unavailable', 'finance-deal-destination-changed'];
+const DEAL_TAB_STATES = ['finance-deal-detail', 'finance-deal-blocked', 'finance-deal-not-live', 'finance-deal-partly-live', 'finance-deal-cash-off', 'finance-deal-no-booking', 'finance-deal-approved-after-return', 'finance-deal-unknown-outcome', 'finance-deal-returned', 'finance-deal-destinations', 'finance-deal-no-destination', 'finance-deal-destinations-unavailable', 'finance-deal-destination-changed', 'finance-deal-return-blocked-committed'];
 for (const name of DEAL_TAB_STATES) {
   for (const tab of ACCOUNTS_DEAL_TABS) states[`${name}--${tab}`] = () => states[name]!(tab);
 }

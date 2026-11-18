@@ -1,6 +1,8 @@
 import type { ViewerRelation } from '@/modules/deals/dto';
 import type { PaymentClaimDisplayStatus, ReceiptMode } from '@/modules/finance/contracts';
 import type { AccountsReviewStatus, ChangeClass, EvidenceKind } from '@/modules/fulfilment/contracts';
+import type { FlightHistoryKind } from '@/modules/flight/contracts';
+import type { VisaDealHistoryKind } from '@/modules/visa/contracts';
 
 /*
  * Batch 1 frozen contract (Direction A, R1 lists + R2 Deal workspace): the view
@@ -418,6 +420,47 @@ export type DealHistoryEventVM =
       at: string;
       /** DA-48 status word only; no amount. */
       status: PaymentClaimDisplayStatus;
+    }
+  | {
+      /** Flight build (contract 9.4, D9): one event of the Deal's flight group, from deal_flight_history. */
+      kind: 'flight_event';
+      id: string;
+      at: string;
+      /** History kind (contract 9.5), e.g. 'change_approved', 'tickets_confirmed'. */
+      flightKind: FlightHistoryKind;
+      taskId: string;
+      /** The flight's title ("JDH to DEL", "From screenshot"); null when not readable. */
+      flightTitle: string | null;
+      /** Named only when the person is the Deal's Flight assignee; null otherwise. */
+      byName: string | null;
+      byYou: boolean;
+      /** Reason of a rejected change, a ticket correction or a return; never an amount, PNR or ticket number. */
+      note: string | null;
+      changeNo: number | null;
+    }
+  | {
+      /**
+       * Visa build (contract 9.3, VL5): one event of the Deal's "Visa and passport" group, from
+       * deal_visa_history (Sales owner and branch Manager only). Never a fee, reference, e-mail or
+       * passport number.
+       */
+      kind: 'visa_event';
+      id: string;
+      at: string;
+      /** e.g. 'applied', 'approved', 'rejected', 'handed_over' (VISA_DEAL_HISTORY_TITLE). */
+      visaKind: VisaDealHistoryKind;
+      taskId: string;
+      /** The visa or passport service title; the task page link is /app/visa/{taskId} (Visa readers only). */
+      title: string;
+      /** The passenger, when the event is about one; null for task events and collapsed clubs. */
+      travellerName: string | null;
+      /** Named only when the read names them; null otherwise. */
+      byName: string | null;
+      byYou: boolean;
+      /** Refusal or withdrawal reason. */
+      note: string | null;
+      /** Applied together: the number of passengers in the club (> 1); null otherwise. */
+      clubSize: number | null;
     };
 
 /**
@@ -425,7 +468,22 @@ export type DealHistoryEventVM =
  * you can see yet. Money and acceptance events are shown only to roles with
  * price access."); 'error' shows the shared could-not-load line, never empty.
  */
-export type DealHistoryVM = { state: 'ok'; events: DealHistoryEventVM[] } | { state: 'error' };
+export type DealHistoryVM =
+  | {
+      state: 'ok';
+      events: DealHistoryEventVM[];
+      /**
+       * Flight build: the flight read failed while the rest of History loaded. The Flight group then shows one
+       * could-not-load line (DEAL_HISTORY_FLIGHT_UNAVAILABLE_TEXT) instead of events; never "no flight events".
+       */
+      flightUnavailable?: true;
+      /**
+       * Visa build: the visa read failed while the rest of History loaded. The "Visa and passport" group then
+       * shows one could-not-load line (DEAL_HISTORY_VISA_UNAVAILABLE_TEXT) instead of events.
+       */
+      visaUnavailable?: true;
+    }
+  | { state: 'error' };
 
 /**
  * Documents tab rows: the deal_documents_list (B1-2) row shape, one variant

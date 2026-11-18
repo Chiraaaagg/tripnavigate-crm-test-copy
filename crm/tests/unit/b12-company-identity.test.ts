@@ -22,7 +22,10 @@ describe('company identity record (DEC-50)', () => {
     expect(record.legalName).toBe('Holiday Chacha Pvt Ltd');
     expect(record.registeredAddress).toBe('59A, Babu Rajendra Marg, Masuria Colony, Baldev Nagar, Jodhpur, Rajasthan 342003');
     expect(record.pan).toBe('AAFCH9191M');
-    expect(record.gstinByBranch).toEqual({ JDH: '08AAFCH9191M1ZV', DEL: null, AMD: null });
+    // Accounts phase 2 (Q2 / LD1): one company GSTIN for every branch.
+    expect(record.companyGstin).toBe('08AAFCH9191M1ZV');
+    expect(record.companyGstinState).toBe('Rajasthan');
+    expect(record.gstinByBranch).toEqual({ JDH: '08AAFCH9191M1ZV', DEL: '08AAFCH9191M1ZV', AMD: '08AAFCH9191M1ZV' });
   });
 
   it('every given GSTIN is well formed, carries the PAN and has a valid check character', () => {
@@ -67,18 +70,15 @@ describe('companyIdentityFor', () => {
     expect(isPlaceholder(line.gstin)).toBe(false);
   });
 
-  it('Delhi and Ahmedabad: GSTIN not given yet, a visible placeholder that blocks the final document', () => {
-    const del = companyIdentityFor('DEL');
-    expect(del.gstin).toBe('[GSTIN for Delhi]');
-    expect(isPlaceholder(del.gstin)).toBe(true);
-    expect(del.gstinState).toBe('Delhi');
-    expect(del.placeholders).toEqual(['GSTIN for Delhi']);
-    expect(del.pan).toBe('AAFCH9191M');
-
-    const amd = companyIdentityFor('AMD');
-    expect(amd.gstin).toBe('[GSTIN for Ahmedabad]');
-    expect(amd.gstinState).toBe('Gujarat');
-    expect(amd.placeholders).toEqual(['GSTIN for Ahmedabad']);
+  it('Delhi and Ahmedabad (LD1): the company GSTIN and its state (Rajasthan), no placeholder', () => {
+    for (const code of ['DEL', 'AMD']) {
+      const line = companyIdentityFor(code);
+      expect(line.gstin, code).toBe('08AAFCH9191M1ZV');
+      expect(isPlaceholder(line.gstin)).toBe(false);
+      expect(line.gstinState, code).toBe('Rajasthan');
+      expect(line.placeholders, code).toEqual([]);
+      expect(line.pan).toBe('AAFCH9191M');
+    }
   });
 
   it('a missing or unknown branch gives the generic placeholder', () => {

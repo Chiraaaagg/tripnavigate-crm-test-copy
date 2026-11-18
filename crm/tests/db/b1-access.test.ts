@@ -170,7 +170,8 @@ describe('Purchase and Flight DTOs', () => {
       await refused(ANON, FLIGHT_LIST_SQL, [], '42501');
       // Claim: in_progress, a 'flight' assignment, idempotent for the same person.
       const claimed = await one<Record<string, unknown>>(FLIGHT, FLIGHT_CLAIM_SQL, [task.taskId as string]);
-      expect(claimed).toEqual({ taskId: task.taskId, status: 'in_progress', assignedToYou: true, alreadyYours: false });
+      // Flight build (contract A1): flight_task_claim claims the Deal's flight group; the shape is unchanged plus taskIds.
+      expect(claimed).toEqual({ taskId: task.taskId, status: 'in_progress', assignedToYou: true, alreadyYours: false, taskIds: [task.taskId] });
       expect(await one(FLIGHT, FLIGHT_CLAIM_SQL, [task.taskId as string])).toEqual({ ...claimed, alreadyYours: true });
       expect(await owner(`select assignment_kind from public.deal_assignments where deal_id = $1 and user_id = $2 and ended_at is null`, [DEAL, U.visaJodhpur])).toEqual([
         { assignment_kind: 'flight' },

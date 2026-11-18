@@ -183,7 +183,11 @@ describe('service parser', () => {
     if (!p.ok) throw new Error(p.fields.join());
     expect(p.value.facts.facts).toMatchObject({ checkIn: '2026-12-10', checkOut: '2026-12-13', mode: 'specific' });
     expect(p.value.estimate).toEqual({ kind: 'hotel', roomRatePaise: '500000', extraBedRatePaise: null, noBedRatePaise: null });
-    expect(p.value.budgetPaise).toBe('0');
+    // Book now v2 (owner decision D2): no budget input posted = null, so the database sets the budget from the estimate.
+    expect(p.value.budgetPaise).toBeNull();
+    // An older screen that posts an empty budget on add still sends 0.
+    const older = parseBookingServiceForm(form({ ...hotel, purchaseBudgetRupees: '' }));
+    expect(older.ok && older.value.budgetPaise).toBe('0');
   });
   it('no estimate inputs posted → estimate null (an editor without price access)', () => {
     const { roomRateRupees: _a, extraBedRateRupees: _b, noBedRateRupees: _c, ...rest } = hotel;
@@ -215,12 +219,15 @@ describe('service parser', () => {
         segmentDepartTime: ['', '23:10'],
         segmentArriveTime: ['', '01:20'],
         fareTotalRupees: '18000.50',
+        fareAdultRupees: '6000.50',
+        fareChildRupees: '',
       }),
     );
     if (!p.ok) throw new Error(p.fields.join());
     const facts = p.value.facts.facts as unknown as { segments: Array<Record<string, unknown>> };
     expect(facts.segments).toEqual([{ from: 'DEL', to: 'DXB', date: '2026-12-10', arrivalDate: '2026-12-11', airline: 'Test Air', flightNo: 'TA 101', departTime: '23:10', arriveTime: '01:20' }]);
-    expect(p.value.estimate).toEqual({ kind: 'flight', fareTotalPaise: '1800050' });
+    // Book now v2: fare per person; the older total is never written again (fareTotalRupees is ignored).
+    expect(p.value.estimate).toEqual({ kind: 'flight', fareTotalPaise: null, fareAdultPaise: '600050', fareChildPaise: null, fareInfantPaise: null });
   });
   it('hints map to form names', () => {
     expect(serviceHintField('segments[1].arrivalDate')).toBe('segmentArrivalDate[1]');

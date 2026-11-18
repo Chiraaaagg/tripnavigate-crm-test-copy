@@ -5,7 +5,7 @@ import { settingsTabsFor } from '@/modules/settings/contracts';
 import type { RolePermissionFact } from '@/modules/access/policy';
 import type { MyWorkCounts } from '@/modules/fulfilment/contracts';
 import type { StaffContext } from '@/modules/identity/server/session';
-import { homeRows, NO_HOME_ROLES } from '@/views/home-view';
+import { flightRows, homeRows, NO_HOME_ROLES } from '@/views/home-view';
 import { navItemsFor, type ShellViewer } from '@/views/StaffShell';
 
 /**
@@ -63,7 +63,19 @@ function viewerOf(s: StaffContext, financeEntities = FINANCE_ON): ShellViewer {
 const menuOf = (s: StaffContext, financeEntities = FINANCE_ON) => navItemsFor(viewerOf(s, financeEntities)).map((i) => `${i.group}: ${i.label}`);
 
 // Voice-note batch: Customers to check sits right after To check.
-const ACCOUNTS_GROUP = ['Accounts: To check', 'Accounts: Customers to check', 'Accounts: Reported payments', 'Accounts: Department costs', 'Accounts: Branch cash', 'Accounts: Company accounts'];
+// Purchase build: Hotel go-ahead, Supplier payments, Supplier invoices and Company funding after Reported payments.
+const ACCOUNTS_GROUP = [
+  'Accounts: To check',
+  'Accounts: Customers to check',
+  'Accounts: Reported payments',
+  'Accounts: Hotel go-ahead',
+  'Accounts: Supplier payments',
+  'Accounts: Supplier invoices',
+  'Accounts: Company funding',
+  'Accounts: Department costs',
+  'Accounts: Branch cash',
+  'Accounts: Company accounts',
+];
 // Batch 4 (DA-250): one "Settings" item; its tabs (settingsTabsFor) are tested below.
 const SETTINGS_GROUP = ['Settings: Settings'];
 
@@ -81,12 +93,19 @@ describe('navItemsFor: grouped menu per role (Direction A)', () => {
       'Work: Itineraries',
       'Work: Purchase tasks',
       'Work: Suppliers',
+      // Accounts phase 3 (contract 15 Nav): rate contracts for Purchase and Managers.
+      'Work: Rate contracts',
+      'Work: Approvals',
+      // Flight build (contract 11.2 Nav, 4 Nov 2026): the Manager gets the read-only Flight tasks queue link.
+      'Work: Flight tasks',
+      // Visa build (contract 11.2 Nav, 8 Nov 2026): the Manager gets the read-only Visa and passport tasks queue link.
+      'Work: Visa and passport tasks',
     ]);
   });
 
-  it('Purchase: Home, Deals, Purchase tasks, Suppliers (never Leads)', () => {
+  it('Purchase: Home, Deals, Purchase tasks, Suppliers, Payment requests (never Leads)', () => {
     const menu = menuOf(staff('purchase', [{ roleCode: 'purchase' }]));
-    expect(menu).toEqual(['Work: Home', 'Work: Deals', 'Work: Purchase tasks', 'Work: Suppliers']);
+    expect(menu).toEqual(['Work: Home', 'Work: Deals', 'Work: Purchase tasks', 'Work: Suppliers', 'Work: Rate contracts', 'Work: Payment requests']);
     expect(menu.some((m) => m.includes('Leads'))).toBe(false);
   });
 
@@ -114,7 +133,7 @@ describe('navItemsFor: grouped menu per role (Direction A)', () => {
     expect(menuOf(s)).toEqual(['Work: Home', 'Work: Leads', 'Work: Deals', ...SETTINGS_GROUP]);
     const item = navItemsFor(viewerOf(s)).find((i) => i.group === 'Settings')!;
     expect(item).toEqual({ href: '/app/admin/staff', label: 'Settings', group: 'Settings', activePrefix: '/app/admin' });
-    expect(settingsTabsFor(viewerOf(s)).map((t) => t.label)).toEqual(['People and access', 'Company and branches', 'Money rules', 'Bitrix connection', 'Imports', 'Features', 'System health']);
+    expect(settingsTabsFor(viewerOf(s)).map((t) => t.label)).toEqual(['People and access', 'Company and branches', 'Money rules', 'Accounts', 'Bitrix connection', 'Imports', 'Features', 'System health']);
   });
 
   it('Super Admin who also holds Accounts: Accounts group, one Settings item, and no Money rules tab (cannot set the cash cap)', () => {
@@ -164,6 +183,9 @@ describe('navItemsFor: grouped menu per role (Direction A)', () => {
       'Work: Itineraries',
       'Work: Purchase tasks',
       'Work: Suppliers',
+      // Accounts phase 3 (contract 15 Nav): rate contracts for Purchase and Managers.
+      'Work: Rate contracts',
+      'Work: Approvals',
       'Work: Flight tasks',
       'Work: Visa and passport tasks',
       ...ACCOUNTS_GROUP,
@@ -180,7 +202,7 @@ describe('navItemsFor: grouped menu per role (Direction A)', () => {
       ]),
     );
     expect(menu).not.toContain('Work: Leads');
-    expect(menu).toEqual(['Work: Home', 'Work: Deals', 'Work: Purchase tasks', 'Work: Suppliers']);
+    expect(menu).toEqual(['Work: Home', 'Work: Deals', 'Work: Purchase tasks', 'Work: Suppliers', 'Work: Rate contracts', 'Work: Payment requests']);
   });
 
   it('"My access" is never a menu item for any role (it is in the account panel; /app/access still opens)', () => {
@@ -218,6 +240,8 @@ describe('navItemsFor: grouped menu per role (Direction A)', () => {
       canManageFinancePolicy: true,
       canSeeFlightTasks: true,
       canSeeVisaDesk: true,
+      canSeePurchasePayments: true,
+      canSeeApprovals: true,
     }).map((i) => i.href);
     expect(all).toEqual([
       '/app',
@@ -227,11 +251,18 @@ describe('navItemsFor: grouped menu per role (Direction A)', () => {
       '/app/itineraries',
       '/app/purchase',
       '/app/purchase/suppliers',
+      '/app/purchase/rate-contracts',
+      '/app/purchase/payments',
+      '/app/approvals',
       '/app/flight',
       '/app/visa',
       '/app/accounts',
       '/app/accounts/customers',
       '/app/accounts/claims',
+      '/app/accounts/go-ahead',
+      '/app/accounts/supplier-payments',
+      '/app/accounts/supplier-invoices',
+      '/app/accounts/funding',
       '/app/accounts/expenses',
       '/app/accounts/cash',
       '/app/accounts/destinations',
@@ -301,7 +332,30 @@ describe('homeRows: "What needs you" shows only counts that apply (plan T4)', ()
     expect(homeRows({ ...ZERO, waitingForMe: 5 }, { ...NO_HOME_ROLES, purchase: true })).toEqual([
       expect.objectContaining({ key: 'waitingForMe', count: 5, href: '/app/purchase', action: 'Open Purchase tasks' }),
     ]);
-    expect(homeRows(ZERO, { ...NO_HOME_ROLES, flight: true })).toEqual([expect.objectContaining({ key: 'waitingForMe', href: '/app/flight' })]);
+    // Flight build (migration 20261201000150, contract D12): waitingForMe no longer counts flight tasks, so a Flight-only
+    // person gets no combined row; Flight's own rows come from flight_home_counts (flightRows), one row per key.
+    expect(homeRows(ZERO, { ...NO_HOME_ROLES, flight: true })).toEqual([]);
+    expect(flightRows({ flightDealsNotTaken: 2, flightDealsMine: 1, flightBookingChanged: 0, flightChangesDecided: 0, flightReadyToFinish: 0,
+      salesFlightChangesToDecide: null, salesTravellersToName: null } as unknown as Parameters<typeof flightRows>[0], null,
+    { ...NO_HOME_ROLES, flight: true })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: 'flightDealsNotTaken', count: 2, href: '/app/flight' }),
+      expect.objectContaining({ key: 'flightDealsMine', count: 1 }),
+    ]));
+    // Flight build (lead UI review, 5 Nov 2026; migration 0180): precise links per row; Sales rows open the one Deal.
+    const precise = flightRows({ flightDealsNotTaken: 0, flightDealsMine: 0, flightBookingChanged: 1, flightChangesDecided: 1, flightReadyToFinish: 1,
+      salesFlightChangesToDecide: 1, salesFlightChangesToDecideDealId: 'd-one', salesTravellersToName: 2, salesTravellersToNameDealId: null,
+    } as unknown as Parameters<typeof flightRows>[0], null, { ...NO_HOME_ROLES, flight: true, bookings: true });
+    const href = (key: string) => precise.find((r) => r.key === key)?.href;
+    expect(href('flightBookingChanged')).toBe('/app/flight?show=mine&only=booking_changed');
+    expect(href('flightChangesDecided')).toBe('/app/flight?show=mine&only=change_decision');
+    expect(href('flightReadyToFinish')).toBe('/app/flight?show=mine&only=ready');
+    expect(precise.find((r) => r.key === 'salesFlightChangesToDecide')).toMatchObject({ href: '/app/deals/d-one?tab=services', action: 'Open the deal' });
+    expect(precise.find((r) => r.key === 'salesTravellersToName')).toMatchObject({ href: '/app/deals', action: 'Open deals' });
+    // Contract Addendum 2 (R3): Flight sees the travellers Sales has named; the row shows only when there is one.
+    const named = (n: number) => flightRows({ flightDealsNotTaken: 0, flightDealsMine: 0, flightBookingChanged: 0, flightChangesDecided: 0, flightReadyToFinish: 0,
+      flightTravellersNamed: n } as unknown as Parameters<typeof flightRows>[0], null, { ...NO_HOME_ROLES, flight: true });
+    expect(named(2).find((r) => r.key === 'flightTravellersNamed')).toMatchObject({ label: 'Travellers Sales has named', count: 2 });
+    expect(named(0).find((r) => r.key === 'flightTravellersNamed')).toBeUndefined();
   });
 
   it('Visa desk: one row that opens the desk in one click (no duplicate of the same number)', () => {

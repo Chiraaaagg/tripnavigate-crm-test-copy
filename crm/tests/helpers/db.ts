@@ -59,6 +59,135 @@ export const FIXTURE_EMAILS: Record<keyof typeof FIXTURE_USERS, string> = {
   managerAhmedabad: 'manager.ahmedabad@example.test',
 };
 
+/**
+ * Accounts phase 2 people (supabase/fixtures/accounts_phase2_people.sql,
+ * contract accounts-phase2 section 15). Kept apart from FIXTURE_USERS on
+ * purpose: the policy-parity suites iterate FIXTURE_USERS and pin their
+ * counts. Holiday Chacha; their memberships start INACTIVE (existing suites
+ * pin exact notice recipients): turn them on with activateAcc2People.
+ *   accountsJodhpur2/3   Accounts (JDH): second and third Accounts person
+ *   managerJodhpur/2     Manager (JDH), and a second Jodhpur Manager
+ *   managerFlightDelhi   Manager (DEL, the Delhi Deals' branch) who also holds Flight (JDH): not "M" (AL7)
+ *   flightJodhpur        Flight (JDH)
+ *   visaJodhpur2         Visa (JDH), Visa only
+ */
+export const ACC2_FIXTURE_USERS = {
+  accountsJodhpur2: 'a0000000-0000-4000-8000-000000000014',
+  accountsJodhpur3: 'a0000000-0000-4000-8000-000000000015',
+  managerJodhpur: 'a0000000-0000-4000-8000-000000000016',
+  managerJodhpur2: 'a0000000-0000-4000-8000-000000000017',
+  managerFlightDelhi: 'a0000000-0000-4000-8000-000000000018',
+  flightJodhpur: 'a0000000-0000-4000-8000-000000000019',
+  visaJodhpur2: 'a0000000-0000-4000-8000-000000000020',
+} as const;
+
+export const ACC2_FIXTURE_EMAILS: Record<keyof typeof ACC2_FIXTURE_USERS, string> = {
+  accountsJodhpur2: 'accounts.jodhpur.2@example.test',
+  accountsJodhpur3: 'accounts.jodhpur.3@example.test',
+  managerJodhpur: 'manager.jodhpur@example.test',
+  managerJodhpur2: 'manager.jodhpur.2@example.test',
+  managerFlightDelhi: 'manager.flight.delhi@example.test',
+  flightJodhpur: 'flight.jodhpur@example.test',
+  visaJodhpur2: 'visa.jodhpur.2@example.test',
+};
+
+/**
+ * Accounts phase 2 Deals: no new Deal exists (the parity suites pin the
+ * fixture Deals). A Deal whose owner holds no active Sales role:
+ * SYN-DEL-003 (owner left the company; Delhi, so Manager Delhi decides).
+ */
+export const ACC2_FIXTURE_DEALS = {
+  noActiveSalesOwner: FIXTURE_DEALS.del003,
+} as const;
+
+/**
+ * Turns the Accounts phase 2 people on (their fixture memberships start
+ * inactive). Call as the database owner inside a rolled-back transaction
+ * (asOwner, or between resetActor and setActor). Default: all of them.
+ */
+export async function activateAcc2People(
+  db: TestDb,
+  people: ReadonlyArray<keyof typeof ACC2_FIXTURE_USERS> = Object.keys(ACC2_FIXTURE_USERS) as Array<keyof typeof ACC2_FIXTURE_USERS>,
+): Promise<void> {
+  await db.query(
+    `update public.memberships set status = 'active', deactivated_at = null where user_id = any ($1::uuid[]) and status = 'inactive'`,
+    [people.map((p) => ACC2_FIXTURE_USERS[p])],
+  );
+}
+
+/** Synthetic supplier import samples (supabase/fixtures/imports/). */
+export const ACC2_FIXTURE_FILES = {
+  supplierOwnerFile: join(root, 'supabase', 'fixtures', 'imports', 'acc2-supplier-owner-file.csv'),
+  supplierTallyLedgers: join(root, 'supabase', 'fixtures', 'imports', 'acc2-tally-sundry-creditors.csv'),
+} as const;
+
+/**
+ * Accounts phase 3 people (supabase/fixtures/accounts_phase3_people.sql,
+ * contract accounts-phase3 section 19): a second pure Manager for Delhi and
+ * Ahmedabad (Jodhpur has managerJodhpur / managerJodhpur2 above). Kept apart
+ * from FIXTURE_USERS (the parity suites pin it). Their memberships start
+ * INACTIVE like the phase 2 people: turn them on with activateAcc3People.
+ */
+export const ACC3_FIXTURE_USERS = {
+  managerDelhi2: 'a0000000-0000-4000-8000-000000000021',
+  managerAhmedabad2: 'a0000000-0000-4000-8000-000000000022',
+} as const;
+
+export const ACC3_FIXTURE_EMAILS: Record<keyof typeof ACC3_FIXTURE_USERS, string> = {
+  managerDelhi2: 'manager.delhi.2@example.test',
+  managerAhmedabad2: 'manager.ahmedabad.2@example.test',
+};
+
+/**
+ * Turns the Accounts phase 3 people on. Call as the database owner inside a
+ * rolled-back transaction (asOwner, or between resetActor and setActor).
+ */
+export async function activateAcc3People(
+  db: TestDb,
+  people: ReadonlyArray<keyof typeof ACC3_FIXTURE_USERS> = Object.keys(ACC3_FIXTURE_USERS) as Array<keyof typeof ACC3_FIXTURE_USERS>,
+): Promise<void> {
+  await db.query(
+    `update public.memberships set status = 'active', deactivated_at = null where user_id = any ($1::uuid[]) and status = 'inactive'`,
+    [people.map((p) => ACC3_FIXTURE_USERS[p])],
+  );
+}
+
+/**
+ * Accounts phase 3 scenario Deals (supabase/fixtures/phase3/acc3_scenarios.sql,
+ * OPT-IN: they exist only after loadAcc3Scenarios). All Delhi, owner Sales Delhi A.
+ *   hindi        SYN-ACC3-HINDI   confirmed hotel booking, customer language Hindi, review pending
+ *   noEmail      SYN-ACC3-NOMAIL  confirmed hotel booking, booking contact with a mobile and no e-mail, review pending
+ *   twoHotels    SYN-ACC3-HOTELS  committed: two supplier-confirmed hotels, review approved, receipt 2,000,000
+ *                                 verified, supplier payment 900,000 recorded (Accounts Jodhpur), verified (Accounts Jodhpur 2)
+ *   smallBalance SYN-ACC3-BAL3    trip ended, review approved, selling 1,000,300, verified 1,000,000: balance 300 paise
+ */
+export const ACC3_FIXTURE_DEALS = {
+  hindi: 'd0000000-0000-4000-8000-000000000301',
+  noEmail: 'd0000000-0000-4000-8000-000000000302',
+  twoHotels: 'd0000000-0000-4000-8000-000000000303',
+  smallBalance: 'd0000000-0000-4000-8000-000000000304',
+} as const;
+
+/** Accounts phase 3 synthetic files (supabase/fixtures/phase3/, see README.acc3.txt there). */
+export const ACC3_FIXTURE_FILES = {
+  scenarios: join(root, 'supabase', 'fixtures', 'phase3', 'acc3_scenarios.sql'),
+  rateSheet: join(root, 'supabase', 'fixtures', 'phase3', 'acc3-syn-rate-sheet.csv'),
+  rateSheetInvalid: join(root, 'supabase', 'fixtures', 'phase3', 'acc3-syn-rate-sheet-invalid.csv'),
+  dayBook: join(root, 'supabase', 'fixtures', 'phase3', 'acc3-syn-tally-daybook.xml'),
+} as const;
+
+/**
+ * Builds the Accounts phase 3 scenario Deals (ACC3_FIXTURE_DEALS) through the
+ * real commands, as the database owner. Runs inside the caller's transaction
+ * (e.g. asOwner: the Deals roll back with it); on a real stack outside one,
+ * prefer `psql -1 -f` (see the file header). Rerun-safe. Needs the 'test'
+ * environment (synthetic fixtures loaded).
+ */
+export async function loadAcc3Scenarios(db: TestDb): Promise<void> {
+  await resetActor(db);
+  await db.exec(readFileSync(ACC3_FIXTURE_FILES.scenarios, 'utf8'));
+}
+
 export interface TestDb {
   query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
   exec(sql: string): Promise<void>;
@@ -182,9 +311,11 @@ export async function createTestDb(): Promise<TestDb> {
 
   const db = new PGlite();
   await db.exec(readFileSync(join(root, 'tests', 'helpers', 'supabase-shim.sql'), 'utf8'));
-  const users = Object.entries(FIXTURE_USERS)
-    .map(([key, id]) => `('${id}', '${FIXTURE_EMAILS[key as keyof typeof FIXTURE_USERS]}')`)
-    .join(',\n');
+  const users = [
+    ...Object.entries(FIXTURE_USERS).map(([key, id]) => `('${id}', '${FIXTURE_EMAILS[key as keyof typeof FIXTURE_USERS]}')`),
+    ...Object.entries(ACC2_FIXTURE_USERS).map(([key, id]) => `('${id}', '${ACC2_FIXTURE_EMAILS[key as keyof typeof ACC2_FIXTURE_USERS]}')`),
+    ...Object.entries(ACC3_FIXTURE_USERS).map(([key, id]) => `('${id}', '${ACC3_FIXTURE_EMAILS[key as keyof typeof ACC3_FIXTURE_USERS]}')`),
+  ].join(',\n');
   await db.exec(`insert into auth.users (id, email) values ${users};`);
   for (const file of migrationFiles()) {
     await db.exec(readFileSync(file, 'utf8'));

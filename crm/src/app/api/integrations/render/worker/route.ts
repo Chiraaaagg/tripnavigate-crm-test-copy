@@ -2,7 +2,9 @@ import { handleOnlineRenderRequest, productionOnlineDeps } from '@/modules/docum
 
 /**
  * DEC-49 online PDF maker (built, not deployed; off unless PDF_RENDER_ONLINE
- * is "on"). Each call renders at most one queued itinerary job.
+ * is "on"). Each call renders at most one queued job: an itinerary job
+ * first; when that queue is idle, one customer document job (Accounts
+ * phase 2, contract 6.8).
  *   GET   Vercel Cron (Authorization: Bearer CRON_SECRET)
  *   POST  manual run (Authorization: Bearer RENDER_WORKER_SECRET)
  * Self-authenticating machine route: /api/integrations/* is outside the

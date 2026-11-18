@@ -33,6 +33,15 @@ const nextConfig: NextConfig = {
       { source: '/:path*', headers: securityHeaders },
       // Authenticated pages must never be cached by shared caches.
       { source: '/app/:path*', headers: [{ key: 'Cache-Control', value: 'private, no-store' }] },
+      // Accounts phase 3 (8.4): the service worker is never cached and may only run its own code.
+      {
+        source: '/sw.js',
+        headers: [
+          { key: 'Content-Type', value: 'application/javascript; charset=utf-8' },
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self'" },
+        ],
+      },
     ];
   },
 };

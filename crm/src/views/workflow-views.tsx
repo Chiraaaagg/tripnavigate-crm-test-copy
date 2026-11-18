@@ -1,4 +1,4 @@
-import { CircleCheck, Info, Link2, Lock, ShieldAlert } from 'lucide-react';
+import { CircleCheck, Info, Link2, Lock, MessageSquareText, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
 import { StatusBadge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
@@ -32,11 +32,14 @@ export function FeaturesSettingsView({
   model,
   actions,
   bitrixHref,
+  customerMessagesHref = null,
 }: {
   model: FeaturesPageModel;
   actions: SettingSwitchActions;
   /** Settings · Bitrix connection, when this person may open it (D3 link); null hides the link. */
   bitrixHref: string | null;
+  /** Accounts phase 3 (screen 15.4): Settings · Customer messages (Super Admin switches); null hides the link. */
+  customerMessagesHref?: string | null;
 }) {
   return (
     <>
@@ -49,6 +52,16 @@ export function FeaturesSettingsView({
           <p>
             <Link href={bitrixHref} className={cn('rounded-chip font-semibold text-brand-strong underline decoration-1 underline-offset-4 hover:text-brand-deep hover:decoration-2', focusRing)}>
               Open Bitrix connection
+            </Link>
+          </p>
+        </Notice>
+      ) : null}
+      {customerMessagesHref ? (
+        <Notice tone="info" icon={MessageSquareText}>
+          <p>The nine booking messages to customers (e-mail and WhatsApp), the pilot list, the WhatsApp text approvals and the timer have their own page. Every message switch is Off until a Super Admin turns it on with a reason.</p>
+          <p>
+            <Link href={customerMessagesHref} className={cn('rounded-chip font-semibold text-brand-strong underline decoration-1 underline-offset-4 hover:text-brand-deep hover:decoration-2', focusRing)}>
+              Open Customer messages
             </Link>
           </p>
         </Notice>

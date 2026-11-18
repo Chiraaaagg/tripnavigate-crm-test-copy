@@ -127,6 +127,16 @@ async function loadAccountsFixture(fixtureFile: string) {
   });
 }
 
+/**
+ * The listed item that is exactly this business date. A substring check is not
+ * enough: "5 Jul 2026" is also inside "15 Jul 2026" and "25 Jul 2026", so it
+ * would depend on the calendar day the suite runs.
+ */
+function listedDate(list: Locator, iso: string): Locator {
+  const text = finDateText(iso).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return list.getByRole('listitem').filter({ hasText: new RegExp(`^\\s*${text}\\s*$`) });
+}
+
 /** Adds dated synthetic cash without changing an immutable receipt or the shared fixture file. */
 async function seedLateCashObligation(stamp: number) {
   return db(async (client) => {
@@ -697,7 +707,7 @@ test.describe('real Accounts browser journey (Phase 5B Milestone A section 8)', 
       await b.goto('/app/accounts/cash');
       await expect(branch).toContainText('Daily cash count missing');
       await expect(branch).toContainText(`oldest ${finDateText(oldDate)}`);
-      await expect(branch.getByRole('list', { name: /Daily cash count missing/ })).toContainText(finDateText(oldDate));
+      await expect(listedDate(branch.getByRole('list', { name: /Daily cash count missing/ }), oldDate)).toHaveCount(1);
       await expect(branch).not.toContainText('Nothing unresolved at this branch');
       await shot(b, 'reconciliation-older-than-90-days');
     });
@@ -749,7 +759,7 @@ test.describe('real Accounts browser journey (Phase 5B Milestone A section 8)', 
       await verify.getByRole('button', { name: /Verify cash count/ }).click();
       await expect(countB).toContainText('Cash count: Verified', { timeout: 30_000 });
       await expect(branchB.getByRole('list', { name: /Daily cash count awaiting verification/ })).toHaveCount(0);
-      await expect(branchB.getByRole('list', { name: /Daily cash count missing/ })).not.toContainText(finDateText(lateCash.oldDate));
+      await expect(listedDate(branchB.getByRole('list', { name: /Daily cash count missing/ }), lateCash.oldDate)).toHaveCount(0);
       await expect(branchB).not.toContainText('Nothing unresolved at this branch');
       const rows = await db(async (client) => (await client.query(
         `select c.status, c.recorded_by, c.verified_by from public.cash_reconciliations c

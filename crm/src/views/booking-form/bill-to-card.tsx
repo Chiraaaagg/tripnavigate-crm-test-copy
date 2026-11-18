@@ -1,12 +1,14 @@
 'use client';
 
 import { Pencil, Search, Upload, UserRound, X } from 'lucide-react';
-import { useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useRef, useState, type ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn, focusRing } from '@/components/ui/cn';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/field';
 import { Notice } from '@/components/ui/notice';
+import { SaveStatus } from '@/components/ui/save-status';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { NotEntered, SummaryList, SummaryRow } from '@/components/ui/summary-list';
 import { CUSTOMER_LIST_MAX_BYTES, CUSTOMER_LIST_MIN_QUERY, type BillToType, type BillToView, type GstStatus } from '@/modules/fulfilment/booking-form-contract';
 import {
@@ -24,12 +26,13 @@ import {
 import { GST_STATES, dateText } from '../b11/book-fields';
 import { SelectField, TextField } from '../b11/controls';
 import { useSectionForm, type SyncSection } from '../b11/draft-sync';
-import { ResultBox, type FieldRef } from '../b11/form-kit';
+import { type FieldRef, type UiResult } from '../b11/form-kit';
+import { useAutosave } from './autosave-queue';
 import type { B11Action, BookNowView } from '../b11/shapes';
 import { AddCustomerDialog, PartyPicker, PartyStatus } from './bill-to-parties';
 import type { PartyActions, PartyCheckStatus, PartyOption } from './vn-types';
-import { HiddenDraftInputs, SectionSaveRow, editableOf, errFor, useShownRefusal, useSectionSubmit } from './form-helpers';
-import { Disclosure, InlineNote, SectionBody, SectionCard } from './parts';
+import { HiddenDraftInputs, editableOf, errFor, useShownRefusal } from './form-helpers';
+import { InlineNote, SectionBody, SectionCard } from './parts';
 
 /*
  * Step 3 · Bill To (approved preview BillTo; contract §2.10–2.11). Personal or
@@ -97,14 +100,13 @@ export function BillToCard({
   billTo,
   view,
   action,
-  reloadHref,
   contact,
   parties = null,
 }: {
   billTo: BillToView | null;
   view: BookNowView;
   action: B11Action;
-  reloadHref: string;
+  reloadHref?: string;
   /** The typed booking contact ("Use booking contact"). */
   contact: { name: string; phone: string; email: string };
   /** Stored customers (search first, "Add customer"); null = today's card with the local list. */
@@ -130,15 +132,33 @@ export function BillToCard({
     // Bill To has its own row version (the billing profile), not the booking version's.
     versionBound: false,
     rowVersion: 0,
-    saveable: !verified,
+    saveable: false,
+    tracksDirty: !verified,
     onSuccess: (r) => {
       const next = r.ok ? (r as { data?: { rowVersion?: unknown } }).data?.rowVersion : undefined;
       if (typeof next === 'number') setBillingRv(next);
     },
   });
-  const { bindForm, bindResult } = f;
-  const submitter = useSectionSubmit(f.post);
   const b = f.values;
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const bindForm = f.bindForm;
+  const setForm = useCallback(
+    (el: HTMLFormElement | null) => {
+      formRef.current = el;
+      bindForm(el);
+    },
+    [bindForm],
+  );
+  const save = useAutosave({
+    key: 'billTo',
+    values: b,
+    dirty: f.dirty,
+    enabled: editable && !verified,
+    hasStored: billTo?.status === 'draft',
+    check: () => billToIssues(f.values),
+    send: () => (formRef.current ? f.post(new FormData(formRef.current)) : Promise.resolve({ ok: false, code: 'unexpected', message: '' } as UiResult)),
+    refs: REFS,
+  });
   const refusal = useShownRefusal(f, (name) => PICK[name]);
   const err = errFor(REFS, refusal.fields);
   const [selection, setSelection] = useState<{ id: string; edited: boolean } | null>(null);
@@ -153,7 +173,7 @@ export function BillToCard({
     setSelection((sel) => (sel ? { ...sel, edited: true } : sel));
   };
   const business = b.type === 'business';
-  const showFields = !parties || editing || Boolean(refusal.fields?.length);
+  const showFields = !parties || editing || Boolean(refusal.fields?.length) || save.state === 'fix';
   const stateName = (code: string) => GST_STATES.find((s) => s.code === code)?.name ?? code;
 
   if (verified && billTo) {
@@ -183,7 +203,13 @@ export function BillToCard({
   }
 
   return (
-    <SectionCard id="billTo" title="Bill To" icon={UserRound} status={billTo?.status === 'draft' && !f.dirty ? <span className="text-sm font-normal text-quiet">· Waits for Accounts check</span> : null}>
+    <SectionCard
+      id="billTo"
+      title="Bill To"
+      icon={UserRound}
+      status={<span className="text-sm font-normal text-quiet">· Waits for Accounts check</span>}
+      action={editable ? <SaveStatus id="pill-billTo" state={save.state} reason={save.reason} label="Bill To" /> : null}
+    >
       <SectionBody className="flex flex-col gap-5">
         {editable && parties ? (
           <>
@@ -196,7 +222,7 @@ export function BillToCard({
                   setParty({ id: p.partyId, status: p.checkStatus, name: p.name });
                   setEditing(false);
                   setPickError(null);
-                  setPicked(p.checkStatus === 'returned' ? `${p.name} filled in. Accounts returned this customer: check the details with Edit details before saving.` : `${p.name} filled in. Save Bill To to keep it.`);
+                  setPicked(p.checkStatus === 'returned' ? `${p.name} filled in. Accounts returned this customer: check the details with Edit details.` : `${p.name} filled in.`);
                 };
                 if (!parties.pick) {
                   fill(hit);
@@ -242,7 +268,7 @@ export function BillToCard({
                 setParty({ id: p.partyId, status: p.checkStatus, name: p.name });
                 setAdding(null);
                 setEditing(false);
-                setPicked(`${p.name} added to the customer list (Not checked) and filled in. Save Bill To to keep it.`);
+                setPicked(`${p.name} added to the customer list (Not checked) and filled in.`);
               }}
             />
           </>
@@ -261,10 +287,7 @@ export function BillToCard({
             }}
           />
         ) : null}
-        <form ref={bindForm} onSubmit={submitter.onSubmit} noValidate aria-labelledby="billTo-heading" className="flex flex-col gap-5">
-          <div ref={bindResult} className="[&:has(>[role=status]:empty)]:hidden">
-            <ResultBox result={refusal.shown} fields={REFS} reloadHref={reloadHref} successText="Bill To saved. Accounts checks it before use." />
-          </div>
+        <form ref={setForm} onSubmit={(e) => e.preventDefault()} noValidate aria-labelledby="billTo-heading" className="flex flex-col gap-4">
           <HiddenDraftInputs view={view} base={f.base} result={f.state} extra={{ billingRowVersion: billingRv, billToType: b.type, ...(parties ? { partyId: party?.id ?? '' } : {}) }} />
           {parties && !showFields ? (
             b.name.trim() ? (
@@ -282,28 +305,20 @@ export function BillToCard({
           ) : null}
           <div hidden={!showFields} className={cn('flex flex-col gap-5', !showFields && 'hidden')}>
           <div className="flex flex-wrap items-center gap-3">
-            <div role="group" aria-label="Bill to type" id={F.billToType} tabIndex={-1} className="inline-flex gap-0.75 rounded-control bg-wash p-0.75 outline-none">
-              {(['personal', 'business'] as const satisfies readonly BillToType[]).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  aria-pressed={b.type === t}
-                  disabled={!editable}
-                  onClick={() => {
-                    if (b.type === t) return;
-                    f.setValues((s) => switchBillToType(s, t));
-                    setSelection(null);
-                  }}
-                  className={cn(
-                    'min-h-8.5 min-w-25 cursor-pointer rounded-chip border-0 bg-transparent px-3 font-medium text-quiet disabled:cursor-not-allowed',
-                    b.type === t && 'bg-card text-brand-deep shadow-card',
-                    focusRing,
-                  )}
-                >
-                  {t === 'personal' ? 'Personal' : 'Business'}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl<BillToType>
+              id={F.billToType}
+              label="Customer type"
+              options={[
+                { value: 'personal', label: 'Personal' },
+                { value: 'business', label: 'Business' },
+              ]}
+              value={b.type}
+              disabled={!editable}
+              onChange={(t) => {
+                f.setValues((s) => switchBillToType(s, t));
+                setSelection(null);
+              }}
+            />
             {b.type === 'personal' && editable ? (
               <Button
                 variant="link"
@@ -321,30 +336,24 @@ export function BillToCard({
             <TextField id={F.billingName} name="billingName" label={business ? 'Company name' : 'Full name'} value={b.name} onChange={(x) => set('name', x)} error={err('billingName')} maxLength={200} disabled={!editable} />
             {business ? <TextField id={F.contactPerson} name="contactPerson" label="Contact name" value={b.contactPerson} onChange={(x) => set('contactPerson', x)} error={err('contactPerson')} maxLength={120} disabled={!editable} /> : null}
             <TextField id={F.billingPhone} name="billingPhone" label="Phone" type="tel" inputMode="tel" value={b.phone} onChange={(x) => set('phone', x)} error={err('billingPhone')} maxLength={16} disabled={!editable} />
-            <TextField id={F.billingEmail} name="billingEmail" label="Email" type="email" inputMode="email" value={b.email} onChange={(x) => set('email', x)} error={err('billingEmail')} maxLength={254} disabled={!editable} />
+            <TextField id={F.billingEmail} name="billingEmail" label="Email" optional type="email" inputMode="email" value={b.email} onChange={(x) => set('email', x)} error={err('billingEmail')} maxLength={254} disabled={!editable} />
           </div>
-          <Disclosure summary={`Billing address${b.city ? ` · ${b.city}` : ''}`} className="mt-[0]">
-            <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-1 gap-4 min-[381px]:grid-cols-2">
-                <TextField id={F.addressLine1} name="addressLine1" label="Address" value={b.addressLine1} onChange={(x) => set('addressLine1', x)} error={err('addressLine1')} maxLength={200} autoComplete="address-line1" disabled={!editable} />
-                <TextField id={F.addressLine2} name="addressLine2" label="Address line 2" optional value={b.addressLine2} onChange={(x) => set('addressLine2', x)} error={err('addressLine2')} maxLength={200} autoComplete="address-line2" disabled={!editable} />
-                <TextField id={F.billingCity} name="billingCity" label="City" value={b.city} onChange={(x) => set('city', x)} error={err('billingCity')} maxLength={120} disabled={!editable} />
-                <SelectField
-                  id={F.stateCode}
-                  name="stateCode"
-                  label="State"
-                  value={b.stateCode}
-                  onChange={(x) => set('stateCode', x)}
-                  options={[{ value: '', label: 'Choose the state' }, ...GST_STATES.map((s) => ({ value: s.code, label: `${s.name} (${s.code})` }))]}
-                  error={err('stateCode')}
-                  disabled={!editable}
-                />
-                <TextField id={F.postalCode} name="postalCode" label="PIN code" inputMode="numeric" value={b.postalCode} onChange={(x) => set('postalCode', x)} error={err('postalCode')} maxLength={6} autoComplete="postal-code" disabled={!editable} />
-                <p className="m-0 self-end pb-2.25 text-quiet">Country: India</p>
-              </div>
-              <InlineNote>Bill To takes Indian addresses only for now.</InlineNote>
-            </div>
-          </Disclosure>
+          <div className="grid grid-cols-1 gap-4 min-[381px]:grid-cols-2">
+            <TextField id={F.addressLine1} name="addressLine1" label="Address" value={b.addressLine1} onChange={(x) => set('addressLine1', x)} error={err('addressLine1')} maxLength={200} autoComplete="address-line1" disabled={!editable} className="min-[381px]:col-span-2" />
+            <TextField id={F.billingCity} name="billingCity" label="City" value={b.city} onChange={(x) => set('city', x)} error={err('billingCity')} maxLength={120} disabled={!editable} />
+            <SelectField
+              id={F.stateCode}
+              name="stateCode"
+              label="State"
+              value={b.stateCode}
+              onChange={(x) => set('stateCode', x)}
+              options={[{ value: '', label: 'Choose the state' }, ...GST_STATES.map((s) => ({ value: s.code, label: `${s.name} (${s.code})` }))]}
+              error={err('stateCode')}
+              disabled={!editable}
+            />
+            <TextField id={F.postalCode} name="postalCode" label="PIN code" inputMode="numeric" value={b.postalCode} onChange={(x) => set('postalCode', x)} error={err('postalCode')} maxLength={6} autoComplete="postal-code" disabled={!editable} />
+            {b.addressLine2 ? <input type="hidden" name="addressLine2" value={b.addressLine2} /> : null}
+          </div>
           {business ? (
             <div className="flex flex-col gap-4">
               <SelectField
@@ -371,9 +380,11 @@ export function BillToCard({
           ) : null}
           </div>
           <InlineNote>Accounts checks billing details before use.</InlineNote>
-          <div className="empty:hidden">
-            <SectionSaveRow label="Save Bill To" dirty={f.dirty} editable={editable} pending={submitter.pending} />
-          </div>
+          {save.state === 'fix' && save.reason ? (
+            <p id="why-billTo" className="m-0 flex items-start gap-1.5 text-sm font-medium text-status-danger">
+              <span>{save.reason}</span>
+            </p>
+          ) : null}
         </form>
       </SectionBody>
     </SectionCard>
@@ -476,6 +487,20 @@ function ClientLookup({ onPick, selection, onClear }: { onPick: (entry: Customer
       ) : null}
     </div>
   );
+}
+
+/** The card's checks before it saves (prototype billIssues, live CRM wording). */
+export function billToIssues(b: BillToInput): string[] {
+  const o: string[] = [];
+  if (!b.name.trim()) o.push('Enter the Bill To name.');
+  if (b.type === 'business' && !b.contactPerson.trim()) o.push('Add the contact name at the business.');
+  if (!b.phone.trim()) o.push('Check the billing phone number.');
+  if (!b.addressLine1.trim()) o.push('Add the billing address.');
+  if (!b.city.trim()) o.push('Add the city.');
+  if (!b.stateCode.trim()) o.push('Choose the state.');
+  if (!/^[1-9]\d{5}$/.test(b.postalCode.replace(/\s/g, ''))) o.push('Enter a six-digit PIN code that does not start with 0.');
+  if (b.type === 'business' && !b.gstStatus) o.push('Choose whether the business is GST registered.');
+  return o;
 }
 
 /** A stored customer's details as billing values (the booking keeps this copy; the reference goes with it). */

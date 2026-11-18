@@ -450,7 +450,8 @@ function toStoredIdProofTravellers(travellers: TaskIdProofsRecord['travellers'])
 
 /** traveller_id_proofs_for_task → the "Traveller ID proofs" list on a department task (explicit copies; stored files only). */
 export function toTaskIdProofsView(record: TaskIdProofsRecord): TaskIdProofsView {
-  return { taskId: record.taskId, travellers: toStoredIdProofTravellers(record.travellers) };
+  // Accounts phase (20261203000100): only an explicit false (flight-only) lifts the rule.
+  return { taskId: record.taskId, idProofRequired: record.idProofRequired !== false, travellers: toStoredIdProofTravellers(record.travellers) };
 }
 
 /** traveller_id_proofs_for_deal → the Deal's "Traveller ID proofs" list (explicit copies; stored files only). */
@@ -612,6 +613,8 @@ export function toBookNowView(input: BookNowInputs): BookNowView {
     idProofCanEdit: form.idProofCanEdit === true,
     idProofCanRemove: form.idProofCanRemove === true,
     idProofLimits: form.idProofLimits ? { maxFilesPerTraveller: form.idProofLimits.maxFilesPerTraveller, maxBytes: form.idProofLimits.maxBytes } : null,
+    // Visa build (20261202000200, QB1): new passengers are numbered above every seq the Deal ever used.
+    ...(form.travellerSeqHigh !== undefined ? { travellerSeqHigh: form.travellerSeqHigh } : {}),
     travellers,
     items,
     ...(commercials ? { commercials } : {}),

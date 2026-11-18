@@ -37,6 +37,9 @@ defaults:
 env:
   SUPABASE_CLI_VERSION: 2.119.0
   NEXT_TELEMETRY_DISABLED: 1
+  # Node heap for the TypeScript checks; see ci.yml (out of memory at the
+  # default heap of about 2 GB from 8 November 2026). Set per step only.
+  NODE_HEAP_OPTIONS: --max-old-space-size=4096
 
 jobs:
   checks:
@@ -59,12 +62,16 @@ jobs:
           cache-dependency-path: crm/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+        env:
+          NODE_OPTIONS: ${{ env.NODE_HEAP_OPTIONS }}
       - run: npm run lint
       - name: Named unit and PGlite tests
         if: env.UNIT_FILES != ''
         run: npx vitest run --project unit --project db $UNIT_FILES
       - name: Production build
         if: env.GALLERY_FILES != ''
+        env:
+          NODE_OPTIONS: ${{ env.NODE_HEAP_OPTIONS }}
         run: npm run build
       - name: Install the browser
         if: env.GALLERY_FILES != ''
@@ -110,7 +117,9 @@ jobs:
         run: |
           sed -i 's#^site_url = "http://127.0.0.1:3000"#site_url = "http://127.0.0.1:3100"#' supabase/config.toml
           grep -q '^site_url = "http://127.0.0.1:3100"' supabase/config.toml
-      - run: supabase start -x realtime,imgproxy,edge-runtime,logflare,vector,supavisor
+      # Retries rate-limited image pulls; leaves out the services no test uses.
+      - name: Start the local Supabase stack
+        run: bash scripts/ci/supabase-start.sh
       - name: Export local stack connection values
         run: |
           supabase status -o env \
@@ -137,6 +146,8 @@ jobs:
         run: DATABASE_URL="$TEST_DATABASE_URL" node scripts/seed-local.mjs
       - run: npx playwright install --with-deps chromium
       - name: Production build against the local stack
+        env:
+          NODE_OPTIONS: ${{ env.NODE_HEAP_OPTIONS }}
         run: npm run build
       - name: Named real browser journeys
         run: npx playwright test --config=playwright.real.config.ts --project=real-journey $JOURNEY_FILES

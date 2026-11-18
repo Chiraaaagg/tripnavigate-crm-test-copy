@@ -92,6 +92,9 @@ const NONE = {
   canManageFinancePolicy: false,
   canImport: false,
   canCheckCustomers: false,
+  // Purchase build: Payment requests (Purchase role) and Approvals (Manager role).
+  canSeePurchasePayments: false,
+  canSeeApprovals: false,
 };
 
 const CASES: Array<{ name: string; who: StaffContext; expected: typeof NONE }> = [
@@ -102,7 +105,8 @@ const CASES: Array<{ name: string; who: StaffContext; expected: typeof NONE }> =
   {
     name: 'Manager',
     who: staff('manager', [{ roleCode: 'manager', branchId: 'del' }]),
-    expected: { ...NONE, canSeeLeads: true, canSeeQuotations: true, canSeePurchaseTasks: true },
+    // Visa build (contract 11.2): canSeeVisaDesk true for the Manager (read-only queue; was false).
+    expected: { ...NONE, canSeeLeads: true, canSeeQuotations: true, canSeePurchaseTasks: true, canSeeVisaDesk: true },
   },
   { name: 'Accounts', who: staff('accounts', [{ roleCode: 'accounts' }]), expected: { ...NONE, canUseAccounts: true, canImport: true, canCheckCustomers: true } },
   {
@@ -164,6 +168,25 @@ const CASES: Array<{ name: string; who: StaffContext; expected: typeof NONE }> =
   { name: 'No membership', who: staff('none', []), expected: NONE },
 ];
 
+// Purchase build: Payment requests for the Purchase role, Approvals for the Manager role (checked explicitly below).
+for (const c of CASES) {
+  c.expected = {
+    ...c.expected,
+    canSeePurchasePayments: c.who.memberships.some((m) => m.roleCode === 'purchase'),
+    canSeeApprovals: c.who.memberships.some((m) => m.roleCode === 'manager'),
+    // Flight build (contract 11.2 Nav, 4 Nov 2026): the branch Manager also gets the read-only "Flight tasks" link.
+    canSeeFlightTasks: c.who.memberships.some((m) => m.roleCode === 'flight' || m.roleCode === 'manager'),
+  };
+}
+/** Flight build: the former layout's flags with the Manager's new Flight tasks link (intended, contract 11.2). */
+const flightBuildLayout = (who: StaffContext, finance: Parameters<typeof formerLayoutFlags>[1]) => ({
+  ...formerLayoutFlags(who, finance),
+  canSeeFlightTasks: who.memberships.some((m) => m.roleCode === 'flight' || m.roleCode === 'manager'),
+  // Visa build (contract 11.2 Nav, 8 Nov 2026): the branch Manager also gets the read-only "Visa and passport tasks" link
+  // (was: Visa role only).
+  canSeeVisaDesk: who.memberships.some((m) => m.roleCode === 'visa' || m.roleCode === 'manager'),
+});
+
 const expectedFor = (who: StaffContext) => CASES.find((c) => c.who === who)!.expected;
 
 describe('shellPermissions()', () => {
@@ -172,8 +195,11 @@ describe('shellPermissions()', () => {
       const flags = shellPermissions(who, FINANCE_ON);
       expect(flags).toEqual(expected);
       // Batch 3 adds canSeeQuotations, Batch 4 canOpenBitrixConnection; every earlier flag stays exactly as the former layout computed it.
-      const { canSeeQuotations: quotations, canOpenBitrixConnection: bitrix, canImport: imports, canCheckCustomers: customers, ...earlier } = flags;
-      expect(earlier).toEqual(formerLayoutFlags(who, FINANCE_ON));
+      const { canSeeQuotations: quotations, canOpenBitrixConnection: bitrix, canImport: imports, canCheckCustomers: customers, canSeePurchasePayments: payments, canSeeApprovals: approvals, ...earlier } = flags;
+      expect(payments).toBe(who.memberships.some((m) => m.roleCode === 'purchase'));
+      expect(approvals).toBe(who.memberships.some((m) => m.roleCode === 'manager'));
+      // Flight build: every earlier flag unchanged except canSeeFlightTasks for the Manager (contract 11.2).
+      expect(earlier).toEqual(flightBuildLayout(who, FINANCE_ON));
       expect(quotations).toBe(canSeeQuotations(who.access));
       expect(bitrix).toBe(earlier.canManageIntegration && !holdsPurchaseAnywhere(who.access));
       // Voice-note batch (Echo-B N2): the pages' rules (role without Purchase in that company), not the finance switch.
@@ -187,13 +213,28 @@ describe('shellPermissions()', () => {
       const flags = shellPermissions(who, []);
       expect(flags.canUseAccounts).toBe(false);
       expect(flags.canManageFinancePolicy).toBe(false);
-      const { canSeeQuotations: quotations, canOpenBitrixConnection: bitrix, canImport: imports, canCheckCustomers: customers, ...earlier } = flags;
-      expect(earlier).toEqual(formerLayoutFlags(who, []));
+      const { canSeeQuotations: quotations, canOpenBitrixConnection: bitrix, canImport: imports, canCheckCustomers: customers, canSeePurchasePayments: payments, canSeeApprovals: approvals, ...earlier } = flags;
+      expect(payments).toBe(who.memberships.some((m) => m.roleCode === 'purchase'));
+      expect(approvals).toBe(who.memberships.some((m) => m.roleCode === 'manager'));
+      // Flight build: every earlier flag unchanged except canSeeFlightTasks for the Manager (contract 11.2).
+      expect(earlier).toEqual(flightBuildLayout(who, []));
       // Echo-B N2: Imports and Customers to check do not follow the finance switch (same as their pages).
       expect(imports).toBe(expectedFor(who).canImport);
       expect(customers).toBe(expectedFor(who).canCheckCustomers);
       expect(bitrix).toBe(expectedFor(who).canOpenBitrixConnection);
       expect(quotations).toBe(expectedFor(who).canSeeQuotations);
+    }
+  });
+
+  it('Purchase build: Payment requests only for the Purchase role, Approvals only for the Manager role', () => {
+    const flags = (roles: Array<{ roleCode: string }>) => shellPermissions(staff('x', roles), FINANCE_ON);
+    expect(flags([{ roleCode: 'purchase' }]).canSeePurchasePayments).toBe(true);
+    expect(flags([{ roleCode: 'purchase' }]).canSeeApprovals).toBe(false);
+    expect(flags([{ roleCode: 'manager' }]).canSeeApprovals).toBe(true);
+    expect(flags([{ roleCode: 'manager' }]).canSeePurchasePayments).toBe(false);
+    for (const roleCode of ['sales', 'accounts', 'flight', 'visa', 'super_admin']) {
+      expect(flags([{ roleCode }]).canSeePurchasePayments, roleCode).toBe(false);
+      expect(flags([{ roleCode }]).canSeeApprovals, roleCode).toBe(false);
     }
   });
 

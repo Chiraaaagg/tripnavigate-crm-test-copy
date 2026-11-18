@@ -35,6 +35,8 @@ import {
   BOOKING_FORM_FIELD_ID,
   carEstimatePaise,
   flightEstimatePaise,
+  flightFareEstimatePaise,
+  type FareTravellerType,
   formatInr,
   hotelCoverage,
   hotelEstimatePaise,
@@ -69,6 +71,8 @@ export interface BookingFormChecklistItem {
   fieldId: string | null;
   text: string;
   itemNos: number[];
+  /** Book now v2 (change 11): "Hotel 2", "Flight 1" for itemNos, in the same order (numbered within each service type). */
+  itemLabels: string[];
   travellerSeqs: number[];
 }
 
@@ -91,7 +95,7 @@ export interface BookingFormVM extends BookingFormCore {
  * The trip type is passed only when a Super Admin classified the Bitrix
  * destination; it is never guessed.
  */
-export function dealFactsView(facts: TripFactsRecord | null | undefined): DealTripFactsView | null {
+export function dealFactsView(facts: TripFactsRecord | null | undefined, bitrixDealHref: string | null = null): DealTripFactsView | null {
   if (!facts || !facts.enabled) return null;
   const f = facts.fields;
   const fromBitrix = <T>(x: { bitrix: T | null; source: string }): T | null => (x.source === 'bitrix' ? x.bitrix : null);
@@ -109,7 +113,8 @@ export function dealFactsView(facts: TripFactsRecord | null | undefined): DealTr
     readAt: facts.readAt,
   };
   const any = [view.destination, view.start, view.end, view.total, view.adults, view.children, view.infants, view.scope].some((v) => v !== null);
-  return any ? view : null;
+  // Book now v2: "Open the Deal in Bitrix" (from booking_form_get; null for a Deal not from Bitrix).
+  return any ? { ...view, bitrixDealHref } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,6 +183,8 @@ interface RouteContext {
   itemIdByNo: Map<number, string>;
   /** Traveller seq → row position (1-based) on the passengers card. */
   rowBySeq?: Map<number, number>;
+  /** Book now v2: item number → "Hotel 2", "Flight 1" (numbered within each service type). */
+  labelByNo?: Map<number, string>;
 }
 
 function priceText(code: string, ctx: RouteContext): { text: string; fieldId: string | null } {
@@ -212,7 +219,10 @@ function routeItem(item: BookChecklistItem, ctx: RouteContext): BookingFormCheck
   const section = formSectionOf(item);
   let text = item.text;
   let fieldId: string | null = FIELD_OF_CODE[item.code] ?? null;
+  const itemLabels = item.itemNos.map((n) => ctx.labelByNo?.get(n) ?? `Item ${n}`);
   if (PRICE_CODES.has(item.code)) ({ text, fieldId } = priceText(item.code, ctx));
+  // Book now v2: "Flight 2: attach at least one screenshot, or type the details."
+  else if (item.code === 'flight_screenshot_missing' && itemLabels.length > 0) text = `${itemLabels.join(', ')}: attach at least one screenshot, or type the details.`;
   else if (item.code === 'hotel_nights_missing' && ctx.coverage && ctx.coverage.nights !== null && ctx.coverage.missing.length > 0) {
     text = `${ctx.coverage.covered} of ${ctx.coverage.nights} trip nights have a hotel. Add a hotel for ${ctx.coverage.missing.map(dateWords).join(', ')}.`;
   }
@@ -234,6 +244,7 @@ function routeItem(item: BookChecklistItem, ctx: RouteContext): BookingFormCheck
     fieldId,
     text,
     itemNos: [...item.itemNos],
+    itemLabels,
     travellerSeqs: [...item.travellerSeqs],
   };
 }
@@ -286,7 +297,17 @@ export function mergedFacts(record: FormItemRecord): Record<string, unknown> {
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isSafeInteger(v) ? v : null);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
-export function estimateView(serviceType: string, facts: Record<string, unknown>, estimate: ServiceEstimate | null): ServiceEstimateView {
+/**
+ * The item's estimate and its total. Book now v2: a flight's total is Σ fare
+ * per person × the travellers of each type on that flight (`counts`); without
+ * counts (or fares per person) the older total is shown.
+ */
+export function estimateView(
+  serviceType: string,
+  facts: Record<string, unknown>,
+  estimate: ServiceEstimate | null,
+  counts?: Record<FareTravellerType, number>,
+): ServiceEstimateView {
   if (!estimate) return { estimate: null, totalPaise: null };
   if (estimate.kind === 'hotel' && serviceType === 'hotel') {
     return {
@@ -303,7 +324,9 @@ export function estimateView(serviceType: string, facts: Record<string, unknown>
     };
   }
   if (estimate.kind === 'transfer' && serviceType === 'transfer') return { estimate, totalPaise: carEstimatePaise(num(facts.quantity) ?? 1, estimate.vehicleRatePaise) };
-  if (estimate.kind === 'flight' && serviceType === 'flight') return { estimate, totalPaise: flightEstimatePaise(estimate.fareTotalPaise) };
+  if (estimate.kind === 'flight' && serviceType === 'flight') {
+    return { estimate, totalPaise: counts ? flightFareEstimatePaise({ ...estimate, counts }) : flightEstimatePaise(estimate.fareTotalPaise) };
+  }
   return { estimate: null, totalPaise: null };
 }
 
@@ -426,6 +449,16 @@ export function toBookingFormVM(input: BookingFormVMInput): BookingFormVM {
   const formRules: 1 | 2 = form.version?.formRules === 2 ? 2 : 1;
   const itemFilesCanEdit = editable && form.itemFilesCanEdit === true;
   const records = new Map(form.items.map((r) => [r.itemId, r]));
+  // Book now v2: traveller types for the flight fare per person.
+  const typeBySeq = new Map(view.travellers.map((t) => [t.seq, t.type as FareTravellerType]));
+  const countsOf = (seqs: readonly number[]): Record<FareTravellerType, number> => {
+    const c: Record<FareTravellerType, number> = { adult: 0, child: 0, infant: 0 };
+    for (const s of seqs) {
+      const t = typeBySeq.get(s);
+      if (t) c[t] += 1;
+    }
+    return c;
+  };
 
   const items: BookingFormServiceItemView[] = view.items.map((item) => {
     const record = records.get(item.itemId);
@@ -438,8 +471,11 @@ export function toBookingFormVM(input: BookingFormVMInput): BookingFormVM {
       facts,
       summary: item.title,
       participants: [...item.participants],
-      ...(item.purchaseBudgetPaise !== undefined ? { purchaseBudgetPaise: item.purchaseBudgetPaise } : {}),
-      ...(commercialAllowed && record && record.estimate !== undefined ? { estimate: estimateView(item.serviceType, facts, record.estimate) } : {}),
+      // Review round 1: the Purchase budget only for commercial readers (the database also withholds it).
+      ...(commercialAllowed && item.purchaseBudgetPaise !== undefined ? { purchaseBudgetPaise: item.purchaseBudgetPaise } : {}),
+      ...(commercialAllowed && record && record.estimate !== undefined
+        ? { estimate: estimateView(item.serviceType, facts, record.estimate, item.serviceType === 'flight' ? countsOf(item.participants) : undefined) }
+        : {}),
       ...(record && record.files !== undefined ? { files: fileViews(view.dealId, record, itemFilesCanEdit && !locked) } : {}),
       locked,
     };
@@ -466,6 +502,7 @@ export function toBookingFormVM(input: BookingFormVMInput): BookingFormVM {
     party,
     itemIdByNo: new Map(items.map((i) => [i.itemNo, i.itemId])),
     rowBySeq: new Map(view.travellers.map((t, i) => [t.seq, i + 1])),
+    labelByNo: itemLabelsByNo(items),
   });
   const sectionStatus = formSectionStatus(checklist, started);
   const prefillMode: BookingFormPrefillMode = view.prefill?.autoFill?.enabled === true ? 'auto' : 'off';
@@ -482,13 +519,42 @@ export function toBookingFormVM(input: BookingFormVMInput): BookingFormVM {
     items,
     coverage,
     ...(prices ? { prices } : {}),
+    // Book now v2: commercial readers only (the database sends it to them only).
+    ...(commercialAllowed && form.flightFareTotals !== undefined
+      ? { flightFareTotals: { adultPaise: form.flightFareTotals?.adultPaise ?? null, childPaise: form.flightFareTotals?.childPaise ?? null, infantPaise: form.flightFareTotals?.infantPaise ?? null } }
+      : {}),
+    // Book now v2 (ruling D5): the ID-proof copy to Bitrix would run for an upload now (false on an older database).
+    idProofCopyApplies: form.idProofCopyApplies === true,
+    // Accounts phase (20261203000100): only an explicit false (flight-only version) lifts the ID-proof rule.
+    idProofRequired: form.idProofRequired !== false,
     billTo: billToView(form.billing, view.contacts?.bookingFor ?? null),
     sectionStatus,
     checklist,
     itemFilesCanEdit,
     partyAdults: form.party?.adults ?? null,
-    dealFacts: dealFactsView(form.tripFacts),
+    dealFacts: dealFactsView(form.tripFacts, form.bitrixDealHref ?? null),
   };
+}
+
+const TYPE_WORD: Record<string, string> = {
+  hotel: 'Hotel',
+  transfer: 'Car',
+  flight: 'Flight',
+  activity: 'Activity',
+  visa: 'Visa',
+  passport: 'Passport',
+};
+
+/** Book now v2 (change 11): "Hotel 1", "Hotel 2", "Flight 1" … numbered within each service type by item number. */
+export function itemLabelsByNo(items: ReadonlyArray<Pick<BookingFormServiceItemView, 'itemNo' | 'serviceType'>>): Map<number, string> {
+  const seen = new Map<string, number>();
+  const out = new Map<number, string>();
+  for (const i of [...items].sort((a, b) => a.itemNo - b.itemNo)) {
+    const n = (seen.get(i.serviceType) ?? 0) + 1;
+    seen.set(i.serviceType, n);
+    out.set(i.itemNo, `${TYPE_WORD[i.serviceType] ?? 'Item'} ${n}`);
+  }
+  return out;
 }
 
 /** "Package selling total ₹24,000" or "Not worked out yet" (never ₹0 for missing amounts). */

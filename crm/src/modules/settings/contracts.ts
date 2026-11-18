@@ -25,16 +25,18 @@ import type { SyncPreviewStaleReason, SyncSettingsApplyResult, SyncSettingsError
 // /app/admin/* addresses, lead decision L1; no redirects)
 // ---------------------------------------------------------------------------
 
-export type SettingsCategory = 'people' | 'company' | 'money' | 'bitrix' | 'imports' | 'features' | 'health';
+export type SettingsCategory = 'people' | 'company' | 'money' | 'accounts' | 'bitrix' | 'imports' | 'features' | 'health';
 
 /** DA-17 order. */
-export const SETTINGS_CATEGORIES = ['people', 'company', 'money', 'bitrix', 'imports', 'features', 'health'] as const satisfies readonly SettingsCategory[];
+export const SETTINGS_CATEGORIES = ['people', 'company', 'money', 'accounts', 'bitrix', 'imports', 'features', 'health'] as const satisfies readonly SettingsCategory[];
 
 /** DA-17 tab names (Mercury may still reword; the keys stay). */
 export const SETTINGS_CATEGORY_LABEL: Record<SettingsCategory, string> = {
   people: 'People and access',
   company: 'Company and branches',
   money: 'Money rules',
+  // Accounts phase (contract 11.8): staff notices, Tally export, Tally exception owner.
+  accounts: 'Accounts',
   bitrix: 'Bitrix connection',
   imports: 'Imports',
   features: 'Features',
@@ -47,11 +49,15 @@ export const SETTINGS_PATH = {
   access: '/app/admin/access',
   company: '/app/admin/company',
   money: '/app/admin/finance-policy',
+  accounts: '/app/admin/accounts',
   bitrix: '/app/admin/integration',
   imports: '/app/admin/imports',
   features: '/app/admin/workflow',
   health: '/app/admin/bookings',
 } as const;
+
+/** Accounts Phase 3 (contract 15): customer message switches, pilot list, templates and the timer. Reached from the Features tab. */
+export const SETTINGS_CUSTOMER_MESSAGES_PATH = '/app/admin/customer-messages';
 
 /** Every Settings address starts with this; the "Settings" menu item is current on all of them. */
 export const SETTINGS_PREFIX = '/app/admin';
@@ -98,10 +104,13 @@ export function settingsTabsFor(v: Partial<SettingsViewerFlags>): SettingsTabVM[
   // Lead ruling D1: read-only page for anyone holding an admin right.
   if (anyAdmin) add('company', SETTINGS_PATH.company, [SETTINGS_PATH.company]);
   if (v.canManageFinancePolicy) add('money', SETTINGS_PATH.money, [SETTINGS_PATH.money]);
+  // Accounts phase (contract 7.1 T6/T7, 6.3.3): the same people as Money rules (the page and the database decide).
+  if (v.canManageFinancePolicy) add('accounts', SETTINGS_PATH.accounts, [SETTINGS_PATH.accounts]);
   if (v.canOpenBitrixConnection) add('bitrix', SETTINGS_PATH.bitrix, [SETTINGS_PATH.bitrix]);
   if (v.canImport) add('imports', SETTINGS_PATH.imports, [SETTINGS_PATH.imports]);
   if (v.canManageIntegration) {
-    add('features', SETTINGS_PATH.features, [SETTINGS_PATH.features]);
+    // Accounts Phase 3: the Customer messages page (Super Admin switches) sits under Features, with the other live switches.
+    add('features', SETTINGS_PATH.features, [SETTINGS_PATH.features, SETTINGS_CUSTOMER_MESSAGES_PATH]);
     add('health', SETTINGS_PATH.health, [SETTINGS_PATH.health]);
   }
   return tabs;

@@ -10,7 +10,6 @@ import {
   departmentCostSave,
   departmentCostSubmit,
   departmentWorkForm,
-  visaApplicationUpdate,
   visaTaskClaim,
   visaTaskGet,
   visaTaskList,
@@ -23,6 +22,7 @@ import {
   submitBooking,
   travellerIdentitySave,
 } from '@/modules/fulfilment/b11-commands';
+import { visaApplicationDocumentAdd, visaApplicationSetRow, visaWorkspace } from '@/modules/visa/commands';
 import { toBookNowView, toDepartmentWorkFormView, toVisaTaskView } from '@/modules/fulfilment/b11-dto';
 import {
   adminSetWorkflowSetting,
@@ -341,15 +341,26 @@ describe('desk, work form and expense wrappers against 20261119000500', () => {
       const a1 = after.applicants[0]!;
       expect(a1).toMatchObject({ state: 'docs_pending', closed: false });
       expect(a1.identity).toMatchObject({ dateOfBirth: '1990-05-17' });
-      const updated = await visaApplicationUpdate(desk, { applicationId: a1.applicationId!, expectedRowVersion: a1.rowVersion!, fields: { documents: { passport_copy: 'checked' } } });
-      expect(updated).toMatchObject({ state: 'docs_pending', taskCompleted: false });
+      // Visa build (contract C16/VL17): visa_application_update is revoked; the row is saved with the new C2 wrapper
+      // (was visaApplicationUpdate with { documents: { passport_copy: 'checked' } } -> state docs_pending, taskCompleted false).
+      // This booking's visa facts list no documents needed, so the desk adds one first (C3).
+      const ws = (await visaWorkspace(desk, taskId))!;
+      const w1 = ws.applicants.find((a) => a.applicationId === a1.applicationId)!;
+      const added = await visaApplicationDocumentAdd(desk, { applicationId: w1.applicationId, expectedRowVersion: w1.rowVersion,
+        fields: { catalogueCode: 'passport_copy', received: false, remark: null }, requestId: rid() });
+      const updated = await visaApplicationSetRow(desk, { applicationId: w1.applicationId, expectedRowVersion: added.rowVersion,
+        fields: { documents: [{ documentId: added.documentId!, received: true }] }, requestId: rid() });
+      expect(updated).toMatchObject({ applicationId: w1.applicationId, ready: false });
 
       const receipt = await h.deskEvidence(DESK, taskId, 'fee_receipt');
       const cost = await departmentCostSave(desk, {
         taskId,
         entryId: null,
         expectedRowVersion: 0,
-        fields: { costKind: 'government_fee', amountPaise: '250000', paidBy: 'company', paymentMode: 'upi', paidOn: '2026-10-10', reference: 'VFS-SYN-1', receiptEvidenceId: receipt },
+        // Visa build (C15, lead decision 16 / VL18): task-level visa fees are refused; an "other" cost of one passenger
+        // (applicationId) still goes through department_cost_save (was costKind government_fee without an applicant).
+        fields: { costKind: 'other', amountPaise: '250000', paidBy: 'company', paymentMode: 'upi', paidOn: '2026-10-10', reference: 'VFS-SYN-1', receiptEvidenceId: receipt,
+          applicationId: a1.applicationId! } as never,
         requestId: rid(),
       });
       expect(cost).toMatchObject({ expenseStatus: 'draft' });

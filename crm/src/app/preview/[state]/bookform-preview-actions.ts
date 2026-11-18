@@ -40,3 +40,13 @@ export async function previewBookformRefuseBillToAction(): Promise<Result> {
 export async function previewBookformRefuseServiceAction(): Promise<Result> {
   return settle(invalid(['segmentDate[0]', 'passengers']));
 }
+
+/** Book now v2: "Add return flights" (synthetic answer; nothing is created). */
+export async function previewBookformReturnsAction(): Promise<Result> {
+  return settle({ ok: true, data: { outcome: 'added', itemIds: ['i0000000-0000-4000-8000-000000000999'], itemNos: [9], rowVersion: 8, contentHash: 'x' }, message: 'Return flights added.' });
+}
+
+/** Book now v2: "Refresh from Bitrix now" (synthetic answer; nothing is read). */
+export async function previewBookformRefreshAction(): Promise<BookingActionResult<{ outcome: 'updated' | 'unchanged'; readAt: string | null }>> {
+  return settle({ ok: true, data: { outcome: 'unchanged', readAt: '2026-10-26T05:30:00.000Z' }, message: 'Read from Bitrix. Nothing had changed on the Deal.' });
+}

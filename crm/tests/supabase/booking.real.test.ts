@@ -133,7 +133,7 @@ beforeAll(async () => {
   purchase = await stack!.signInAal2(FIXTURE_EMAILS.purchaseJodhpur, FIXTURE_USERS.purchaseJodhpur);
 });
 
-afterAll(async () => {
+async function cleanBookingFixtures() {
   if (enabled && objectPaths.length > 0) {
     await stack!.admin().storage.from('booking-evidence').remove(objectPaths);
   }
@@ -147,6 +147,7 @@ afterAll(async () => {
         ['booking_version_commercials', 'booking_commercials_a_guard'],
         ['booking_version_commercials', 'booking_commercials_b_rehash'],
         ['booking_evidence', 'booking_evidence_a_guard'],
+        ['purchase_task_basis', 'purchase_task_basis_a_guard'],
         ['fulfilment_tasks', 'fulfilment_tasks_a_guard'],
         // B1 (20261118000100): guards on the rows the hotel confirmation now creates.
         ['service_items', 'service_items_a_guard'],
@@ -161,6 +162,7 @@ afterAll(async () => {
            union select id from public.fulfilment_tasks where deal_id = any($1::uuid[]))`,
         [dealIds],
       );
+      await client.query('delete from public.purchase_task_basis where deal_id = any($1::uuid[])', [dealIds]);
       await client.query('delete from public.fulfilment_tasks where deal_id = any($1::uuid[])', [dealIds]);
       // B1 (20261118000100): the hotel confirmation also created the Deal's service item, its facts and the traveller snapshot.
       await client.query('delete from public.service_item_facts where service_item_id in (select id from public.service_items where deal_id = any($1::uuid[]))', [dealIds]);
@@ -184,7 +186,15 @@ afterAll(async () => {
       await client.end();
     }
   }
-  await stack?.cleanup();
+}
+
+afterAll(async () => {
+  try {
+    await cleanBookingFixtures();
+  } finally {
+    // The next suite signs in with the same synthetic users.
+    await stack?.cleanup();
+  }
 });
 
 describe.skipIf(!enabled)('Phase 3 booking against the real stack', () => {

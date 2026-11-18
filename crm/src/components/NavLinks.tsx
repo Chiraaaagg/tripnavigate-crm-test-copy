@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  BadgeCheck,
   Banknote,
   Briefcase,
   Building2,
@@ -12,12 +13,22 @@ import {
   Inbox,
   KeyRound,
   Landmark,
+  ListChecks,
+  PiggyBank,
+  Receipt,
+  Send,
+  ReceiptText,
   Plane,
   Settings,
   Stamp,
   FileSpreadsheet,
   FileText,
   Map as MapIcon,
+  FolderSearch,
+  CalendarClock,
+  BookCheck,
+  FileCheck2,
+  Undo2,
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -56,6 +67,19 @@ const ICONS: Record<string, LucideIcon> = {
   '/app/accounts/expenses': FileSpreadsheet,
   '/app/accounts/cash': Banknote,
   '/app/accounts/destinations': Landmark,
+  '/app/purchase/payments': ReceiptText,
+  '/app/approvals': ListChecks,
+  '/app/accounts/go-ahead': BadgeCheck,
+  '/app/accounts/supplier-payments': Send,
+  '/app/accounts/supplier-invoices': Receipt,
+  '/app/accounts/funding': PiggyBank,
+  // Accounts phase (contract 11.8).
+  '/app/accounts/records': FolderSearch,
+  '/app/accounts/dues': CalendarClock,
+  '/app/accounts/tally': BookCheck,
+  // Accounts phase 2 (contract 11 Nav).
+  '/app/accounts/documents': FileCheck2,
+  '/app/accounts/refunds': Undo2,
 };
 
 /** Icons keyed by the item's activePrefix (the one Settings item: its href is the person's first Settings tab). */

@@ -15,6 +15,7 @@ import {
   Undo2,
   FileSpreadsheet,
   HandCoins,
+  UserPlus,
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -26,8 +27,12 @@ import { Notice } from '@/components/ui/notice';
 import { PageHeader } from '@/components/ui/page-header';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { MyWorkCounts } from '@/modules/fulfilment/contracts';
+import { SUPPLIER_MONEY_HOME_LABEL, type SupplierMoneyHomeCounts } from '@/modules/supplier-money/contracts';
 import { HOME_QUOTATION_ROW_FILTER, type HomeQuotationRowKey } from '@/modules/quotations/work-contract';
 import type { MembershipLine } from './staff-views';
+import type { FlightHomeCounts } from './flight/types';
+import { VISA_HOME_ROW_LABEL } from '@/modules/visa/contracts';
+import type { VisaHomeCounts } from './visa/types';
 
 const numberFormat = new Intl.NumberFormat('en-IN');
 
@@ -52,7 +57,7 @@ export const NO_HOME_ROLES: HomeRoles = { bookings: false, branchManager: false,
 
 /** One "What needs you" row: what, how many, and one button to an existing address. */
 export interface HomeRow {
-  key: keyof MyWorkCounts;
+  key: keyof MyWorkCounts | keyof SupplierMoneyHomeCounts | keyof FlightHomeCounts | FlightMoneyHomeKey | keyof VisaHomeCounts | 'purchaseBookingChanged';
   label: string;
   count: number;
   href: string;
@@ -94,7 +99,10 @@ export function homeRows(counts: MyWorkCounts, roles: HomeRoles): HomeRow[] {
     const bookings = WAITING_BY_ROLE.bookings;
     rows.push({ key: 'draftsToContinue', label: bookings.label, count: counts.draftsToContinue as number, href: bookings.href, action: bookings.action, icon: bookings.icon });
   }
-  const contributors = ROLE_ORDER.filter((r) => roles[r] && !(draftsSeparate && r === 'bookings'));
+  const allContributors = ROLE_ORDER.filter((r) => roles[r] && !(draftsSeparate && r === 'bookings'));
+  // Flight build (20261201000150): waitingForMe no longer counts flight tasks; Flight work has its own
+  // rows (flight_home_counts), so flight never adds to the combined row.
+  const contributors = allContributors.filter((r) => r !== 'flight');
   const queues = num(counts.waitingForMe) ? counts.waitingForMe - (draftsSeparate ? (counts.draftsToContinue as number) : 0) : null;
   const visaOnly = contributors.length === 1 && contributors[0] === 'visa' && num(counts.visaTasksWaiting);
   if (contributors.length > 0 && queues !== null && queues >= 0 && !visaOnly) {
@@ -149,6 +157,129 @@ export function homeRows(counts: MyWorkCounts, roles: HomeRoles): HomeRow[] {
 }
 
 /** The Quotations list address a Home quotation row opens (a menu address with a query; scope "all" as the count). */
+/**
+ * Purchase build (2 Nov 2026): supplier-money and go-ahead rows from
+ * supplier_money_home_counts, per role, each opening the list that shows the
+ * same items. A null count (not applicable, or an older database) is hidden,
+ * never shown as 0. The Manager's rows fold into one "Waiting for your
+ * approval" row that opens Approvals.
+ */
+export function supplierMoneyRows(counts: SupplierMoneyHomeCounts, roles: HomeRoles): HomeRow[] {
+  const L = SUPPLIER_MONEY_HOME_LABEL;
+  const rows: HomeRow[] = [];
+  const add = (key: keyof SupplierMoneyHomeCounts, href: string, action: string, icon: LucideIcon) => {
+    const count = counts[key];
+    if (typeof count === 'number') rows.push({ key, label: L[key], count, href, action, icon });
+  };
+  if (roles.purchase) {
+    add('purchaseTasksNotTaken', '/app/purchase', 'Open Purchase tasks', ClipboardList);
+    add('purchaseWaitingForGoAhead', '/app/purchase?show=mine', 'Open my Purchase tasks', Hourglass);
+    add('purchaseCostsWaitingForManager', '/app/purchase?show=mine', 'Open my Purchase tasks', Hourglass);
+    add('paymentRequestsReturned', '/app/purchase/payments?show=returned', 'Open Payment requests', Undo2);
+    add('supplierInvoicesMissing', '/app/purchase?show=mine', 'Open my Purchase tasks', Receipt);
+  }
+  if (roles.accounts) {
+    add('goAheadToApprove', '/app/accounts/go-ahead', 'Open Hotel go-ahead', ClipboardCheck);
+    add('supplierPaymentsToApprove', '/app/accounts/supplier-payments', 'Open Supplier payments', HandCoins);
+    add('supplierPaymentsToRecord', '/app/accounts/supplier-payments?tab=to_record', 'Open Supplier payments', HandCoins);
+    add('supplierPaymentsToVerify', '/app/accounts/supplier-payments?tab=to_verify', 'Open Supplier payments', HandCoins);
+    add('supplierDocumentsToReview', '/app/accounts/supplier-invoices', 'Open Supplier invoices', Receipt);
+    add('fundingToApprove', '/app/accounts/funding', 'Open Company funding', HandCoins);
+    add('fundingToRecover', '/app/accounts/funding?tab=to_recover', 'Open Company funding', HandCoins);
+  }
+  if (roles.branchManager) {
+    const n = counts.managerApprovals ?? counts.requestsToApprove;
+    if (typeof n === 'number') rows.push({ key: 'managerApprovals', label: L.managerApprovals, count: n, href: '/app/approvals', action: 'Open Approvals', icon: ListChecks });
+  }
+  return rows;
+}
+
+/** Flight build: the flight payment keys Track B adds to supplier_money_home_counts (read defensively: absent = hidden). */
+export type FlightMoneyHomeKey = 'flightPaymentsReturned' | 'flightPaymentsMissing' | 'flightFaresToApprove';
+
+/**
+ * Flight build (4 Nov 2026): the personal Flight and Sales rows from
+ * flight_home_counts, plus the flight payment rows from
+ * supplier_money_home_counts. A null count (not for this viewer, or an older
+ * database) is hidden, never 0. Each row opens the list that shows the same
+ * items. The Manager's flight fares fold into "Waiting for your approval".
+ */
+export function flightRows(counts: FlightHomeCounts | null | undefined, money: SupplierMoneyHomeCounts | null | undefined, roles: HomeRoles): HomeRow[] {
+  const rows: HomeRow[] = [];
+  const add = (key: HomeRow['key'], count: unknown, label: string, href: string, action: string, icon: LucideIcon) => {
+    if (typeof count === 'number') rows.push({ key, label, count, href, action, icon });
+  };
+  const m = (money ?? {}) as Partial<Record<FlightMoneyHomeKey, number | null>>;
+  if (roles.flight && counts) {
+    add('flightDealsNotTaken', counts.flightDealsNotTaken, 'Flights not taken yet', '/app/flight', 'Open Flight tasks', Plane);
+    add('flightDealsMine', counts.flightDealsMine, 'Your flights in progress', '/app/flight?show=mine', 'Open my flights', Plane);
+    add('flightBookingChanged', counts.flightBookingChanged, 'Booking changed — review', '/app/flight?show=mine&only=booking_changed', 'Open flights with a booking change', RefreshCw);
+    add('flightChangesDecided', counts.flightChangesDecided, 'Change decisions to see', '/app/flight?show=mine&only=change_decision', 'Open flights with a decision', ListChecks);
+    if ((counts.flightTravellersNamed ?? 0) > 0) add('flightTravellersNamed', counts.flightTravellersNamed, 'Travellers Sales has named', '/app/flight?show=mine', 'Open my flights', UserPlus);
+    add('flightReadyToFinish', counts.flightReadyToFinish, 'Flights ready to mark done', '/app/flight?show=mine&only=ready', 'Open flights ready to mark done', ClipboardCheck);
+  }
+  if (roles.flight) {
+    add('flightPaymentsReturned', m.flightPaymentsReturned, 'Flight payments returned', '/app/flight?show=mine&only=payment', 'Open flights needing payment', Undo2);
+    add('flightPaymentsMissing', m.flightPaymentsMissing, 'Flight batches to pay', '/app/flight?show=mine&only=payment', 'Open flights needing payment', HandCoins);
+  }
+  if (roles.bookings && counts) {
+    // One Deal behind the row: open it on its Services tab (the approval card / the travellers notice); else the Deals list.
+    const deal = (id: string | null | undefined) => (id ? `/app/deals/${id}?tab=services` : '/app/deals');
+    add('salesFlightChangesToDecide', counts.salesFlightChangesToDecide, 'Flight changes waiting for your approval', deal(counts.salesFlightChangesToDecideDealId), counts.salesFlightChangesToDecideDealId ? 'Open the deal' : 'Open deals', Plane);
+    add('salesTravellersToName', counts.salesTravellersToName, 'Travellers to name for flights', deal(counts.salesTravellersToNameDealId), counts.salesTravellersToNameDealId ? 'Open the deal' : 'Open deals', ListChecks);
+  }
+  return rows;
+}
+
+/**
+ * Visa build (contract 8, visa_home_counts): the Visa desk's personal rows
+ * and the Sales owner's "Visa results to see". A null count (not for this
+ * viewer, or an older database) is hidden, never 0. Each row opens the first
+ * task (Work tab) or Deal (Services tab) behind it, else the list.
+ */
+export function visaRows(counts: VisaHomeCounts | null | undefined, roles: HomeRoles): HomeRow[] {
+  if (!counts) return [];
+  const rows: HomeRow[] = [];
+  const task = (id: string | null | undefined) => (id ? `/app/visa/${id}?tab=work` : '/app/visa?show=mine');
+  const add = (key: keyof typeof VISA_HOME_ROW_LABEL, href: string, action: string, icon: LucideIcon) => {
+    const count = counts[key];
+    if (typeof count === 'number') rows.push({ key, label: VISA_HOME_ROW_LABEL[key], count, href, action, icon });
+  };
+  if (roles.visa) {
+    add('visaApplicantsWaitingResult', task(counts.visaApplicantsWaitingResultTaskId), counts.visaApplicantsWaitingResultTaskId ? 'Open the task' : 'Open my tasks', Hourglass);
+    add('visaHandoverPending', task(counts.visaHandoverPendingTaskId), counts.visaHandoverPendingTaskId ? 'Open the task' : 'Open my tasks', ClipboardCheck);
+    add('visaFeesReturned', task(counts.visaFeesReturnedTaskId), counts.visaFeesReturnedTaskId ? 'Open the task' : 'Open my tasks', Undo2);
+    add('visaFeesWithoutReceipt', task(counts.visaFeesWithoutReceiptTaskId), counts.visaFeesWithoutReceiptTaskId ? 'Open the task' : 'Open my tasks', Receipt);
+    add('visaTravellerChanged', task(counts.visaTravellerChangedTaskId), counts.visaTravellerChangedTaskId ? 'Open the task' : 'Open my tasks', RefreshCw);
+  }
+  if (roles.bookings) {
+    const deal = counts.salesVisaResultsDealId;
+    add('salesVisaResultsToSee', deal ? `/app/deals/${deal}?tab=services#visa-results` : '/app/deals', deal ? 'Open the deal' : 'Open deals', Stamp);
+  }
+  return rows;
+}
+
+/** Accounts phase (contract 8.5 purchase_home_counts, 11.8): the only new Home row (AL16). */
+export interface PurchaseChangeHomeCounts {
+  purchaseBookingChanged: number | null;
+  purchaseBookingChangedTaskId: string | null;
+}
+
+export function purchaseChangeRows(counts: PurchaseChangeHomeCounts | null | undefined, roles: HomeRoles): HomeRow[] {
+  if (!counts || !roles.purchase || typeof counts.purchaseBookingChanged !== 'number' || counts.purchaseBookingChanged === 0) return [];
+  const id = counts.purchaseBookingChangedTaskId;
+  return [
+    {
+      key: 'purchaseBookingChanged',
+      label: 'Bookings changed on your tasks',
+      count: counts.purchaseBookingChanged,
+      href: id ? `/app/purchase/${id}` : '/app/purchase?show=mine',
+      action: id ? 'Open the oldest' : 'Open my Purchase tasks',
+      icon: RefreshCw,
+    },
+  ];
+}
+
 export function homeQuotationHref(key: HomeQuotationRowKey): string {
   return `/app/quotations?filter=${HOME_QUOTATION_ROW_FILTER[key]}&scope=all`;
 }
@@ -190,8 +321,20 @@ export function HomeView({
   canSeeFlightTasks = false,
   roles: rolesProp,
   myWork,
+  supplierMoney,
+  flight,
+  visa,
+  purchaseChanges,
   adminPrimary,
 }: {
+  /** Accounts phase: purchase_home_counts (null or absent = hidden, never zero). */
+  purchaseChanges?: PurchaseChangeHomeCounts | null;
+  /** Visa build: visa_home_counts (null or absent = hidden, never zero). */
+  visa?: VisaHomeCounts | null;
+  /** Flight build: flight_home_counts (null or absent = hidden, never zero). */
+  flight?: FlightHomeCounts | null;
+  /** Purchase build: supplier_money_home_counts (null or absent = hidden, never zero). */
+  supplierMoney?: SupplierMoneyHomeCounts | null;
   /** Primary action when no work role applies (Super Admin): a Settings page they can open. */
   adminPrimary?: { href: string; label: string };
   displayName: string;
@@ -222,7 +365,13 @@ export function HomeView({
     visa: false,
     accounts: canUseAccounts,
   };
-  const rows = myWork ? homeRows(myWork, roles) : [];
+  const rows = [
+    ...(myWork ? homeRows(myWork, roles) : []),
+    ...(supplierMoney ? supplierMoneyRows(supplierMoney, roles) : []),
+    ...flightRows(flight, supplierMoney, roles),
+    ...visaRows(visa, roles),
+    ...purchaseChangeRows(purchaseChanges, roles),
+  ];
   const primary = primaryAction(roles, adminPrimary);
   // DA-134 (Echo M3, Mercury F4): no total. The rows overlap (drafts missing details are drafts;
   // a returned booking is also a draft), so a sum would overstate the work.

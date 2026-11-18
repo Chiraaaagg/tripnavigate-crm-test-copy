@@ -7,10 +7,14 @@
  * not a database row: it changes only through a reviewed commit, never at
  * runtime and never from a form. Pure; no I/O.
  *
- * GSTIN per branch: Jodhpur (Rajasthan, state code 08) is given. Delhi and
- * Ahmedabad are NOT given yet; they print a visible placeholder
- * ("[GSTIN for Delhi]"), and any placeholder blocks the final document, so a
- * final PDF for those branches stays blocked until the number is added here.
+ * GSTIN: Accounts phase 2 (owner answer Q2, lead decision LD1, 11 November
+ * 2026): the company uses ONE GSTIN for all branches, the Jodhpur
+ * registration (Rajasthan, state code 08). Every known branch (Jodhpur,
+ * Delhi, Ahmedabad) prints it on every customer document: quotations,
+ * itineraries, Advance Invoices, Invoices and Credit Notes. A missing or
+ * unknown branch still prints the "[GSTIN for branch]" placeholder, which
+ * blocks the final document. The SQL mirror authz.cdoc_company
+ * (20261204000200) prints the same values; a unit test keeps them equal.
  * Branch codes are the live `public.branches.code` values; the documents get
  * them from the read answers (`subject.branchCode` of quotation_get and
  * itinerary_document_get, `branchCode` of itinerary_render_input).
@@ -26,9 +30,15 @@ export interface CompanyIdentityRecord {
   legalName: string;
   registeredAddress: string;
   pan: string;
-  /** Null = not given yet (prints a placeholder; final blocked). */
+  /** The one company GSTIN (Q2 / LD1). */
+  companyGstin: string;
+  /** GST state of the company GSTIN. */
+  companyGstinState: string;
+  /** Per branch: the company GSTIN for every known branch (kept for existing readers). Null = not given (placeholder). */
   gstinByBranch: Readonly<Record<BranchCode, string | null>>;
 }
+
+const HOLIDAY_CHACHA_GSTIN = '08AAFCH9191M1ZV';
 
 /** Branch display names and GST states (live `public.branches` name and state_name). */
 export const BRANCHES: Readonly<Record<BranchCode, Readonly<{ name: string; state: string }>>> = Object.freeze({
@@ -42,10 +52,12 @@ export const COMPANY_IDENTITY: Readonly<Record<LegalEntityCode, Readonly<Company
     legalName: 'Holiday Chacha Pvt Ltd',
     registeredAddress: '59A, Babu Rajendra Marg, Masuria Colony, Baldev Nagar, Jodhpur, Rajasthan 342003',
     pan: 'AAFCH9191M',
+    companyGstin: HOLIDAY_CHACHA_GSTIN,
+    companyGstinState: 'Rajasthan',
     gstinByBranch: Object.freeze({
-      JDH: '08AAFCH9191M1ZV',
-      DEL: null,
-      AMD: null,
+      JDH: HOLIDAY_CHACHA_GSTIN,
+      DEL: HOLIDAY_CHACHA_GSTIN,
+      AMD: HOLIDAY_CHACHA_GSTIN,
     }),
   }),
 });
@@ -56,7 +68,7 @@ export interface CompanyIdentityLine {
   registeredAddress: string;
   pan: string;
   gstin: string;
-  /** GST state of the branch; null when the branch is missing or unknown. */
+  /** GST state of the printed GSTIN (the company GSTIN's state); null when the branch is missing or unknown. */
   gstinState: string | null;
   /** Placeholder labels (without brackets), in print order; empty when the line is complete. */
   placeholders: string[];
@@ -74,9 +86,10 @@ function gstinLabel(branchWord: string): string {
 }
 
 /**
- * The identity line for a document of the given branch. A branch whose GSTIN
- * is not given yet gives "[GSTIN for <Branch>]"; a missing or unknown branch
- * gives "[GSTIN for branch]". Either placeholder blocks the final document.
+ * The identity line for a document of the given branch: the company GSTIN
+ * for every known branch (LD1). A branch without a GSTIN would give
+ * "[GSTIN for <Branch>]"; a missing or unknown branch gives
+ * "[GSTIN for branch]". Either placeholder blocks the final document.
  */
 export function companyIdentityFor(branchCode: string | null | undefined, entity: LegalEntityCode = 'HOLIDAY_CHACHA'): CompanyIdentityLine {
   const record = COMPANY_IDENTITY[entity];
@@ -90,7 +103,8 @@ export function companyIdentityFor(branchCode: string | null | undefined, entity
     registeredAddress: record.registeredAddress,
     pan: record.pan,
     gstin: given ?? placeholder(label),
-    gstinState: branch ? branch.state : null,
+    // Accounts phase 2 (LD1): the state of the printed (company) GSTIN.
+    gstinState: given ? record.companyGstinState : null,
     placeholders: given ? [] : [label],
   };
 }

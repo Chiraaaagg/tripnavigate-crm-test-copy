@@ -39,6 +39,8 @@ const PRE_B11_BOOKING_KEYS = [
   'rooms', 'sellingTotalPaise', 'versionNo',
 ];
 const B11_BOOKING_KEYS = ['contact', 'discountPaise', 'listPricePaise', 'paymentPlan', 'serviceType', 'services'];
+// Accounts phase Phase 0 (contract 5.2): the Return button state and its reason.
+const ACCOUNTS_PHASE_BOOKING_KEYS = ['canReturn', 'returnBlock'];
 
 /** A confirmed package (hotel + flight) with list price, discount and a two-part plan. */
 async function confirmedPackage(): Promise<string> {
@@ -89,7 +91,7 @@ describe('plan review keys', () => {
       const d = await detail();
       // 20261119000300 (Atlas) adds booking.revision and booking.earlierVersions.
       // 20261124000120 (booking form) adds booking.prices.
-      expect(Object.keys(d.booking!).sort()).toEqual([...PRE_B11_BOOKING_KEYS, ...B11_BOOKING_KEYS, 'earlierVersions', 'prices', 'revision'].sort());
+      expect(Object.keys(d.booking!).sort()).toEqual([...PRE_B11_BOOKING_KEYS, ...B11_BOOKING_KEYS, ...ACCOUNTS_PHASE_BOOKING_KEYS, 'earlierVersions', 'prices', 'revision'].sort());
       expect(d.booking).toMatchObject({
         bookingVersionId: versionId, versionNo: 1, hotelName: 'Synthetic Hotel (fixture)', city: 'Synthetic City',
         checkIn: '2026-12-10', checkOut: '2026-12-13', rooms: 2, adults: 3, children: 1, sellingTotalPaise: '9876543',

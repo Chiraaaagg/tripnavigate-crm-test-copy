@@ -1,4 +1,4 @@
-import { HOTEL_EXTRA_LABEL, HOTEL_EXTRA_LIMITS } from '@/modules/fulfilment/contracts';
+import { HOTEL_EXTRA_LABEL, HOTEL_EXTRA_LIMITS, VISA_FACT_LABEL, VISA_NOT_DECIDED_TEXT } from '@/modules/fulfilment/contracts';
 import { dateText } from './book-fields';
 import type { BookItem, BookServiceType } from './shapes';
 
@@ -137,6 +137,32 @@ export const SERVICE_FIELDS: Record<BookServiceType, ServiceFieldDef[]> = {
         { value: 'company', label: 'Company pays (recorded for Accounts review)' },
       ],
     },
+    // Visa build (contract 5.5, H:9684): kind, jurisdiction and documents needed (all optional).
+    {
+      name: 'visaKind',
+      fact: 'visaKind',
+      label: VISA_FACT_LABEL.visaKind,
+      control: 'select',
+      options: [
+        { value: '', label: VISA_NOT_DECIDED_TEXT },
+        { value: 'e_visa', label: 'E-visa' },
+        { value: 'sticker', label: 'Sticker visa' },
+      ],
+    },
+    {
+      name: 'jurisdiction',
+      fact: 'jurisdiction',
+      label: VISA_FACT_LABEL.jurisdiction,
+      control: 'select',
+      hint: 'Yes when the passport must go to a set place, for example Gujarat to Mumbai.',
+      options: [
+        { value: '', label: VISA_NOT_DECIDED_TEXT },
+        { value: 'no', label: 'No' },
+        { value: 'yes', label: 'Yes' },
+      ],
+    },
+    { name: 'jurisdictionPlace', fact: 'jurisdictionPlace', label: VISA_FACT_LABEL.jurisdictionPlace, control: 'text', required: true, hint: 'Add the jurisdiction place.', when: (v) => v.jurisdiction === 'yes' },
+    { name: 'documentsNeeded', fact: 'documentsNeeded', label: VISA_FACT_LABEL.documentsNeeded, control: 'textarea', wide: true, hint: 'One document per line. The Visa desk gets these on every passenger’s checklist.' },
     { name: 'notes', fact: 'notes', label: 'Notes for the desk', control: 'textarea', wide: true },
   ],
   passport: [
@@ -184,6 +210,8 @@ function text(v: unknown): string {
 export function factsToFormValues(type: BookServiceType, facts: Record<string, unknown> | null | undefined, budgetRupees = ''): Record<string, string> {
   const values: Record<string, string> = {};
   for (const def of SERVICE_FIELDS[type]) values[def.name] = text(facts?.[def.fact]);
+  // Visa build: one document label per line (labels may contain commas).
+  if (type === 'visa' && Array.isArray(facts?.documentsNeeded)) values.documentsNeeded = (facts!.documentsNeeded as unknown[]).map(String).join('\n');
   if (type === 'hotel' && !values.mode) values.mode = 'specific';
   if (type === 'flight' && !values.tripType) values.tripType = 'return';
   if (type === 'visa' && !values.feePaidBy) values.feePaidBy = 'not_decided';
@@ -227,7 +255,7 @@ export function itemSummary(item: Pick<BookItem, 'serviceType' | 'facts' | 'titl
     case 'activity':
       return [s('name'), s('city'), dateText(s('date'))].filter(Boolean).join(' · ');
     case 'visa':
-      return [s('country'), s('purpose')].filter(Boolean).join(' · ');
+      return [s('country'), s('purpose'), s('visaKind') === 'e_visa' ? 'E-visa' : s('visaKind') === 'sticker' ? 'Sticker visa' : ''].filter(Boolean).join(' · ');
     case 'passport':
       return [s('applicationType'), s('officeCity')].filter(Boolean).join(' · ');
     default:

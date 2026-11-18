@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, FIXTURE_USERS as U, type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACCOUNTS, ANON, DEAL, HOTEL, MANAGER, OWNER, PURCHASE, PURCHASE_CLAIM_SQL, SUPER } from './b1-support';
-import { APP_UPDATE_SQL, COST_SAVE_SQL, COST_SUBMIT_SQL, DESK, EXPENSE_RETURN_SQL, SETTING_SQL_B11, SWITCH_REASON, VISA, VISA_CLAIM_SQL, VISA_GET_SQL, b11Helpers, rid } from './b11-support';
+import { COST_SAVE_SQL, COST_SUBMIT_SQL, DESK, EXPENSE_RETURN_SQL, SETTING_SQL_B11, SWITCH_REASON, VISA, VISA_CLAIM_SQL, VISA_GET_SQL, b11Helpers, rid } from './b11-support';
 
 /**
  * Direction A Batch 4 (migration 20261125000100): Settings backend.
@@ -515,25 +515,35 @@ describe('department_task_history', () => {
     });
   });
 
-  it('Visa task: the desk only; applicant and cost events without any amount; Purchase never reads it', async () => {
+  it('Visa task: the desk and the branch Manager (read-only, D2); applicant and cost events without any amount; Purchase never reads it', async () => {
     await asOwner(db, async () => {
       const { taskId } = await h.deskTask();
       await one(DESK, VISA_CLAIM_SQL, [taskId]);
       const task = await one<{ applicants: Array<{ applicationId: string; rowVersion: number }> }>(DESK, VISA_GET_SQL, [taskId]);
       const app = task.applicants[0]!;
-      await one(DESK, APP_UPDATE_SQL, [app.applicationId, app.rowVersion, JSON.stringify({ documents: { passport_copy: 'checked', photo: 'received' } })]);
+      // Visa build (C16/VL17): visa_application_update is revoked; the desk adds a document and saves the row with the
+      // new commands (C3, C2). Was visa_application_update with a documents map.
+      const added = await one<{ documentId: string; rowVersion: number }>(DESK, 'select public.visa_application_document_add($1, $2, $3::jsonb, $4) as r',
+        [app.applicationId, app.rowVersion, JSON.stringify({ catalogueCode: 'passport_copy', received: false, remark: null }), rid()]);
+      await one(DESK, 'select public.visa_application_set_row($1, $2, $3::jsonb, $4) as r', [app.applicationId, added.rowVersion,
+        JSON.stringify({ documents: [{ documentId: added.documentId, received: true }] }), rid()]);
+      // Visa build (C15, lead decision 16 / VL18): a task-level visa fee is refused; an "other" cost of this passenger is
+      // recorded instead (was costKind government_fee without an applicant).
       await one(DESK, COST_SAVE_SQL, [taskId, null, 0,
-        JSON.stringify({ costKind: 'government_fee', amountPaise: '650000', paidBy: 'customer_direct', paymentMode: 'upi',
-          paidOn: '2026-10-10', reference: 'GOV-SYN-1' }), rid()]);
+        JSON.stringify({ costKind: 'other', amountPaise: '650000', paidBy: 'customer_direct', paymentMode: 'upi',
+          paidOn: '2026-10-10', reference: 'GOV-SYN-1', applicationId: app.applicationId }), rid()]);
       const auditBefore = await auditCount();
       const hist = await one<History>(DESK, HISTORY_SQL, [taskId]);
       expect(await auditCount()).toBe(auditBefore);
       expect(hist.department).toBe('visa');
-      expect(hist.events.map((e) => e.kind)).toEqual(['cost_recorded', 'applicant_updated', 'taken', 'created']);
-      expect(hist.events.find((e) => e.kind === 'applicant_updated')).toMatchObject({ applicantSeq: expect.any(Number), byYou: true });
+      // Visa build (9.4): the new commands write the new kinds (was 'applicant_updated' from visa_application_update).
+      expect(hist.events.map((e) => e.kind)).toEqual(['cost_recorded', 'applicant_row_saved', 'document_added', 'taken', 'created']);
+      expect(hist.events.find((e) => e.kind === 'applicant_row_saved')).toMatchObject({ applicantSeq: expect.any(Number), byYou: true });
       const text = JSON.stringify(hist);
       expect(text).not.toMatch(/650000|6500|amount|paise|selling|margin|budget/i);
-      for (const actor of [PURCHASE, MANAGER, OWNER, ACCOUNTS, SUPER]) expect(await one(actor, HISTORY_SQL, [taskId])).toBeNull();
+      // Visa build (D2, contract 6 access helpers): the branch Manager now reads visa task History read-only (was null).
+      expect(await one(MANAGER, HISTORY_SQL, [taskId])).toMatchObject({ department: 'visa' });
+      for (const actor of [PURCHASE, OWNER, ACCOUNTS, SUPER]) expect(await one(actor, HISTORY_SQL, [taskId])).toBeNull();
     });
   });
   it('Accounts returning a company-paid fee shows on the desk task with its reason; the file and the submission too; no amount', async () => {
@@ -541,9 +551,12 @@ describe('department_task_history', () => {
       const { taskId } = await h.deskTask();
       await one(DESK, VISA_CLAIM_SQL, [taskId]);
       const receipt = await h.deskEvidence(DESK, taskId, 'fee_receipt');
+      // Visa build (C15, lead decision 16 / VL18): task-level visa fees are refused; an "other" cost of the first passenger
+      // goes to Accounts the same way (was costKind government_fee without an applicant).
+      const [firstApp] = await owner<{ id: string }>('select id from public.visa_applications where task_id = $1 order by traveller_seq limit 1', [taskId]);
       const saved = await one<{ entryId: string; rowVersion: number }>(DESK, COST_SAVE_SQL, [taskId, null, 0,
-        JSON.stringify({ costKind: 'government_fee', amountPaise: '650000', paidBy: 'company', paymentMode: 'upi', paidOn: '2026-10-10',
-                         receiptEvidenceId: receipt }), rid()]);
+        JSON.stringify({ costKind: 'other', amountPaise: '650000', paidBy: 'company', paymentMode: 'upi', paidOn: '2026-10-10',
+                         receiptEvidenceId: receipt, applicationId: firstApp!.id }), rid()]);
       const sub = await one<{ rowVersion: number }>(DESK, COST_SUBMIT_SQL, [saved.entryId, saved.rowVersion]);
       const why = 'Synthetic: the receipt is not readable';
       await one(ACCOUNTS, EXPENSE_RETURN_SQL, [saved.entryId, sub.rowVersion, why, rid()]);
@@ -564,9 +577,12 @@ describe('department_task_history', () => {
       await one(PURCHASE, PURCHASE_CLAIM_SQL, [hotelTaskId]);
       await one(DESK, VISA_CLAIM_SQL, [taskId]);
       const receipt = await h.deskEvidence(DESK, taskId, 'fee_receipt');
+      // Visa build (C15, lead decision 16 / VL18): task-level visa fees are refused; an "other" cost of the first passenger
+      // goes to Accounts the same way (was costKind government_fee without an applicant).
+      const [firstApp] = await owner<{ id: string }>('select id from public.visa_applications where task_id = $1 order by traveller_seq limit 1', [taskId]);
       const saved = await one<{ entryId: string; rowVersion: number }>(DESK, COST_SAVE_SQL, [taskId, null, 0,
-        JSON.stringify({ costKind: 'government_fee', amountPaise: '650000', paidBy: 'company', paymentMode: 'upi', paidOn: '2026-10-10',
-                         receiptEvidenceId: receipt }), rid()]);
+        JSON.stringify({ costKind: 'other', amountPaise: '650000', paidBy: 'company', paymentMode: 'upi', paidOn: '2026-10-10',
+                         receiptEvidenceId: receipt, applicationId: firstApp!.id }), rid()]);
       const sub = await one<{ rowVersion: number }>(DESK, COST_SUBMIT_SQL, [saved.entryId, saved.rowVersion]);
       const costReason = 'Synthetic N3: the fee receipt is blurred';
       await one(ACCOUNTS, EXPENSE_RETURN_SQL, [saved.entryId, sub.rowVersion, costReason, rid()]);

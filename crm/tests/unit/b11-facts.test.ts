@@ -40,7 +40,9 @@ describe('service types and departments', () => {
     expect(ON_HOLD_SERVICE_TYPES).toEqual(['train']);
     expect(SERVICE_DEPARTMENT.visa).toBe('visa');
     expect(SERVICE_DEPARTMENT.passport).toBe('visa');
-    expect(SERVICE_FACT_KEYS.visa).toEqual(['country', 'purpose', 'travelDate', 'applyBy', 'feePaidBy', 'notes']);
+    // Visa build (contract 5.5, Q7): the Sales booking form gains visaKind, jurisdiction, jurisdictionPlace and documentsNeeded
+    // (was ['country', 'purpose', 'travelDate', 'applyBy', 'feePaidBy', 'notes']).
+    expect(SERVICE_FACT_KEYS.visa).toEqual(['country', 'purpose', 'travelDate', 'applyBy', 'feePaidBy', 'notes', 'visaKind', 'jurisdiction', 'jurisdictionPlace', 'documentsNeeded']);
   });
 });
 

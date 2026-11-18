@@ -200,7 +200,10 @@ describe('carried N2 and N1 wording', () => {
     expect(FLIGHT_INTERNAL_TEXT).toBe('Internal task. Tickets are issued outside the CRM.');
     expect(flightConfirmedText(null)).toBe('Internal task. Supplier confirmation recorded. No payment, bill or invoice was created by the CRM.');
     expect(flightConfirmedText('2026-10-20T06:00:00Z')).toMatch(/^Internal task\. Supplier confirmation recorded on 20 Oct 2026.*\. No payment, bill or invoice was created by the CRM\.$/);
-    expect(FLIGHT_TASK_STATUS_LABEL.supplier_confirmed).toBe('Confirmed by supplier');
+    // Flight build (contract 7, D10 supersedes DEC-59/DA-318 for flights): flight never shows "Confirmed by supplier";
+    // an old supplier_confirmed row reads like done.
+    expect(FLIGHT_TASK_STATUS_LABEL.supplier_confirmed).toBe('Done · ticket issued');
+    expect(FLIGHT_TASK_STATUS_LABEL.not_started).toBe('Waiting');
     for (const file of ['views/flight-views.tsx', 'views/department/task-history-vm.ts', 'views/deal-workspace/header.tsx', 'modules/deals/workspace.ts']) {
       expect(read(file), file).not.toContain("'Ticket issued'");
     }

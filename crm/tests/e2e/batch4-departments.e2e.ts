@@ -90,6 +90,9 @@ test.describe('Batch 4 department privacy (money-privacy-settings §10)', () => 
   }
 
   test('task tabs never carry a count and there is no Money tab (T-B4-08)', async ({ page }) => {
+    // 23 task pages in one test, each waiting for network idle: on a loaded CI runner that is close to
+    // the default 30 s on its own (2 Nov: both attempts ran out on the last Visa pages, nothing hung).
+    test.setTimeout(120_000);
     for (const state of TASKS.filter((s) => !s.endsWith('-sales'))) {
       await open(page, state);
       const tabs = page.getByRole('navigation', { name: 'Task sections' });
@@ -104,7 +107,7 @@ test.describe('Batch 4 department privacy (money-privacy-settings §10)', () => 
     await expect(page.getByRole('navigation', { name: 'Task sections' })).toHaveCount(0);
     await expect(main).toContainText('Confirmed by supplier');
     await expect(main).toContainText('Nothing waiting.');
-    for (const hidden of ['Supplier offers', 'Cost history', 'Purchase files', 'SYN-CONF-0001', 'Synthetic Stays', 'Traveller ID proofs']) await expect(main).not.toContainText(hidden);
+    for (const hidden of ['Rate negotiation', 'Supplier payments', 'Purchase files', 'SYN-CONF-0001', 'Synthetic Stays', 'Traveller ID proofs']) await expect(main).not.toContainText(hidden);
     const html = await (await page.request.get('/preview/b4-purchase-task-sales')).text();
     expect(html).not.toContain('/app/purchase/files/');
   });
@@ -209,50 +212,70 @@ test.describe('Batch 4 department task pages', () => {
     const main = page.locator('main');
     await expect(main.locator('[data-slot="task-next"]')).toHaveText('Next: record the supplier’s confirmation');
     await expect(main).toContainText('Taken by: You');
-    await expect(main.getByRole('link', { name: 'Record supplier confirmation' })).toHaveAttribute('href', /\?tab=work$/);
+    // Purchase build: off the Work tab the header links there (the next step depends on the work).
+    await expect(main.getByRole('link', { name: 'Open the Work tab' })).toHaveAttribute('href', /\?tab=work$/);
     await expect(main.getByRole('heading', { name: 'Traveller ID proofs' })).toBeVisible();
     await pillsHaveIconAndWord(page);
     // Who acts next / Next step cards are gone (G-18).
     await expect(main).not.toContainText('Who acts next');
     await open(page, 'b4-purchase-task-work');
     // On Work the confirmation button is the one primary; the header link is not repeated.
-    await expect(page.locator('main').getByRole('link', { name: 'Record supplier confirmation' })).toHaveCount(0);
+    await expect(page.locator('main').getByRole('link', { name: 'Open the Work tab' })).toHaveCount(0);
     await expect(page.locator('main').getByRole('button', { name: 'Record supplier confirmation' })).toHaveCount(1);
-    await expect(page.locator('main')).toContainText('Budget: ₹45,000.00. Payments are not made from here.');
+    await expect(page.getByRole('region', { name: 'Rate negotiation' })).toContainText('₹45,000.00');
     // R13: the proof upload stays on Work, next to the confirmation.
     await expect(page.locator('main').getByRole('form', { name: 'Upload a Purchase file' })).toBeVisible();
   });
 
   test('not taken: Take this task is the one primary', async ({ page }) => {
-    for (const state of ['b4-purchase-task-not-taken', 'b4-flight-task-not-taken', 'b4-visa-task-not-taken']) {
+    // Flight build (contract D1, 11.1): b4-flight-task-not-taken now shows the new Flight workspace, whose one primary
+    // is the group take "Take these flights" (checked below); Purchase and Visa keep "Take this task".
+    for (const state of ['b4-purchase-task-not-taken', 'b4-visa-task-not-taken']) {
       await open(page, state);
       const main = page.locator('main');
       await expect(main.getByRole('button', { name: 'Take this task' }), state).toHaveCount(1);
       await expect(main.locator('[data-slot="task-next"]'), state).toHaveText('Next: take this task');
     }
-  });
-
-  test('Flight: details keep F-04; Work holds the cost with the returned reason; Files list the screenshot', async ({ page }) => {
-    await open(page, 'b4-flight-task-details');
-    await expect(page.getByRole('region', { name: 'Travellers and budget' })).toContainText('Sample Traveller A');
     await open(page, 'b4-flight-task-not-taken');
-    await expect(page.getByRole('region', { name: 'Travellers and budget' })).toContainText('Traveller names are not shown to the Flight team in this version.');
-    await open(page, 'b4-flight-task-work');
-    await expect(page.getByRole('region', { name: 'Cost' })).toContainText('Accounts returned it');
-    await open(page, 'b4-flight-task-files');
-    await expect(page.locator('main').getByRole('list', { name: 'Flight screenshots' }).getByRole('link')).toHaveCount(1);
-    await open(page, 'b4-flight-task-history');
-    await expect(page.getByRole('list', { name: 'Task history, newest first' })).toContainText('Accounts returned the cost');
+    const flight = page.locator('main');
+    await expect(flight.getByRole('button', { name: 'Take these flights' })).toHaveCount(1);
+    await expect(flight.getByRole('button', { name: 'Take this task' })).toHaveCount(0);
+    await expect(flight).toContainText('Next: take these flights');
   });
 
-  test('Visa: Work holds the applicant checklist and stage list (G15); Details holds the private notice', async ({ page }) => {
+  test('Flight: details show traveller names (F-04 retired); Work holds cost and payment; Files list the screenshot', async ({ page }) => {
+    // Flight build: the b4-flight-* states now show the new Flight workspace (Track C). D7 retires F-04, so names are
+    // shown to Flight on every state, including not taken; the manual cost card with "Accounts returned it" is retired
+    // (D3 / B13) in favour of the "Cost and payment" card; history shows no amounts.
+    await open(page, 'b4-flight-task-details');
+    await expect(page.getByRole('list', { name: /^Travellers on / }).first()).toContainText('Example Traveller One');
+    await open(page, 'b4-flight-task-not-taken');
+    await expect(page.locator('main')).not.toContainText('Traveller names are not shown to the Flight team in this version.');
+    await expect(page.getByRole('list', { name: /^Travellers on / }).first()).toContainText('Example Traveller One');
+    await open(page, 'b4-flight-task-work');
+    await expect(page.getByRole('region', { name: 'Cost and payment' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Cost', exact: true })).toHaveCount(0);
+    await open(page, 'b4-flight-task-files');
+    // Kept: the screenshot is listed on Files (now one list item per file, opening in a new tab).
+    await expect(page.getByRole('region', { name: 'Flight screenshots' })).toContainText('synthetic-fare-quote.png');
+    await open(page, 'b4-flight-task-history');
+    await expect(page.getByRole('region', { name: 'History', exact: true })).toContainText('No amounts are shown here.');
+    await expect(page.getByRole('region', { name: 'History', exact: true })).not.toContainText(/₹\s?\d/);
+  });
+
+  test('Visa: Work holds the passengers table and the step bar (G15); Details holds the private notice', async ({ page }) => {
+    // Visa build (contract 11.1): the old per-applicant checklist and stage list ("Progress for Sample Traveller A",
+    // "Record submission", history "Applicant 1: Submitted") are replaced by the Passengers and documents table, the
+    // five-step bar and the new History kinds. The intent (Work holds the work, Details the private notice and the
+    // "Continue the applications" link to Work) is kept.
     await open(page, 'b4-visa-task-details');
     await expect(page.locator('main')).toContainText('Private applicant documents');
     await expect(page.locator('main').getByRole('link', { name: 'Continue the applications' })).toHaveAttribute('href', /\?tab=work$/);
     await open(page, 'b4-visa-task-work');
-    await expect(page.locator('main').getByRole('list', { name: 'Progress for Sample Traveller A' })).toBeVisible();
-    await expect(page.locator('main').getByRole('button', { name: 'Record submission' })).toBeVisible();
+    await expect(page.locator('main').getByRole('region', { name: /Passengers and documents/ }).first()).toBeVisible();
+    await expect(page.locator('main').getByLabel(/^Visa progress/).first()).toBeVisible();
     await open(page, 'b4-visa-task-history');
-    await expect(page.getByRole('list', { name: 'Task history, newest first' })).toContainText('Applicant 1: Submitted');
+    await expect(page.getByRole('list', { name: 'Task history, newest first' })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Task history, newest first' })).not.toContainText(/₹\s?\d/);
   });
 });

@@ -209,6 +209,8 @@ export function itemTitle(facts: ServiceFacts): string {
       return `${facts.facts.name}, ${facts.facts.city}`;
     case 'flight': {
       const segments = facts.facts.segments;
+      // Book now v2: a flight added from a screenshot (same title as authz.service_item_title).
+      if (facts.facts.entryMode === 'screenshot') return 'From screenshot';
       if (segments.length === 0) return 'Flight';
       return [segments[0]!.from, ...segments.map((s) => s.to)].join(' → ');
     }
@@ -322,6 +324,8 @@ export function copyFacts(facts: ServiceFacts): ServiceFacts {
           ...opt('area', f.area),
           ...opt('childAges', f.childAges === undefined || f.childAges === null ? f.childAges : [...f.childAges]),
           ...opt('exclusions', f.exclusions),
+          // Book now v2: requests "for whom" (the readable text is specialRequests).
+          ...opt('requestItems', f.requestItems === undefined || f.requestItems === null ? f.requestItems : f.requestItems.map((r) => ({ text: r.text, forSeq: r.forSeq }))),
         },
       };
     }
@@ -343,6 +347,9 @@ export function copyFacts(facts: ServiceFacts): ServiceFacts {
           ...opt('quantity', f.quantity),
           ...opt('includedKms', f.includedKms),
           ...opt('vendor', f.vendor),
+          // Book now v2: car type and the flight it meets.
+          ...opt('carKind', f.carKind),
+          ...opt('flightItemId', f.flightItemId),
         },
       };
     }
@@ -385,6 +392,11 @@ export function copyFacts(facts: ServiceFacts): ServiceFacts {
           ...opt('tripType', f.tripType),
           ...opt('preferences', f.preferences),
           ...opt('assistance', f.assistance),
+          // Book now v2: screenshot flights (no typed leg), requests "for whom", return flights.
+          ...opt('entryMode', f.entryMode),
+          ...opt('screenshotNote', f.screenshotNote),
+          ...opt('requestItems', f.requestItems === undefined || f.requestItems === null ? f.requestItems : f.requestItems.map((r) => ({ text: r.text, forSeq: r.forSeq }))),
+          ...opt('isReturn', f.isReturn),
         },
       };
     }
@@ -399,6 +411,11 @@ export function copyFacts(facts: ServiceFacts): ServiceFacts {
           applyBy: f.applyBy ?? null,
           feePaidBy: f.feePaidBy,
           notes: f.notes ?? null,
+          // Visa build (20261202000200): kind, jurisdiction and documents needed (absent stays absent).
+          ...opt('visaKind', f.visaKind),
+          ...opt('jurisdiction', f.jurisdiction),
+          ...opt('jurisdictionPlace', f.jurisdictionPlace),
+          ...opt('documentsNeeded', f.documentsNeeded === undefined || f.documentsNeeded === null ? f.documentsNeeded : [...f.documentsNeeded]),
         },
       };
     }
@@ -797,9 +814,22 @@ export function toFlightTaskView(record: FlightTaskDetailRecord): FlightTaskView
     ...taskExtras(record, true),
     ...(record.tripScope !== undefined ? { tripScope: record.tripScope } : {}),
     // Booking form: estimated fare and stored screenshots, when the database sent them to this assignee.
-    ...(record.estimate !== undefined ? { estimate: estimateView('flight', summary.facts as unknown as Record<string, unknown>, record.estimate) } : {}),
+    // Book now v2: the flight total counts the participants by type (fare per person).
+    ...(record.estimate !== undefined
+      ? { estimate: estimateView('flight', summary.facts as unknown as Record<string, unknown>, record.estimate, record.participants ? fareCounts(record.participants) : undefined) }
+      : {}),
+    ...(record.fareTotals !== undefined
+      ? { fareTotals: record.fareTotals === null ? null : { adultPaise: record.fareTotals.adultPaise, childPaise: record.fareTotals.childPaise, infantPaise: record.fareTotals.infantPaise } }
+      : {}),
     ...(record.files !== undefined ? { files: flightTaskFiles(record.files) } : {}),
   };
+}
+
+/** Participants of a flight by traveller type (fare per person). */
+function fareCounts(participants: ReadonlyArray<{ type: string }>): Record<'adult' | 'child' | 'infant', number> {
+  const c = { adult: 0, child: 0, infant: 0 };
+  for (const p of participants) if (p.type === 'adult' || p.type === 'child' || p.type === 'infant') c[p.type] += 1;
+  return c;
 }
 
 /** Stored screenshots only; downloads go through the Flight route (authorized again there); never removable from the task. */

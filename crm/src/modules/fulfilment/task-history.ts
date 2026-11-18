@@ -4,7 +4,7 @@ import type { RpcClient, RpcError } from './commands';
 /**
  * Direction A Batch 4 (DA-16, History rule): the History tab of a Purchase,
  * Flight or Visa & Passport task, from public.department_task_history (Atlas
- * migration 20261125000100).
+ * migration 20261125000100; visa kinds from the Visa build, 20261202000120).
  *
  * The database decides who reads it (the people who open that task page
  * today) and returns only that task's events, from an allowlist of kinds,
@@ -31,8 +31,128 @@ export const TASK_HISTORY_KINDS = [
   'applicant_updated',
   'applicant_stage',
   'applicant_withdrawn',
+  // Purchase build (20261130000120): supplier e-mails, hotel go-ahead, cancellation charges.
+  'rate_request_sent',
+  'booking_request_sent',
+  'email_sent',
+  'email_failed',
+  'go_ahead_requested',
+  'go_ahead_approved',
+  'go_ahead_returned',
+  'cancellation_charge_saved',
+  // Flight build (20261201000120, contract 9.5): flight tasks only.
+  'booking_change_applied',
+  'sectors_entered',
+  'sector_details_filled',
+  'change_submitted',
+  'change_approved',
+  'change_rejected',
+  'change_withdrawn',
+  'tickets_confirmed',
+  'ticket_corrected',
+  'fare_approval_requested',
+  'fare_approval_approved',
+  'fare_approval_returned',
+  'fare_approval_withdrawn',
+  'direct_payment_recorded',
+  'payment_requested',
+  'payment_resubmitted',
+  'payment_cancelled',
+  'payment_approved',
+  'payment_returned',
+  'payment_recorded',
+  'payment_verified',
+  // Visa build (20261202000120, contract 9.4): visa and passport tasks only.
+  'applicant_row_saved',
+  'document_added',
+  'document_removed',
+  'applied',
+  'approved',
+  'rejected',
+  'withdrawn',
+  'evisa_sent',
+  'handover_set',
+  'delivered',
+  'applicant_closed',
+  'reapplied',
+  'traveller_confirmed',
+  'fee_sent',
+  'booking_synced',
+  'applicant_back',
 ] as const;
 export type TaskHistoryKind = (typeof TASK_HISTORY_KINDS)[number];
+
+/** Purchase build: History titles of the kinds added by 20261130000120 (go_ahead_returned carries Accounts' reason as its note). */
+export const PURCHASE_BUILD_HISTORY_TITLE = {
+  rate_request_sent: 'Rate request sent to the supplier',
+  booking_request_sent: 'Booking request sent to the supplier',
+  email_sent: 'E-mail sent from the CRM',
+  email_failed: 'E-mail could not be sent from the CRM',
+  go_ahead_requested: 'Accounts go-ahead requested',
+  go_ahead_approved: 'Accounts gave the go-ahead',
+  go_ahead_returned: 'Accounts returned the go-ahead',
+  cancellation_charge_saved: 'Cancellation charges saved',
+} as const satisfies Partial<Record<TaskHistoryKind, string>>;
+
+/**
+ * Flight build: default History titles of the flight kinds (20261201000120).
+ * No amount, PNR or ticket number is ever part of an event; change_rejected,
+ * ticket_corrected, fare_approval_returned and payment_returned carry the
+ * reason as their note, change events their change number.
+ */
+export const FLIGHT_TASK_HISTORY_TITLE = {
+  booking_change_applied: 'New booking applied',
+  sectors_entered: 'Flights entered from the screenshot',
+  sector_details_filled: 'Missing flight details filled in',
+  change_submitted: 'Flight change sent',
+  change_approved: 'Flight change approved',
+  change_rejected: 'Flight change rejected',
+  change_withdrawn: 'Flight change withdrawn',
+  tickets_confirmed: 'Tickets confirmed',
+  ticket_corrected: 'Ticket corrected',
+  fare_approval_requested: 'Manager asked to approve the fares',
+  fare_approval_approved: 'Manager approved the fares',
+  fare_approval_returned: 'Manager returned the fares',
+  fare_approval_withdrawn: 'Fare approval request withdrawn',
+  direct_payment_recorded: 'Direct payment recorded',
+  payment_requested: 'Supplier payment requested',
+  payment_resubmitted: 'Supplier payment request sent again',
+  payment_cancelled: 'Supplier payment request cancelled',
+  payment_approved: 'Supplier payment approved',
+  payment_returned: 'Supplier payment returned',
+  payment_recorded: 'Supplier payment recorded by Accounts',
+  payment_verified: 'Supplier payment verified by Accounts',
+} as const satisfies Partial<Record<TaskHistoryKind, string>>;
+
+/**
+ * Visa build: default History titles of the visa kinds (20261202000120,
+ * contract 11.1 History tab). No amount, reference, passport number or
+ * e-mail is ever part of an event; rejected, withdrawn and fee_sent carry
+ * the reason as their note; applied carries clubSize ("Applied together: n
+ * travellers" when n > 1); handover_set its method. applicant_back is kept
+ * for audit rows written before re-linking by name was withdrawn (section 16).
+ */
+export const VISA_TASK_HISTORY_TITLE = {
+  applicant_row_saved: 'Passenger updated',
+  document_added: 'Document added',
+  document_removed: 'Document removed',
+  applied: 'Applied',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  withdrawn: 'Withdrawn',
+  evisa_sent: 'E-visa sent',
+  handover_set: 'Handover set',
+  delivered: 'Passport delivered',
+  applicant_closed: 'Passenger closed',
+  reapplied: 'Applied again',
+  traveller_confirmed: 'Traveller change checked',
+  fee_sent: 'Fee sent to Accounts',
+  booking_synced: 'Booking changes received',
+  applicant_back: 'Passenger back on the booking',
+} as const satisfies Partial<Record<TaskHistoryKind, string>>;
+
+/** Visa build: "Applied together: {n} travellers" for an applied event with clubSize > 1. */
+export const VISA_APPLIED_TOGETHER_TITLE = 'Applied together: {n} travellers';
 
 const EventSchema = z.object({
   at: z.string().min(1),
@@ -46,8 +166,14 @@ const EventSchema = z.object({
   applicantSeq: z.number().int().positive().nullable().catch(null),
   /** applicant_stage: the visa application stage code the screen maps to words. */
   state: z.string().regex(/^[a-z_]{1,40}$/).nullable().catch(null),
-  /** accounts_returned: Accounts' reason; applicant_withdrawn: the fixed revision text. */
+  /** accounts_returned and go_ahead_returned: Accounts' reason; applicant_withdrawn: the fixed revision text; flight reasons (see above). */
   note: z.string().max(500).nullable().catch(null),
+  /** Flight build: the change number of change_* events; absent (null) elsewhere. */
+  changeNo: z.number().int().positive().nullable().optional().catch(null),
+  /** Visa build: the number of passengers applied together (applied events); absent (null) elsewhere. */
+  clubSize: z.number().int().min(1).max(100).nullable().optional().catch(null),
+  /** Visa build: the handover method of handover_set events; absent (null) elsewhere. */
+  method: z.enum(['office', 'executive', 'courier', 'not_with_us']).nullable().optional().catch(null),
 });
 export type TaskHistoryEvent = z.output<typeof EventSchema>;
 

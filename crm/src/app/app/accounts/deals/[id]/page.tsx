@@ -7,6 +7,7 @@ import { loadDealIdProofs } from '@/modules/fulfilment/server/id-proofs';
 import { AccountsDealIdProofs } from '@/views/b11/id-proofs-list';
 import { AccountsDealNotFoundView, accountsDealTabOf, AccountsDealView, FinanceNoAccessView, FinanceUnavailableView } from '@/views/finance-views';
 import { FINANCE_ACTIONS, financeRead } from '../../finance-page-support';
+import { customerDocumentsCard, refundsCard } from '../../acc2-cards';
 
 export const metadata: Metadata = { title: 'Accounts deal' };
 
@@ -32,9 +33,13 @@ export default async function AccountsDealPage({ params, searchParams }: { param
   const current = accountsDealTabOf(detail.value, tab).tab;
   // Approved current company accounts for the receipt form. A refusal is passed on as "could not be loaded"
   // (never as "none approved"); the database rechecks the choice when recording.
-  const [options, idProofs] = await Promise.all([
+  // Accounts phase 2 (screens 11.1, 11.3): Accounts work on customer documents (Documents tab) and refund payouts
+  // (Money tab) here, for Deals of every branch; the reads fence every row.
+  const [options, idProofs, docsCard, refundCard] = await Promise.all([
     financeRead(() => loadDestinationOptions(staff, id)),
     current === 'documents' ? loadDealIdProofs(staff, id).catch(() => 'error' as const) : Promise.resolve(null),
+    current === 'documents' ? customerDocumentsCard(staff, id, { moneyReader: true, numberPrefix: null }) : Promise.resolve(null),
+    current === 'money' ? refundsCard(staff, id, { moneyReader: true }) : Promise.resolve(null),
   ]);
   return (
     <WorkErrorBoundary title="Accounts deal">
@@ -45,7 +50,15 @@ export default async function AccountsDealPage({ params, searchParams }: { param
         destinationOptionsUnavailable={!options.ok}
         claimActions={{ record: recordReceiptFromClaimAction, link: linkClaimReceiptAction, notReceived: markClaimNotReceivedAction }}
         tabParam={tab}
-        documents={current === 'documents' ? <AccountsDealIdProofs state={idProofs} /> : undefined}
+        documents={
+          current === 'documents' ? (
+            <>
+              {docsCard}
+              <AccountsDealIdProofs state={idProofs} />
+            </>
+          ) : undefined
+        }
+        money={current === 'money' ? refundCard : undefined}
       />
     </WorkErrorBoundary>
   );

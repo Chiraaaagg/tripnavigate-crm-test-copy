@@ -1,4 +1,5 @@
 import * as z from 'zod/mini';
+import { maxPaiseForDigits, rupeesToPaise as readRupees } from '@/lib/money';
 import {
   type ActivityServiceFacts,
   B11_FACT_LIMITS,
@@ -10,6 +11,9 @@ import {
   type PassportApplicationType,
   type PassportServiceFacts,
   VISA_FEE_PAID_BY,
+  VISA_FACT_LIMITS,
+  VISA_JURISDICTIONS,
+  VISA_KINDS,
   type VisaFeePaidBy,
   type VisaServiceFacts,
   type BookingFacts,
@@ -32,6 +36,7 @@ import {
   type WorkflowSettingKey,
   HOTEL_EXTRA_LIMITS,
 } from './contracts';
+import { CAR_KINDS, REQUEST_ITEMS_MAX, REQUEST_TEXT_MAX } from './booking-form-contract';
 
 /**
  * Pure parsing of booking form posts. Field names are the API for agent C
@@ -152,6 +157,9 @@ export const FIELD = {
   segmentFlex: 'segmentFlex',
   flightPreferences: 'flightPreferences',
   assistance: 'assistance',
+  // Book now v2: a flight added from a screenshot ('typed' or empty = typed details).
+  entryMode: 'entryMode',
+  screenshotNote: 'screenshotNote',
   pickup: 'pickup',
   drop: 'drop',
   country: 'country',
@@ -159,6 +167,13 @@ export const FIELD = {
   travelDate: 'travelDate',
   applyBy: 'applyBy',
   feePaidBy: 'feePaidBy',
+  // Visa build (20261202000200): '' = not decided yet (key left out).
+  visaKind: 'visaKind',
+  jurisdiction: 'jurisdiction',
+  /** Read only when jurisdiction is 'yes' (ignored otherwise). */
+  jurisdictionPlace: 'jurisdictionPlace',
+  /** Repeated, one label per value; a value may also hold several labels, one per line. */
+  documentsNeeded: 'documentsNeeded',
   applicationType: 'applicationType',
   officeCity: 'officeCity',
   neededBy: 'neededBy',
@@ -196,15 +211,12 @@ function text(formData: FormData, name: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
-/** "1,23,456.5" → "12345650"; "" → null; invalid → undefined. */
+// At most 15 rupee digits: far beyond any booking, and well inside bigint.
+const FORM_MAX_PAISE = maxPaiseForDigits(15);
+
+/** "1,23,456.5" → "12345650"; "" → null; invalid → undefined (the one money rule, src/lib/money.ts). */
 export function rupeesToPaise(raw: string | undefined): string | null | undefined {
-  const value = (raw ?? '').replace(/[,\s]/g, '').replace(/^₹/, '');
-  if (value === '') return null;
-  // At most 15 rupee digits: far beyond any booking, and well inside bigint.
-  const match = /^(\d{1,15})(?:\.(\d{1,2}))?$/.exec(value);
-  if (!match) return undefined;
-  const paise = BigInt(match[1]!) * 100n + BigInt((match[2] ?? '').padEnd(2, '0') || '0');
-  return paise.toString();
+  return readRupees(raw, { max: FORM_MAX_PAISE });
 }
 
 /** Integer paise string → rupee input value ("12345650" → "123456.50"), for prefilling forms. */
@@ -344,6 +356,9 @@ export function isTravellerType(value: string): value is TravellerType {
   return (TRAVELLER_TYPES as readonly string[]).includes(value);
 }
 
+/** Book now v2: the note for the Flight team on a screenshot flight. */
+export const SCREENSHOT_NOTE_MAX = 200;
+
 const DATE_MIN = '2000-01-01';
 const DATE_MAX = '2100-12-31';
 const TIME_24 = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
@@ -374,6 +389,31 @@ function isInt(value: unknown, min: number, max: number): value is number {
 
 function isOptional(value: unknown, check: (v: unknown) => boolean): boolean {
   return value === undefined || value === null || check(value);
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Book now v2: requests "for whom" (mirror of authz.bf2_request_items_ok): at
+ * most 20 {text, forSeq}; text 1..80 characters, trimmed, unique ignoring
+ * case; forSeq null (everyone) or a traveller seq 1..100. Whether forSeq is a
+ * participant of the item is the database's check.
+ */
+export function requestItemsOk(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (!Array.isArray(value) || value.length > REQUEST_ITEMS_MAX) return false;
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) return false;
+    const r = item as Record<string, unknown>;
+    if (Object.keys(r).some((k) => k !== 'text' && k !== 'forSeq')) return false;
+    if (typeof r.text !== 'string' || !isText(r.text, REQUEST_TEXT_MAX) || r.text.trim() !== r.text || /[\u0000-\u001f\u007f]/.test(r.text)) return false;
+    if (!(r.forSeq === undefined || r.forSeq === null || isInt(r.forSeq, 1, MAX_TRAVELLERS))) return false;
+    const key = r.text.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+  }
+  return true;
 }
 
 /**
@@ -425,6 +465,8 @@ export function validateServiceFacts(type: ServiceType, facts: unknown): string[
       check('extraBeds', isOptional(f.extraBeds, (v) => isInt(v, HOTEL_EXTRA_LIMITS.extraBeds.min, HOTEL_EXTRA_LIMITS.extraBeds.max)));
       check('childrenWithoutBed', isOptional(f.childrenWithoutBed, (v) => isInt(v, HOTEL_EXTRA_LIMITS.childrenWithoutBed.min, HOTEL_EXTRA_LIMITS.childrenWithoutBed.max)));
       check('bedRemarks', isOptional(f.bedRemarks, (v) => isText(v, HOTEL_EXTRA_LIMITS.bedRemarks)));
+      // Book now v2
+      check('requestItems', requestItemsOk(f.requestItems));
       break;
     case 'transfer':
       check('pickup', isOptional(f.pickup, (v) => isText(v, B11_FACT_LIMITS.pickup)));
@@ -437,6 +479,9 @@ export function validateServiceFacts(type: ServiceType, facts: unknown): string[
       check('passengers', isOptional(f.passengers, (v) => isInt(v, L.passengers.min, L.passengers.max)));
       check('pickupTime', isOptional(f.pickupTime, (v) => typeof v === 'string' && TIME_24.test(v)));
       check('notes', isOptional(f.notes, (v) => isText(v, L.notes)));
+      // Book now v2
+      check('carKind', isOptional(f.carKind, (v) => isOneOf(CAR_KINDS, v)));
+      check('flightItemId', isOptional(f.flightItemId, (v) => typeof v === 'string' && UUID.test(v)));
       break;
     case 'activity':
       check('name', isText(f.name, L.activityName));
@@ -449,7 +494,12 @@ export function validateServiceFacts(type: ServiceType, facts: unknown): string[
       break;
     case 'flight': {
       const segments = f.segments;
-      if (!Array.isArray(segments) || segments.length < L.segments.min || segments.length > MAX_FLIGHT_SEGMENTS) {
+      // Book now v2: a screenshot flight may have no typed leg.
+      const entryOk = isOptional(f.entryMode, (v) => v === 'typed' || v === 'screenshot');
+      check('entryMode', entryOk);
+      const screenshot = f.entryMode === 'screenshot';
+      const minLegs = screenshot ? 0 : L.segments.min;
+      if (!Array.isArray(segments) || segments.length < minLegs || segments.length > MAX_FLIGHT_SEGMENTS) {
         invalid.add('segments');
       } else {
         let previous: string | null = null;
@@ -471,6 +521,10 @@ export function validateServiceFacts(type: ServiceType, facts: unknown): string[
       check('tripType', isOptional(f.tripType, (v) => isOneOf(FLIGHT_TRIP_TYPES, v)));
       check('preferences', isOptional(f.preferences, (v) => isText(v, B11_FACT_LIMITS.flightPreferences)));
       check('assistance', isOptional(f.assistance, (v) => isText(v, B11_FACT_LIMITS.assistance)));
+      // Book now v2
+      check('screenshotNote', isOptional(f.screenshotNote, (v) => screenshot && isText(v, SCREENSHOT_NOTE_MAX)));
+      check('requestItems', requestItemsOk(f.requestItems));
+      check('isReturn', isOptional(f.isReturn, (v) => typeof v === 'boolean'));
       break;
     }
     case 'visa':
@@ -481,6 +535,12 @@ export function validateServiceFacts(type: ServiceType, facts: unknown): string[
       if (isIsoDate(f.applyBy) && isIsoDate(f.travelDate) && f.applyBy > f.travelDate) invalid.add('applyBy');
       check('feePaidBy', isOneOf(VISA_FEE_PAID_BY, f.feePaidBy));
       check('notes', isOptional(f.notes, (v) => isText(v, B11_FACT_LIMITS.notes)));
+      // Visa build (20261202000200, contract 5.5)
+      check('visaKind', isOptional(f.visaKind, (v) => isOneOf(VISA_KINDS, v)));
+      check('jurisdiction', isOptional(f.jurisdiction, (v) => isOneOf(VISA_JURISDICTIONS, v)));
+      if (f.jurisdiction === 'yes') check('jurisdictionPlace', isText(f.jurisdictionPlace, VISA_FACT_LIMITS.jurisdictionPlace));
+      else check('jurisdictionPlace', f.jurisdictionPlace === undefined || f.jurisdictionPlace === null);
+      check('documentsNeeded', isOptional(f.documentsNeeded, documentsNeededOk));
       break;
     case 'passport':
       check('applicationType', isOneOf(PASSPORT_APPLICATION_TYPES, f.applicationType));
@@ -490,6 +550,57 @@ export function validateServiceFacts(type: ServiceType, facts: unknown): string[
       break;
   }
   return [...invalid];
+}
+
+/** Visa build: a document label as stored (trimmed, single spaces). */
+export function normaliseDocumentLabel(raw: string): string {
+  return raw.trim().replace(/\s+/g, ' ');
+}
+
+/** Visa build: the label key the database compares (contract section 4). */
+export function documentLabelKey(label: string): string {
+  return normaliseDocumentLabel(label).toLowerCase();
+}
+
+/** Mirror of the documentsNeeded rule: 0..30 normalised labels of 1..120 characters, distinct by label key. */
+function documentsNeededOk(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length > VISA_FACT_LIMITS.documentsNeeded) return false;
+  const keys = new Set<string>();
+  for (const v of value) {
+    if (typeof v !== 'string' || v !== normaliseDocumentLabel(v) || !isText(v, VISA_FACT_LIMITS.documentLabel)) return false;
+    keys.add(v.toLowerCase());
+  }
+  return keys.size === value.length;
+}
+
+/**
+ * Visa build: "Documents needed" from the form. Repeated values, each may
+ * hold several labels one per line; labels are normalised, blanks skipped
+ * and repeats (same label key) dropped, keeping the first. undefined (the
+ * field is highlighted) when a label is too long or there are more than 30.
+ */
+function readDocumentsNeeded(formData: FormData): string[] | undefined {
+  const out: string[] = [];
+  const keys = new Set<string>();
+  for (const raw of strings(formData, FIELD.documentsNeeded)) {
+    for (const part of raw.split(/\r?\n/)) {
+      const label = normaliseDocumentLabel(part);
+      if (label === '') continue;
+      if (!isText(label, VISA_FACT_LIMITS.documentLabel)) return undefined;
+      const key = label.toLowerCase();
+      if (keys.has(key)) continue;
+      keys.add(key);
+      out.push(label);
+    }
+  }
+  return out.length > VISA_FACT_LIMITS.documentsNeeded ? undefined : out;
+}
+
+/** One value of a fixed list. '' → null; anything else not in the list → undefined. */
+function optionalChoice<T extends string>(formData: FormData, name: string, list: readonly T[]): T | null | undefined {
+  const value = (text(formData, name) ?? '').trim();
+  if (value === '') return null;
+  return (list as readonly string[]).includes(value) ? (value as T) : undefined;
 }
 
 /** Form input → typed value. '' → null; malformed → undefined (the field is highlighted). */
@@ -624,7 +735,13 @@ export function factsFromForm(type: ServiceType, formData: FormData): { facts: S
       const tripRaw = (text(formData, FIELD.tripType) ?? '').trim();
       const tripType = tripRaw === '' ? null : isOneOf(FLIGHT_TRIP_TYPES, tripRaw) ? tripRaw : undefined;
       if (tripType === undefined) fields.push(FIELD.tripType);
-      if (segments.length < L.segments.min || segments.length > MAX_FLIGHT_SEGMENTS) fields.push(FIELD.segmentFrom);
+      // Book now v2: "Attach a screenshot" needs no typed leg; its note is for the Flight team.
+      const entryRaw = (text(formData, FIELD.entryMode) ?? '').trim();
+      const entryMode = entryRaw === '' || entryRaw === 'typed' ? null : entryRaw === 'screenshot' ? 'screenshot' : undefined;
+      if (entryMode === undefined) fields.push(FIELD.entryMode);
+      const screenshotNote = entryMode === 'screenshot' ? optional(FIELD.screenshotNote, requiredText(formData, FIELD.screenshotNote, SCREENSHOT_NOTE_MAX)) : null;
+      const minLegs = entryMode === 'screenshot' ? 0 : L.segments.min;
+      if (segments.length < minLegs || segments.length > MAX_FLIGHT_SEGMENTS) fields.push(FIELD.segmentFrom);
       const facts = {
         segments,
         passengers: required(FIELD.passengers, requiredInt(formData, FIELD.passengers, L.passengers.min, L.passengers.max)),
@@ -634,12 +751,17 @@ export function factsFromForm(type: ServiceType, formData: FormData): { facts: S
         ...(tripType ? { tripType } : {}),
         ...present('preferences', optional(FIELD.flightPreferences, requiredText(formData, FIELD.flightPreferences, B11_FACT_LIMITS.flightPreferences))),
         ...present('assistance', optional(FIELD.assistance, requiredText(formData, FIELD.assistance, B11_FACT_LIMITS.assistance))),
+        ...(entryMode === 'screenshot' ? { entryMode } : {}),
+        ...present('screenshotNote', screenshotNote),
       };
       return { facts: facts as FlightServiceFacts, fields };
     }
     case 'visa': {
       const V = B11_FACT_LIMITS;
       const fee = (text(formData, FIELD.feePaidBy) ?? '').trim();
+      const jurisdiction = optional(FIELD.jurisdiction, optionalChoice(formData, FIELD.jurisdiction, VISA_JURISDICTIONS));
+      const documents = readDocumentsNeeded(formData);
+      if (documents === undefined) fields.push(FIELD.documentsNeeded);
       const facts = {
         country: required(FIELD.country, requiredText(formData, FIELD.country, V.visaCountry)),
         purpose: required(FIELD.purpose, requiredText(formData, FIELD.purpose, V.visaPurpose)),
@@ -647,6 +769,13 @@ export function factsFromForm(type: ServiceType, formData: FormData): { facts: S
         applyBy: optional(FIELD.applyBy, optionalDate(formData, FIELD.applyBy)),
         feePaidBy: required(FIELD.feePaidBy, (VISA_FEE_PAID_BY as readonly string[]).includes(fee) ? (fee as VisaFeePaidBy) : fee === '' ? null : undefined),
         notes: optional(FIELD.notes, requiredText(formData, FIELD.notes, L.notes)),
+        // Visa build (20261202000200): sent only when chosen (absent = not decided yet).
+        ...present('visaKind', optional(FIELD.visaKind, optionalChoice(formData, FIELD.visaKind, VISA_KINDS))),
+        ...present('jurisdiction', jurisdiction),
+        ...(jurisdiction === 'yes'
+          ? { jurisdictionPlace: required(FIELD.jurisdictionPlace, requiredText(formData, FIELD.jurisdictionPlace, VISA_FACT_LIMITS.jurisdictionPlace)) }
+          : {}),
+        ...(documents && documents.length > 0 ? { documentsNeeded: documents } : {}),
       };
       return { facts: facts as VisaServiceFacts, fields };
     }

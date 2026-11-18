@@ -1,5 +1,8 @@
 import { VISA_APPLICATION_STATE_LABEL, type VisaApplicationState } from '@/modules/fulfilment/contracts';
+import { PURCHASE_BUILD_HISTORY_TITLE, VISA_APPLIED_TOGETHER_TITLE, VISA_TASK_HISTORY_TITLE } from '@/modules/fulfilment/task-history';
+import { VISA_HANDOVER_LABEL } from '@/modules/visa/contracts';
 import type { DepartmentTaskHistoryRecord, TaskHistoryEventVM, TaskHistoryVM } from '@/modules/settings/contracts';
+import { FLIGHT_HISTORY_TITLE } from '../flight/labels';
 
 /*
  * History tab of a Purchase, Flight or Visa & Passport task (DA-16, DA-270,
@@ -47,7 +50,8 @@ function title(e: Event, department: TaskHistoryDepartment): string {
     case 'reassigned':
       return e.toYou ? 'Task moved to you' : e.toName ? `Task moved to ${e.toName}` : `Task moved to ${TASK_HISTORY_TEXT.someoneElse.toLowerCase()}`;
     case 'completed':
-      return 'Task completed';
+      // Flight build: the Deal's flight group marked done (decision 10).
+      return department === 'flight' ? FLIGHT_HISTORY_TITLE.completed! : 'Task completed';
     case 'offer_added':
       return 'Supplier offer added';
     case 'offer_withdrawn':
@@ -75,8 +79,42 @@ function title(e: Event, department: TaskHistoryDepartment): string {
       return `${applicant(e.applicantSeq)}: ${stageText(e.state)}`;
     case 'applicant_withdrawn':
       return `${applicant(e.applicantSeq)}: application withdrawn`;
+    // Purchase build (20261130000120): supplier e-mails, hotel go-ahead, cancellation charges.
+    case 'rate_request_sent':
+    case 'booking_request_sent':
+    case 'email_sent':
+    case 'email_failed':
+    case 'go_ahead_requested':
+    case 'go_ahead_approved':
+    case 'go_ahead_returned':
+    case 'cancellation_charge_saved':
+      return PURCHASE_BUILD_HISTORY_TITLE[e.kind];
+    default: {
+      const kind = (e as { kind: string }).kind;
+      // Visa build (contract 9.4 / 11.1): the visa kinds, with the traveller number (never a name,
+      // amount, reference, passport number or e-mail).
+      if (kind in VISA_TASK_HISTORY_TITLE) return visaTitle(e);
+      // Flight build (contract 9.5): the flight kinds the server adds to the allowlist.
+      return FLIGHT_HISTORY_TITLE[kind] ?? (department === 'visa' ? 'Visa work recorded' : 'Flight work recorded');
+    }
   }
 }
+
+function visaTitle(e: Event): string {
+  const kind = e.kind as keyof typeof VISA_TASK_HISTORY_TITLE;
+  const extra = e as { clubSize?: number | null; method?: keyof typeof VISA_HANDOVER_LABEL | null };
+  if (kind === 'applied' && extra.clubSize && extra.clubSize > 1) return VISA_APPLIED_TOGETHER_TITLE.replace('{n}', String(extra.clubSize));
+  const base = VISA_TASK_HISTORY_TITLE[kind];
+  const method = kind === 'handover_set' && extra.method ? `: ${VISA_HANDOVER_LABEL[extra.method]}` : '';
+  return `${base}${method}${e.applicantSeq ? ` · traveller ${e.applicantSeq}` : ''}`;
+}
+
+/** Visa kinds whose note is a reason the reader may see (contract 11.1 History tab). */
+const VISA_NOTE_KINDS = new Set<string>(['rejected', 'withdrawn', 'fee_sent']);
+
+/** Flight kinds whose note is a reason the reader may see (contract 9.5). */
+const NOTE_KINDS = new Set<string>(['accounts_returned', 'go_ahead_returned', 'applicant_withdrawn']);
+const FLIGHT_NOTE_KINDS = new Set<string>(['change_rejected', 'ticket_corrected', 'fare_approval_returned', 'reassigned', 'payment_returned']);
 
 function byText(e: Event): string | null {
   if (e.kind === 'created') return null;
@@ -102,7 +140,8 @@ export function toTaskHistoryVM(
     at: e.at,
     title: title(e, department),
     byText: byText(e),
-    detail: e.note && (e.kind === 'accounts_returned' || e.kind === 'applicant_withdrawn') ? `Reason: ${e.note}` : undefined,
+    detail:
+      e.note && (NOTE_KINDS.has(e.kind) || (department === 'flight' && FLIGHT_NOTE_KINDS.has(e.kind)) || (department === 'visa' && VISA_NOTE_KINDS.has(e.kind))) ? `Reason: ${e.note}` : undefined,
   }));
   return { state: 'ok', events };
 }

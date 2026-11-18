@@ -1,5 +1,7 @@
 @AGENTS.md
-@../docs/implementation/current/standing-rules.md
+@../STANDING-RULES.md
+
+Project documents (plans, contracts, owner decisions, release records, history) moved on 30 October 2026, at the owner's request, to the private repository `Chiraaaagg/Tripnavigate-docs` (local clone: `/Users/ASUS/Programs/Tripnavigate-docs`). A path written as `docs/implementation/...` or `../docs/implementation/...` in this repository means `implementation/...` in that repository. The standing rules stay here as `STANDING-RULES.md`.
 
 ## Owner design requirement (1 October 2026)
 
@@ -37,4 +39,4 @@ The owner decided on 26 October 2026: "this time we will be using GitHub testing
 
 ## Standing rules (9 October 2026)
 
-Every session and every subagent working on TripNavigate reads and follows `../docs/implementation/current/standing-rules.md` first (owner instruction, 9 October 2026). Every subagent prompt includes: "Read and follow docs/implementation/current/standing-rules.md first."
+Every session and every subagent working on TripNavigate reads and follows `../STANDING-RULES.md` first (owner instruction, 9 October 2026). Every subagent prompt includes: "Read and follow docs/implementation/current/standing-rules.md first."

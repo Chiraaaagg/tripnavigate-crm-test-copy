@@ -5,7 +5,7 @@ import {
   ACCOUNTS, BUDGETS, CHECKLIST_SQL, DEAL, FLIGHT_FACTS, HOTEL, MANAGER, OWNER, PURCHASE, PURCHASE_CLAIM_SQL, PURCHASE_GET_SQL, SAVE_ITEM_SQL,
   SERVICES_SQL, TRANSFER,
 } from './b1-support';
-import { FORM_SQL, TRIP, b11Helpers, rid } from './b11-support';
+import { FORM_SQL, PASSPORT as PASSPORT_FACTS, TRIP, VISA as VISA_FACTS, b11Helpers, rid } from './b11-support';
 
 /**
  * Stage 3 revision path for package versions (migration 20261119000300):
@@ -145,6 +145,27 @@ describe('opening, classifying and discarding a revision', () => {
       await refused(OWNER, OPEN, [baseId], '55000', 'already_committed');
     });
   });
+
+  it('Visa build (contract 5.6, QB3): a completed visa or passport task does not commit the Deal (a supplier-confirmed hotel still does, test above)', async () => {
+    await asOwner(db, async () => {
+      const base = await readyDraft(OWNER, DEAL, [['hotel', HOTEL], ['visa', VISA_FACTS], ['passport', PASSPORT_FACTS]], { identities: true });
+      expect(base.issues).toEqual([]);
+      await owner('update public.workflow_settings set visa_passport_tasks_enabled = true where id');
+      await confirm(OWNER, base.versionId, base.hash);
+      await one(ACC, RETURN, [base.versionId, REASON, rid()]);
+      const tasks = await owner<{ id: string; department: string }>(`select id, department from public.fulfilment_tasks where deal_id = $1`, [DEAL]);
+      const visa = tasks.filter((t) => t.department === 'visa').map((t) => t.id);
+      expect(visa).toHaveLength(2);
+      // Owner SQL with triggers and foreign keys off: both visa/passport tasks completed by the desk.
+      await owner('set local session_replication_role = replica');
+      await owner(`update public.fulfilment_tasks set status = 'completed', assignee_user_id = $2, completed_by = $2, completed_at = now() where id = any($1::uuid[])`,
+        [visa, 'a0000000-0000-4000-8000-000000000011']);
+      await owner('set local session_replication_role = origin');
+      expect((await owner<{ c: boolean }>('select authz.deal_committed($1) as c', [DEAL]))[0]!.c).toBe(false);
+      const opened = await one<Opened>(OWNER, OPEN, [base.versionId]);
+      expect(opened).toMatchObject({ created: true, versionNo: 2 });
+    });
+  });
 });
 
 describe('review R1 and R3: the class must fit the actual changes', () => {
@@ -185,6 +206,10 @@ describe('review R1 and R3: the class must fit the actual changes', () => {
   it('visa apply-by and passport needed-by dates are always customer-material', async () => {
     expect(await db.query(`select authz.revision_field_class('items.1.applyBy') as a, authz.revision_field_class('items.2.neededBy') as b,
       authz.revision_field_class('items.1.purpose') as c`)).toEqual([{ a: 'material', b: 'material', c: 'choice' }]);
+    // Visa build (contract 5.6, QB6): documents needed and jurisdiction need no fresh acceptance; e-visa <-> sticker does.
+    expect(await db.query(`select authz.revision_field_class('items.1.documentsNeeded') as d, authz.revision_field_class('items.1.jurisdiction') as j,
+      authz.revision_field_class('items.1.jurisdictionPlace') as p, authz.revision_field_class('items.1.visaKind') as k`))
+      .toEqual([{ d: 'choice', j: 'choice', p: 'choice', k: 'material' }]);
   });
 });
 

@@ -60,6 +60,9 @@ export interface MockBitrix {
   webhookCode: string;
   deals: Map<string, MockDeal>;
   leads: Map<string, MockLead>;
+  /** Book now v2: synthetic Contacts / Companies for crm.contact.get / crm.company.get. */
+  contacts: Map<string, Record<string, unknown>>;
+  companies: Map<string, Record<string, unknown>>;
   requests: MockRequest[];
   /** Queue a one-shot failure for a method (FIFO). */
   failNext(method: string, failure: MockFailure): void;
@@ -74,6 +77,8 @@ const READ_METHODS = new Set([
   'crm.lead.get',
   'crm.lead.list',
   'crm.deal.fields',
+  'crm.contact.get',
+  'crm.company.get',
   'crm.category.list',
   'crm.status.list',
   'user.get',
@@ -125,6 +130,8 @@ export async function startMockBitrix(options: { port?: number; webhookCode?: st
   const userId = options.userId ?? 1;
   const deals = new Map<string, MockDeal>();
   const leads = new Map<string, MockLead>();
+  const contacts = new Map<string, Record<string, unknown>>();
+  const companies = new Map<string, Record<string, unknown>>();
   const requests: MockRequest[] = [];
   const failures = new Map<string, MockFailure[]>();
   const hanging = new Set<ServerResponse>();
@@ -165,6 +172,12 @@ export async function startMockBitrix(options: { port?: number; webhookCode?: st
         const deal = deals.get(String(body.id ?? body.ID ?? ''));
         if (!deal) return send(res, 400, { error: '', error_description: 'Not found' });
         return send(res, 200, { result: deal, time: time() });
+      }
+      case 'crm.contact.get':
+      case 'crm.company.get': {
+        const record = (method === 'crm.contact.get' ? contacts : companies).get(String(body.id ?? body.ID ?? ''));
+        if (!record) return send(res, 400, { error: '', error_description: 'Not found' });
+        return send(res, 200, { result: record, time: time() });
       }
       case 'crm.lead.get': {
         const lead = leads.get(String(body.id ?? body.ID ?? ''));
@@ -255,6 +268,8 @@ export async function startMockBitrix(options: { port?: number; webhookCode?: st
     webhookCode,
     deals,
     leads,
+    contacts,
+    companies,
     requests,
     get pageSize() {
       return state.pageSize;

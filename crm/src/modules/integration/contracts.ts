@@ -12,7 +12,7 @@ export type InboxStatus =
   | 'failed'
   | 'dead_letter';
 
-export type InboxOrigin = 'event' | 'reconcile' | 'manual_retry';
+export type InboxOrigin = 'event' | 'reconcile' | 'manual_retry' | 'staff_refresh';
 
 export type IntakeReasonCode =
   | 'not_configured'

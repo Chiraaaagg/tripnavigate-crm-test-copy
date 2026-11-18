@@ -14,6 +14,7 @@
  *   - hotel stays are check-in plus nights (check-out is derived).
  */
 
+import { rupeesToPaise } from '@/lib/money';
 import {
   BOOKING_FORM_SECTION_STEP,
   CUSTOMER_LIST_FIELD_MAX,
@@ -34,6 +35,10 @@ import {
   type HotelCoverage,
   type PriceCategory,
   type PriceLine,
+  REQUEST_ITEMS_MAX,
+  REQUEST_TEXT_MAX,
+  type FlightFareTotals,
+  type RequestItem,
 } from './booking-form-contract';
 
 // ---------------------------------------------------------------------------
@@ -109,37 +114,12 @@ export function parseCount(text: string | number | null | undefined): number | n
   return Number(t);
 }
 
-const RUPEES = /^(\d{1,13})(?:\.(\d{1,2}))?$/;
-
 /**
- * Rupees typed by staff → whole paise as a decimal string.
- *   ''              → null (missing, never zero)
- *   '1,234.56'      → '123456' (Indian or Western comma grouping allowed)
- *   invalid or over → undefined ("1.001", "-1", "1e3", "₹100", over the cap)
- * `signed` allows a leading minus (a derived markup only).
+ * Rupees typed by staff -> whole paise as a decimal string. The one money rule
+ * now lives in src/lib/money.ts (owner decision D4); Book now re-exports it
+ * unchanged, so its callers and tests keep this import.
  */
-export function rupeesToPaise(text: string | null | undefined, opts: { signed?: boolean; max?: bigint } = {}): string | null | undefined {
-  const raw = String(text ?? '').trim();
-  if (raw === '') return null;
-  let t = raw;
-  let negative = false;
-  if (opts.signed && t.startsWith('-')) {
-    negative = true;
-    t = t.slice(1).trim();
-  }
-  if (/,/.test(t)) {
-    // Commas only between digit groups, never leading, trailing or doubled.
-    if (!/^\d{1,3}(,\d{2,3})*(\.\d{1,2})?$/.test(t)) return undefined;
-    t = t.replace(/,/g, '');
-  }
-  const m = RUPEES.exec(t);
-  if (!m) return undefined;
-  const paise = BigInt(m[1] ?? '0') * 100n + BigInt((m[2] ?? '').padEnd(2, '0'));
-  const max = opts.max ?? PRICE_AMOUNT_MAX_PAISE;
-  if (paise > max) return undefined;
-  if (negative && paise === 0n) return '0';
-  return (negative ? -paise : paise).toString();
-}
+export { rupeesToPaise };
 
 function toBig(paise: string | null | undefined): bigint | null {
   if (paise === null || paise === undefined || !/^-?\d{1,20}$/.test(paise)) return null;
@@ -469,10 +449,164 @@ export function carEstimatePaise(quantity: number | string | null, vehicleRatePa
   return (BigInt(q) * r).toString();
 }
 
-/** Flight: the estimated fare total as entered. */
+/** Flight: the estimated fare total as entered (items saved before Book now v2). */
 export function flightEstimatePaise(fareTotalPaise: string | null): string | null {
   const r = toBig(fareTotalPaise);
   return r === null || r < 0n || r > ESTIMATE_MAX ? null : r.toString();
+}
+
+// ---------------------------------------------------------------------------
+// Book now v2: flight fare per person (cost side only; never the customer price)
+// ---------------------------------------------------------------------------
+
+export type FareTravellerType = 'adult' | 'child' | 'infant';
+export const FARE_TRAVELLER_TYPES = ['adult', 'child', 'infant'] as const satisfies readonly FareTravellerType[];
+export const FARE_TYPE_LABEL: Record<FareTravellerType, string> = { adult: 'Adult', child: 'Child', infant: 'Infant' };
+
+export interface FlightFares {
+  fareAdultPaise: string | null;
+  fareChildPaise: string | null;
+  fareInfantPaise: string | null;
+}
+const fareOf = (f: FlightFares, t: FareTravellerType): string | null =>
+  t === 'adult' ? f.fareAdultPaise : t === 'child' ? f.fareChildPaise : f.fareInfantPaise;
+
+function validFare(paise: string | null | undefined): bigint | null {
+  const r = toBig(paise);
+  return r === null || r < 0n || r > ESTIMATE_MAX ? null : r;
+}
+
+/**
+ * One flight's estimate: Σ fare of each traveller type × the travellers of
+ * that type on the flight. A type with travellers needs its fare (else null,
+ * "Not priced"). A flight without any fare per person falls back to the older
+ * total (items saved before Book now v2).
+ */
+export function flightFareEstimatePaise(input: FlightFares & { fareTotalPaise?: string | null; counts: Record<FareTravellerType, number> }): string | null {
+  const anyFare = FARE_TRAVELLER_TYPES.some((t) => fareOf(input, t) !== null);
+  if (!anyFare) return flightEstimatePaise(input.fareTotalPaise ?? null);
+  let total = 0n;
+  let people = 0;
+  for (const t of FARE_TRAVELLER_TYPES) {
+    const n = input.counts[t];
+    if (!Number.isSafeInteger(n) || n < 0) return null;
+    if (n === 0) continue;
+    const fare = validFare(fareOf(input, t));
+    if (fare === null) return null;
+    total += BigInt(n) * fare;
+    people += n;
+  }
+  return people === 0 ? null : total.toString();
+}
+
+/** "Fare per person: Adult ₹6,000 · Child ₹4,500" (only the types with a fare); null when none is set. */
+export function farePerPersonText(f: FlightFares): string | null {
+  const parts = FARE_TRAVELLER_TYPES.filter((t) => validFare(fareOf(f, t)) !== null).map((t) => `${FARE_TYPE_LABEL[t]} ${formatInr(fareOf(f, t))}`);
+  return parts.length === 0 ? null : `Fare per person: ${parts.join(' · ')}`;
+}
+
+/** One flight of the draft for the "Total fare per person, all flights" box. */
+export interface FlightFareRow {
+  /** "Flight 2" style label (number within the flights). */
+  label: string;
+  fares: FlightFares;
+  /** The travellers on this flight, with their type. */
+  travellers: ReadonlyArray<{ seq: number; type: FareTravellerType }>;
+}
+
+/**
+ * Per traveller type: 'sum' = every flight carrying the type has a fare (added
+ * up, read-only); 'typed' = no flight has one and staff typed the total;
+ * 'missing' = no flight has one and nothing is typed (staff type it);
+ * 'partial' = only some flights have one (names the flights still missing a
+ * fare); 'none' = nobody of that type flies (not shown).
+ */
+export type FlightFareMode = 'sum' | 'typed' | 'missing' | 'partial' | 'none';
+export interface FlightFareTypeSummary {
+  type: FareTravellerType;
+  mode: FlightFareMode;
+  /** Travellers of that type on at least one flight. */
+  travellers: number;
+  /** Per person, all flights (null unless 'sum' or 'typed'). */
+  perPersonPaise: string | null;
+  /** perPersonPaise × travellers. */
+  totalPaise: string | null;
+  /** 'partial': labels of the flights carrying this type without a fare. */
+  missingFlights: string[];
+}
+export interface FlightFareSummary {
+  types: FlightFareTypeSummary[];
+  /** Σ of every shown type's total; null while any shown type has none. */
+  allFlightsPaise: string | null;
+}
+
+export function flightFareSummary(rows: readonly FlightFareRow[], typed: FlightFareTotals | null | undefined): FlightFareSummary {
+  const types = FARE_TRAVELLER_TYPES.map((type): FlightFareTypeSummary => {
+    const carrying = rows.filter((r) => r.travellers.some((x) => x.type === type));
+    const travellers = new Set(carrying.flatMap((r) => r.travellers.filter((x) => x.type === type).map((x) => x.seq))).size;
+    if (travellers === 0) return { type, mode: 'none', travellers: 0, perPersonPaise: null, totalPaise: null, missingFlights: [] };
+    const priced = carrying.filter((r) => validFare(fareOf(r.fares, type)) !== null);
+    let mode: FlightFareMode;
+    let per: bigint | null = null;
+    if (priced.length === carrying.length) {
+      mode = 'sum';
+      per = priced.reduce((acc, r) => acc + (validFare(fareOf(r.fares, type)) ?? 0n), 0n);
+    } else if (priced.length === 0) {
+      const t = validFare(type === 'adult' ? typed?.adultPaise : type === 'child' ? typed?.childPaise : typed?.infantPaise);
+      mode = t === null ? 'missing' : 'typed';
+      per = t;
+    } else {
+      mode = 'partial';
+    }
+    return {
+      type,
+      mode,
+      travellers,
+      perPersonPaise: per === null ? null : per.toString(),
+      totalPaise: per === null ? null : (per * BigInt(travellers)).toString(),
+      missingFlights: mode === 'partial' ? carrying.filter((r) => validFare(fareOf(r.fares, type)) === null).map((r) => r.label) : [],
+    };
+  });
+  const shown = types.filter((t) => t.mode !== 'none');
+  const allFlightsPaise =
+    shown.length > 0 && shown.every((t) => t.totalPaise !== null) ? shown.reduce((acc, t) => acc + BigInt(t.totalPaise!), 0n).toString() : null;
+  return { types, allFlightsPaise };
+}
+
+/** "Adult: flight 2 has no fare yet" (one line per partial type). */
+export function flightFareGapText(t: FlightFareTypeSummary): string | null {
+  if (t.mode !== 'partial') return null;
+  const names = t.missingFlights.map((l) => l.charAt(0).toLowerCase() + l.slice(1));
+  return `${FARE_TYPE_LABEL[t.type]}: ${names.join(', ')} ${names.length === 1 ? 'has' : 'have'} no fare yet`;
+}
+
+// ---------------------------------------------------------------------------
+// Book now v2: requests "for whom" (hotel special requests, flight preferences)
+// ---------------------------------------------------------------------------
+
+/** The readable text the database stores: "Wheelchair help (Child C), Vegetarian meal" (same rule as authz.bf2_request_text). */
+export function requestItemsText(items: readonly RequestItem[], nameOf: (seq: number) => string | null | undefined): string {
+  return items.map((i) => (i.forSeq === null ? i.text : `${i.text}${nameOf(i.forSeq) ? ` (${nameOf(i.forSeq)})` : ''}`)).join(', ');
+}
+
+/**
+ * The requests of a stored item for the drawer: its requestItems, else the
+ * older free text split at ", " into requests for everyone. Null when the
+ * older text cannot be shown as requests (over 20 parts, a part over 80
+ * characters or a repeated part): the drawer then leaves the requests list
+ * unposted so the stored text is kept.
+ */
+export function requestItemsFromStored(facts: { requestItems?: unknown; text?: unknown }): RequestItem[] | null {
+  if (Array.isArray(facts.requestItems)) {
+    return facts.requestItems
+      .filter((x): x is { text: string; forSeq?: number | null } => typeof x === 'object' && x !== null && typeof (x as { text?: unknown }).text === 'string')
+      .map((x) => ({ text: x.text, forSeq: typeof x.forSeq === 'number' ? x.forSeq : null }));
+  }
+  if (typeof facts.text !== 'string' || facts.text.trim() === '') return [];
+  const parts = facts.text.split(/,\s*/).map((p) => p.trim().replace(/\s+/g, ' ')).filter((p) => p !== '');
+  const seen = new Set(parts.map((p) => p.toLowerCase()));
+  if (parts.length > REQUEST_ITEMS_MAX || seen.size !== parts.length || parts.some((p) => p.length > REQUEST_TEXT_MAX)) return null;
+  return parts.map((text) => ({ text, forSeq: null }));
 }
 
 // ---------------------------------------------------------------------------

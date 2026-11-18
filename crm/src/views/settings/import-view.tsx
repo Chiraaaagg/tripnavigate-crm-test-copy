@@ -1,7 +1,7 @@
 'use client';
 
 import { CircleCheck, FileSpreadsheet, History, Upload } from 'lucide-react';
-import { useState, useTransition, type FormEvent } from 'react';
+import { useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { StatusBadge, type StatusTone } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,6 +14,7 @@ import { dateText } from '../b11/book-fields';
 import { AreaField, SelectField } from '../b11/controls';
 import { newRequestId, ResultBox, useB11Action, type UiResult } from '../b11/form-kit';
 import type { ImportActions, ImportBatchRow, ImportBranchChoice, ImportKind, ImportStatus, ImportSummaryView } from '../booking-form/vn-types';
+import { SupplierImportDetails } from '../suppliers/import-rows';
 import { SettingsSectionHeading } from './settings-frame';
 
 /*
@@ -29,6 +30,7 @@ import { SettingsSectionHeading } from './settings-frame';
 const KIND_WORD: Record<ImportKind, { one: string; many: string; owner: string }> = {
   hotel: { one: 'hotel', many: 'hotels', owner: 'a Super Admin' },
   customer: { one: 'customer', many: 'customers', owner: 'Accounts' },
+  supplier: { one: 'supplier', many: 'suppliers', owner: 'Accounts or a Super Admin' },
 };
 const STATUS_LOOK: Record<ImportStatus, { word: string; tone: StatusTone }> = {
   validated: { word: 'Checked, not applied', tone: 'warning' },
@@ -45,9 +47,13 @@ export function ImportView({
   history,
   actions,
   branchChoice = null,
+  previewApply,
 }: {
+  /** Preview gallery: open the apply dialog, optionally with a refusal on screen. */
+  previewApply?: { state?: UiResult | null };
   kind: ImportKind;
-  kindLinks: Array<{ kind: ImportKind; label: string; href: string; current: boolean }>;
+  /** Accounts phase 3: the links may include the rate sheet (kind `rate_sheet`, its own screen). */
+  kindLinks: Array<{ kind: string; label: string; href: string; current: boolean }>;
   canApply: boolean;
   summary: ImportSummaryView | null;
   /** null = the history could not be read. */
@@ -60,7 +66,7 @@ export function ImportView({
   const [validateState, validateAction] = useB11Action(actions.validate);
   const [checking, startCheck] = useTransition();
   const [local, setLocal] = useState<string | null>(null);
-  const [applying, setApplying] = useState(false);
+  const [applying, setApplying] = useState(!!previewApply);
   const [applyText, setApplyText] = useState<string | null>(null);
   const fromAction = validateState?.ok ? ((validateState as { data?: { summary?: ImportSummaryView } }).data?.summary ?? null) : null;
   const [appliedBatch, setAppliedBatch] = useState<string | null>(null);
@@ -154,6 +160,7 @@ export function ImportView({
         <ApplyDialog
           summary={summary}
           action={actions.apply}
+          initialState={previewApply?.state}
           onClose={(text) => {
             setApplying(false);
             if (text) {
@@ -243,6 +250,9 @@ function SummaryCard({ summary: s, canApply, canApplyNow, onApply, applyText }: 
   const c = s.counts;
   const look = STATUS_LOOK[s.status];
   const ignored = s.mapping.filter((m) => m.field === null);
+  // In-file duplicate IDs are not imported; same-name rows are imported and never merged: listed apart.
+  const inFileRows = s.duplicateRows.filter((r) => r.text.startsWith('This ID appears more than once'));
+  const sameNameRows = s.duplicateRows.filter((r) => !r.text.startsWith('This ID appears more than once'));
   return (
     <Card>
       <section aria-labelledby="import-summary-heading">
@@ -271,7 +281,7 @@ function SummaryCard({ summary: s, canApply, canApplyNow, onApply, applyText }: 
             <Count label="Rows" value={c.rows} />
             <Count label="Ready" value={c.valid} />
             <Count label="Invalid" value={c.invalid} note="left out" />
-            <Count label="Possible duplicates" value={c.duplicates} note="never merged" />
+            <Count label="Duplicates" value={c.duplicates} note="same ID twice in the file, or same name (never merged)" />
             <Count label={`New ${w.many}`} value={c.creates} />
             <Count label="Updates" value={c.updates} note="by ID column only" />
             <Count label="Unchanged" value={c.unchanged} />
@@ -294,7 +304,9 @@ function SummaryCard({ summary: s, canApply, canApplyNow, onApply, applyText }: 
           {s.invalidRows.length > 0 ? (
             <RowList title={`Invalid rows (${c.invalid})`} more={c.invalid - s.invalidRows.length} items={s.invalidRows.map((r) => ({ rowNo: r.rowNo, text: r.reasons.join('; ') }))} />
           ) : null}
-          {s.duplicateRows.length > 0 ? <RowList title={`Possible duplicates (${c.duplicates})`} more={c.duplicates - s.duplicateRows.length} items={s.duplicateRows} /> : null}
+          {inFileRows.length > 0 ? <RowList title={`Same ID twice in the file (${inFileRows.length}) · not imported`} more={0} items={inFileRows} /> : null}
+          {sameNameRows.length > 0 ? <RowList title={`Possible duplicates by name (${sameNameRows.length}) · never merged`} more={Math.max(0, c.duplicates - s.duplicateRows.length)} items={sameNameRows} /> : null}
+          {s.kind === 'supplier' && s.supplier ? <SupplierImportDetails supplier={s.supplier} /> : null}
           {(s.assumedRows ?? 0) + (s.clearingRows ?? 0) > 0 ? (
             <details className="group/assumed">
               <summary className="w-fit cursor-pointer rounded-chip text-sm font-medium text-brand-strong">
@@ -320,7 +332,10 @@ function SummaryCard({ summary: s, canApply, canApplyNow, onApply, applyText }: 
 
           {s.status === 'validated' ? (
             <div className="flex flex-col gap-2 border-t border-line pt-4">
-              <p className="m-0 text-sm text-quiet">Applied {w.many} start Not checked. Invalid rows are left out.</p>
+              <p className="m-0 text-sm text-quiet">
+                Applied {w.many} start Not checked. Invalid rows are left out.
+                {s.kind === 'supplier' ? ' Verified suppliers are never overwritten; rows match existing suppliers by the ID column only, never by name.' : ''}
+              </p>
               {s.applyBlockedReason ? <Notice tone="warning">{s.applyBlockedReason}</Notice> : null}
               {canApply ? (
                 <div>
@@ -355,22 +370,33 @@ function RowList({ title, items, more }: { title: string; items: Array<{ rowNo: 
   );
 }
 
-function ApplyDialog({ summary: s, action, onClose }: { summary: ImportSummaryView; action: ImportActions['apply']; onClose: (text: string | null) => void }) {
+function ApplyDialog({ summary: s, action, onClose, initialState }: { summary: ImportSummaryView; action: ImportActions['apply']; onClose: (text: string | null) => void; initialState?: UiResult | null }) {
   const w = KIND_WORD[s.kind];
   const [reason, setReason] = useState('');
   const [local, setLocal] = useState<string | null>(null);
-  const [state, formAction] = useB11Action(action);
+  const [fileLocal, setFileLocal] = useState<string | null>(null);
+  const [actionState, formAction] = useB11Action(action);
+  // Preview gallery: start with a refusal on screen until the first real answer.
+  const state = actionState ?? initialState ?? null;
+  // Track A (review 8): bank account numbers are not kept between the check and the import, so a supplier
+  // file with bank details is chosen again at Import; the server refuses a different file (field 'file').
+  const needsFile = s.kind === 'supplier' && (s.supplier?.withBankDetails ?? 0) > 0;
   const [pending, start] = useTransition();
   const [requestId] = useState(() => newRequestId());
   const [seen, setSeen] = useState<UiResult | null>(null);
   if (state !== seen) {
     setSeen(state);
+    if (typeof window !== 'undefined' && state && !state.ok && ((state as { fields?: string[] }).fields ?? []).includes('file')) {
+      requestAnimationFrame(() => document.getElementById('import-apply-file')?.focus());
+    }
     if (state?.ok) {
       const done = (state as { data?: { applied?: { creates?: number; updates?: number } } }).data?.applied;
       onClose(done ? `Applied: ${done.creates ?? 0} new ${w.many}, ${done.updates ?? 0} updated. They start Not checked.` : 'Import applied.');
     }
   }
-  const refused = Boolean(state && !state.ok && ((state as { fields?: string[] }).fields ?? []).includes('reason'));
+  const refusedFields = state && !state.ok ? ((state as { fields?: string[] }).fields ?? []) : [];
+  const refused = refusedFields.includes('reason');
+  const fileRefused = refusedFields.includes('file');
   return (
     <Dialog
       open
@@ -390,8 +416,16 @@ function ApplyDialog({ summary: s, action, onClose }: { summary: ImportSummaryVi
               return;
             }
             setLocal(null);
+            const file = needsFile ? (e.currentTarget.elements.namedItem('file') as HTMLInputElement | null)?.files?.[0] : undefined;
+            if (needsFile && !file) {
+              setFileLocal('Choose the same CSV file you checked.');
+              requestAnimationFrame(() => document.getElementById('import-apply-file')?.focus());
+              return;
+            }
+            setFileLocal(null);
             const fd = new FormData();
             fd.set('batchId', s.batchId);
+            if (file) fd.set('file', file);
             // Echo-A L3: apply exactly what this summary shows; a newer check is refused.
             if (s.rowVersion !== undefined) fd.set('batchRowVersion', String(s.rowVersion));
             if (s.proposalHash) fd.set('proposalHash', s.proposalHash);
@@ -404,10 +438,30 @@ function ApplyDialog({ summary: s, action, onClose }: { summary: ImportSummaryVi
             <DialogTitle>Apply this import?</DialogTitle>
             <DialogDescription>
               {s.counts.creates} new {s.counts.creates === 1 ? w.one : w.many} and {s.counts.updates} {s.counts.updates === 1 ? 'update' : 'updates'} from {s.fileName}. Invalid rows and checked records are left as they are.
+              {s.kind === 'supplier' && (s.supplier?.withBankDetails ?? 0) > 0 ? ` Bank details from ${s.supplier!.withBankDetails} ${s.supplier!.withBankDetails === 1 ? 'row are' : 'rows are'} saved unverified: payments stay on hold until a Manager who is not you approves them.` : ''}
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="flex flex-col gap-3">
-            <ResultBox result={state && !state.ok && !refused ? state : null} />
+            <ResultBox result={state && !state.ok && !refused && !fileRefused ? state : null} />
+            {needsFile ? (
+              <Field
+                htmlFor="import-apply-file"
+                label="The same CSV file"
+                hint="Bank account numbers are not kept after the check, so choose the file you checked again. Nothing else changes."
+                error={fileLocal ?? (fileRefused && state && !state.ok ? state.message : null)}
+              >
+                <input
+                  id="import-apply-file"
+                  name="file"
+                  type="file"
+                  accept=".csv,text/csv"
+                  required
+                  aria-invalid={fileLocal || fileRefused ? true : undefined}
+                  aria-describedby={`import-apply-file-hint${fileLocal || fileRefused ? ' import-apply-file-error' : ''}`}
+                  className="block w-full rounded-control border border-control bg-card px-3 py-2 font-sans text-base text-ink file:mr-3 file:rounded-control file:border-0 file:bg-wash file:px-3 file:py-1.5 file:font-semibold file:text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-strong"
+                />
+              </Field>
+            ) : null}
             <AreaField id="import-reason" name="reason" label="Reason" hint="10 to 500 characters, for the history." rows={3} maxLength={500} value={reason} onChange={setReason} error={local ?? (refused ? 'Type a reason of 10 to 500 characters.' : null)} />
           </DialogBody>
           <DialogFooter>
@@ -419,5 +473,20 @@ function ApplyDialog({ summary: s, action, onClose }: { summary: ImportSummaryVi
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Accounts phase 3 (contract 9.4, screen 15.9): Settings › Imports › Rate
+ * sheet. Same heading and kind tabs as the other imports; the body is the
+ * rate-sheet check and import (track E's actions, passed in by the route).
+ */
+export function RateSheetImportFrame({ kindLinks, children }: { kindLinks: Array<{ kind: string; label: string; href: string; current: boolean }>; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-5 font-sans text-base text-copy">
+      <SettingsSectionHeading description="Rate contracts from a supplier's rate sheet. Nothing is saved until you import, and every contract starts as a draft for a Manager to approve.">Import rate sheets</SettingsSectionHeading>
+      {kindLinks.length > 1 ? <Tabs label="What to import" items={kindLinks.map((k) => ({ href: k.href, label: k.label, current: k.current }))} /> : null}
+      {children}
+    </div>
   );
 }

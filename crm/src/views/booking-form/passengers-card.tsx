@@ -1,38 +1,42 @@
 'use client';
 
-import { CircleAlert, CircleCheck, MoreHorizontal, Paperclip, Trash2, Users } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { CircleAlert, CircleCheck, Clock, Check, MoreHorizontal, Paperclip, Trash2, TriangleAlert, Users } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/components/ui/cn';
 import { Input } from '@/components/ui/input';
 import { Notice } from '@/components/ui/notice';
 import { fieldDescribedBy } from '@/components/ui/field';
+import { SaveStatus } from '@/components/ui/save-status';
 import { ID_PROOF_TEXT, type BookTravellerView, type TravellerType } from '@/modules/fulfilment/contracts';
 import { TRAVELLER_SEQ_FIELD, TRAVELLER_SEQ_MAX_FIELD } from '@/modules/fulfilment/b11-forms';
+import { guard } from '../booking-forms';
 import { idProofsDetachedByRename, travellerSeqHighWater } from '../b11/book-fields';
 import { useSectionForm } from '../b11/draft-sync';
-import { ResultBox, type FieldRef } from '../b11/form-kit';
+import { normaliseResult, type FieldRef, type UiResult } from '../b11/form-kit';
 import type { B11Action, BookNowView } from '../b11/shapes';
+import { refusalReason, useAutosave, useSaveQueue } from './autosave-queue';
 import { ConfirmDialog } from './confirm-dialog';
-import { HiddenDraftInputs, SectionSaveRow, editableOf, useShownRefusal, useSectionSubmit } from './form-helpers';
+import { HiddenDraftInputs, editableOf, useShownRefusal } from './form-helpers';
+import { useFormToast } from './form-toast';
 import { IdProofDialog } from './id-proof-dialog';
 import { PassengerDrawer, type PassengerRow } from './passenger-drawer';
 import { displayRows, isRealPassenger, overCount, REMOVE_TRAVELLER_FIELD, type DisplayRow, type PartyCountsTyped } from './passenger-display';
+import { CountPill, SectionCard } from './parts';
 
 export { displayRows, isRealPassenger, overCount, type DisplayRow, type PartyCountsTyped };
-import { EmptyInline, SectionCard } from './parts';
 
 /*
- * Step 1 · Passengers. Voice-note batch (24 October 2026, owner items 2 and
- * 3): the rows come from the adult, child and infant counts above as slots
- * of the right type, so nobody presses "Add passenger" again and again. An
- * empty slot is never saved; a slot becomes a passenger once a name is
- * typed. Lowering a count never removes a named or saved passenger: the card
- * says which type is over the count and the person removes one (or changes
- * the counts). Each row has a visible "Attach ID proof" (private upload with
- * the consent tick); a passenger not saved yet is saved first. Everything
- * else about a passenger lives in the Details drawer. The rows are one form
- * posting to saveTravellers (deal_travellers_save, parallel arrays; an empty
- * slot posts an empty row, which the server skips).
+ * Step 1 · Passengers (Book now v2, owner-approved prototype paxCard). One
+ * row per counted traveller (adults, then children, then infants), "N of M
+ * named" and the save pill in the header. The rows save themselves (owner
+ * answer 2): an empty slot is never saved, so a named row is stored as soon as
+ * it is typed (an unnamed slot is listed under "Before you submit"). Each row
+ * has "Attach ID proof" (private, with the customer's consent) and the
+ * Details drawer. The footer names the adults still without ID proof and,
+ * when the counts come from Bitrix, offers "Need another traveller?".
+ * Lowering a count never removes a named or saved passenger: the card says
+ * which type is over the count, and those rows keep a Remove button.
  */
 
 export const TYPE_TEXT: Record<TravellerType, string> = { adult: 'Adult', child: 'Child', infant: 'Infant' };
@@ -46,7 +50,6 @@ export interface PassengerActions {
   retryIdProofCopy?: B11Action;
 }
 
-
 const plural = (n: number, t: TravellerType) => `${n} ${TYPE_PLURAL[t][n === 1 ? 0 : 1]}`;
 
 function rowsOf(view: BookNowView): PassengerRow[] {
@@ -57,20 +60,32 @@ function rowsOf(view: BookNowView): PassengerRow[] {
 
 export function PassengersCard({
   view,
-  reloadHref,
   actions,
   counts,
+  countsLocked,
   onRows,
+  onMorePax,
+  copyApplies,
+  idProofRequired = true,
 }: {
   view: BookNowView;
-  reloadHref: string;
+  reloadHref?: string;
   actions: PassengerActions;
-  /** The adult, child and infant counts typed above (the slots follow them). */
+  /** The adult, child and infant counts of step 1 (the slots follow them). */
   counts: PartyCountsTyped;
-  /** Passenger rows on screen (step 1 checks use what is on screen, Echo B-L6). Empty slots are left out. */
-  onRows?: (rows: PassengerRow[]) => void;
+  /** The counts come from the Bitrix Deal: offer "Need another traveller?". */
+  countsLocked: boolean;
+  /** Passenger rows on screen (step 1 checks use what is on screen). Empty slots are left out. */
+  onRows?: (rows: PassengerRow[], slots: number, firstBlank: number | null) => void;
+  onMorePax: () => void;
+  /** The ID-proof copy to the Bitrix Deal applies (BookingFormCore.idProofCopyApplies; lead ruling D5). */
+  copyApplies: boolean;
+  /** Accounts phase 0 (contract 5.1, 11.6): false on a flight-only booking (no adult ID proof needed). */
+  idProofRequired?: boolean;
 }) {
   const editable = editableOf(view);
+  const toast = useFormToast();
+  const queue = useSaveQueue();
   const [renameBase, setRenameBase] = useState<Pick<BookNowView, 'travellers'> | null>(null);
   const [detached, setDetached] = useState<Array<{ seq: number; fullName: string }>>([]);
   if (renameBase && renameBase.travellers !== view.travellers) {
@@ -86,18 +101,21 @@ export function PassengersCard({
     initial: { travellers: rowsOf(view), removed: [] as number[] },
     versionBound: true,
     rowVersion: view.version?.rowVersion ?? 0,
+    saveable: false,
+    tracksDirty: true,
     onSuccess: () => {
       setDetached([]);
       setRenameBase({ travellers: view.travellers });
     },
   });
-  const { bindForm, bindResult } = f;
-  const submitter = useSectionSubmit(f.post);
   const rows = f.values.travellers;
-  useEffect(() => {
-    onRows?.(rows.filter(isRealPassenger));
-  }, [rows, onRows]);
   const shown = displayRows(rows, counts);
+  // The first row without a name, by its position on screen (1-based).
+  const blankAt = shown.findIndex((d) => !d.row?.name.trim());
+  const firstBlank = blankAt >= 0 ? blankAt + 1 : null;
+  useEffect(() => {
+    onRows?.(rows.filter(isRealPassenger), shown.length, firstBlank);
+  }, [rows, onRows, shown.length, firstBlank]);
   const countsRef = useRef(counts);
   useEffect(() => {
     countsRef.current = counts;
@@ -113,7 +131,7 @@ export function PassengersCard({
   const refs: FieldRef[] = shown.flatMap((_, i) => [
     { field: `travellerName[${i}]`, id: `passengers-${i + 1}-name`, label: `Passenger ${i + 1}: full name as on the ID.` },
     { field: `travellerAge[${i}]`, id: `passengers-${i + 1}-details`, label: `Passenger ${i + 1}: age 0 to 17 (in Details).` },
-    { field: `travellerNeeds[${i}]`, id: `passengers-${i + 1}-details`, label: `Passenger ${i + 1}: special requirements up to 500 characters (in Details).` },
+    { field: `travellerNeeds[${i}]`, id: `passengers-${i + 1}-details`, label: `Passenger ${i + 1}: other requirements up to 500 characters (in Details).` },
     { field: `travellerRequests[${i}]`, id: `passengers-${i + 1}-details`, label: `Passenger ${i + 1}: choose the requests from the list (in Details).` },
   ]);
   const nameErr = (i: number) => (fields?.includes(`travellerName[${i}]`) ? refs.find((r) => r.field === `travellerName[${i}]`)!.label : null);
@@ -131,35 +149,49 @@ export function PassengersCard({
       return [...x, ...added];
     });
 
-  // Drawer: which row, and a save that runs after the edited row is on screen.
-  const [openKey, setOpenKey] = useState<string | null>(null);
-  const [removeKey, setRemoveKey] = useState<string | null>(null);
-  const [proofFor, setProofFor] = useState<number | null>(null);
-  const [rowNote, setRowNote] = useState<{ key: string; text: string } | null>(null);
-  const [proofWanted, setProofWanted] = useState<{ name: string; type: TravellerType; known: number[] } | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const bindForm = f.bindForm;
+  const setForm = useCallback(
+    (el: HTMLFormElement | null) => {
+      formRef.current = el;
+      bindForm(el);
+    },
+    [bindForm],
+  );
+  const sendNow = useCallback((): Promise<UiResult> => (formRef.current ? f.post(new FormData(formRef.current)) : Promise.resolve({ ok: false, code: 'unexpected', message: '' } as UiResult)), [f]);
+  const over = overCount(rows, counts);
+  const save = useAutosave({
+    key: 'passengers',
+    values: f.values,
+    dirty: f.dirty,
+    enabled: editable,
+    hasStored: view.travellers.length > 0,
+    check: () => overCount(f.values.travellers, countsRef.current).map((o) => `${plural(o.named, o.type)} named, but the booking has ${o.booked}. Remove ${o.named - o.booked === 1 ? 'one' : o.named - o.booked}, or change the counts above.`),
+    send: sendNow,
+    refs,
+  });
+
+  // A save started by the drawer or by "Attach ID proof" runs after the edited row is on screen.
   const pendingSave = useRef<null | ((ok: boolean) => void)>(null);
   const [saveTick, setSaveTick] = useState(0);
   useEffect(() => {
     if (saveTick === 0 || !pendingSave.current) return;
     const done = pendingSave.current;
     pendingSave.current = null;
-    const form = document.getElementById('passengers-form');
-    if (!(form instanceof HTMLFormElement)) {
-      done(false);
-      return;
-    }
-    void f.post(new FormData(form)).then((r) => done(r.ok));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per drawer save, after the row is committed
+    void queue.run(sendNow).then((r) => done(r.ok));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per requested save, after the row is committed
   }, [saveTick]);
   const saveNow = () =>
     new Promise<boolean>((resolve) => {
       pendingSave.current = resolve;
       setSaveTick((n) => n + 1);
     });
-  const saveFromDrawer = (d: DisplayRow, row: PassengerRow) => {
-    writeRow(d, row);
-    return saveNow();
-  };
+
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const [removeKey, setRemoveKey] = useState<string | null>(null);
+  const [proofFor, setProofFor] = useState<number | null>(null);
+  const [rowNote, setRowNote] = useState<{ key: string; text: string } | null>(null);
+  const [proofWanted, setProofWanted] = useState<{ name: string; type: TravellerType; known: number[] } | null>(null);
 
   // "Attach ID proof" on a passenger saved just now: open the dialog once the refreshed list has them.
   const [seenTravellers, setSeenTravellers] = useState(view.travellers);
@@ -174,12 +206,11 @@ export function PassengersCard({
     }
   }
 
-  const attachProof = async (d: DisplayRow, i: number) => {
+  const attachProof = async (d: DisplayRow) => {
     const row = d.row;
     const name = row?.name.trim() ?? '';
     if (!name) {
-      setRowNote({ key: d.key, text: 'Enter the name first, then attach the ID proof.' });
-      requestAnimationFrame(() => document.getElementById(`passengers-${i + 1}-name`)?.focus());
+      toast('Enter the name first, then attach the ID proof.');
       return;
     }
     setRowNote(null);
@@ -190,7 +221,7 @@ export function PassengersCard({
     const known = view.travellers.map((t) => t.seq);
     const ok = await saveNow();
     if (!ok) {
-      setRowNote({ key: d.key, text: 'The passengers were not saved, so the ID proof cannot be attached yet. The reason is shown above.' });
+      setRowNote({ key: d.key, text: 'The passengers were not saved, so the ID proof cannot be attached yet. The reason is shown under the card.' });
       return;
     }
     if (row && row.seq !== null) setProofFor(row.seq);
@@ -198,32 +229,52 @@ export function PassengersCard({
   };
 
   const saved = new Map(view.travellers.map((t) => [t.seq, t]));
-  const over = overCount(rows, counts);
-  const named = { adult: 0, child: 0, infant: 0 } as Record<TravellerType, number>;
-  for (const r of rows) if (isRealPassenger(r)) named[r.type] += 1;
   const proofsVisible = Boolean(view.idProofLimits);
-  const proofMissing = proofsVisible
-    ? view.travellers.filter((t) => t.type === 'adult' && t.idProofs !== undefined && !(t.idProofs ?? []).some((p) => p.status === 'stored')).map((t) => t.fullName || `Passenger ${t.seq}`)
-    : [];
-  const FORM = 'passengers-form';
+  const named = shown.filter((d) => d.row && d.row.name.trim()).length;
+  const needId = shown.filter((d) => idProofRequired && d.type === 'adult' && proofsVisible && !((d.row?.seq != null ? saved.get(d.row.seq)?.idProofs : undefined) ?? []).some((p) => p.status === 'stored'));
   const openIndex = openKey !== null ? shown.findIndex((d) => d.key === openKey) : -1;
   const openRow = openIndex >= 0 ? shown[openIndex]! : null;
   const removeIndex = removeKey !== null ? shown.findIndex((d) => d.key === removeKey) : -1;
   const removing = removeIndex >= 0 ? shown[removeIndex]! : null;
   const proofTraveller: BookTravellerView | null = proofFor !== null ? (saved.get(proofFor) ?? null) : null;
-  const realCount = rows.filter(isRealPassenger).length;
-  const noCounts = shown.length === 0;
+  const noCounts = counts.adults === null;
+  const reason = save.state === 'fix' ? save.reason : null;
+  // Named rows save at once; the pill is honest ("Saved") and a warning names the travellers still unnamed.
+  const unnamedCount = shown.filter((d) => !d.row?.name.trim()).length;
+  // A type over its count: the rows past the count keep a Remove button (lead ruling).
+  const overTypes = new Set(over.map((o) => o.type));
+  const posOverCount = (d: DisplayRow) => overTypes.has(d.type) && d.pos >= ((d.type === 'adult' ? counts.adults : d.type === 'child' ? counts.children : counts.infants) ?? 0);
+
+  if (noCounts) {
+    return (
+      <SectionCard id="passengers" title="Passengers" icon={Users}>
+        <p className="m-0 p-5 text-quiet max-sm:p-4">Set how many adults, children and infants travel. A row appears for each one.</p>
+      </SectionCard>
+    );
+  }
   return (
-    <SectionCard id="passengers" title="Passengers" icon={Users} count={realCount}>
-      <form id={FORM} ref={bindForm} onSubmit={submitter.onSubmit} noValidate aria-labelledby="passengers-heading">
+    <SectionCard
+      id="passengers"
+      title={
+        <>
+          Passengers <CountPill n={shown.length} noun={['passenger', 'passengers']} />
+        </>
+      }
+      icon={Users}
+      action={
+        <span className="flex flex-wrap items-center gap-2.5">
+          <span id="bf-pax-named" className="text-sm text-quiet" aria-live="polite">
+            {named} of {shown.length} named
+          </span>
+          <SaveStatus id="pill-passengers" state={save.state} reason={save.reason} label="Passengers" />
+        </span>
+      }
+    >
+      <form id="passengers-form" ref={setForm} onSubmit={(e) => e.preventDefault()} noValidate aria-labelledby="passengers-heading">
         <HiddenDraftInputs view={view} base={f.base} result={f.state} extra={{ [TRAVELLER_SEQ_MAX_FIELD]: travellerSeqHighWater(view) }} />
-        {/* Saved passengers removed on purpose (the server refuses a save that silently drops one). */}
         {removed.map((seq) => (
           <input key={seq} type="hidden" name={REMOVE_TRAVELLER_FIELD} value={seq} />
         ))}
-        <div ref={bindResult} className="px-5 pt-4 max-sm:px-4 [&:has(>[role=status]:empty)]:hidden">
-          <ResultBox result={refusal.shown} fields={refs} reloadHref={reloadHref} successText="Passengers saved." />
-        </div>
         {detached.length > 0 ? (
           <div className="px-5 pt-4 max-sm:px-4">
             <Notice tone="warning" role="status">
@@ -249,95 +300,117 @@ export function PassengersCard({
             </Notice>
           </div>
         ) : null}
-        {noCounts ? (
-          <EmptyInline text="Enter how many adults, children and infants travel. A row appears for each one." />
-        ) : (
-          <ol className="m-0 list-none p-0" aria-label="Passengers">
-            {shown.map((d, i) => {
-              const r = d.row;
-              const nameId = `passengers-${i + 1}-name`;
-              const err = nameErr(i);
-              const t = r && r.seq !== null ? saved.get(r.seq) : undefined;
-              const stored = (t?.idProofs ?? []).filter((p) => p.status === 'stored').length;
-              const real = r !== null && isRealPassenger(r);
-              const typeOver = over.some((o) => o.type === d.type);
-              const who = r?.name.trim() || `passenger ${i + 1}`;
-              const canProof = proofsVisible && editable && view.idProofCanEdit && (t === undefined || t.idProofs !== undefined);
-              const note = rowNote?.key === d.key ? rowNote.text : null;
-              return (
-                <li key={d.key} className="flex flex-wrap items-center gap-x-2.5 gap-y-2 border-b border-line px-5 py-2.5 last:border-b-0 max-sm:px-3">
-                  <span className="w-5 shrink-0 text-sm text-quiet tabular-nums" aria-hidden="true">
-                    {i + 1}
-                  </span>
-                  <div className="min-w-40 flex-1">
-                    <Input
-                      id={nameId}
-                      name="travellerName"
-                      aria-label={`Passenger ${i + 1} name (${TYPE_TEXT[d.type].toLowerCase()})`}
-                      placeholder={`${TYPE_TEXT[d.type]} · full name`}
-                      maxLength={120}
-                      value={r?.name ?? ''}
-                      invalid={Boolean(err)}
-                      aria-describedby={fieldDescribedBy(nameId, { error: err ?? note })}
-                      onChange={(e) => writeRow(d, { name: e.target.value })}
-                      disabled={!editable}
-                    />
-                    {err || note ? (
-                      <p id={`${nameId}-error`} role={note && !err ? 'alert' : undefined} className="m-0 mt-[0.25rem] text-sm font-medium text-status-danger">
-                        {err ?? note}
-                      </p>
-                    ) : null}
-                    {t && t.idProofs !== undefined ? (
-                      <p className="m-0 mt-[0.25rem] inline-flex items-center gap-1 text-sm text-quiet">
-                        {stored > 0 ? <CircleCheck aria-hidden="true" className="size-3.5 text-status-success" /> : d.type === 'adult' ? <CircleAlert aria-hidden="true" className="size-3.5 text-status-danger" /> : null}
-                        {stored > 0 ? `ID proof: ${stored === 1 ? '1 file' : `${stored} files`}` : d.type === 'adult' ? 'ID proof needed' : 'No ID proof yet'}
-                      </p>
-                    ) : null}
-                  </div>
-                  <span className="w-12 shrink-0 text-sm text-quiet">{TYPE_TEXT[d.type]}</span>
-                  {/* Parallel arrays: an empty slot posts an empty row (no type), which the server skips. */}
-                  <input type="hidden" name="travellerType" value={real ? d.type : ''} />
-                  <input type="hidden" name={TRAVELLER_SEQ_FIELD} value={r?.seq ?? ''} />
-                  <input type="hidden" name="travellerAge" value={!r || d.type === 'adult' ? '' : r.age} />
-                  <input type="hidden" name="travellerNeeds" value={r?.needs ?? ''} />
-                  <input type="hidden" name="travellerRequests" value={(r?.requests ?? []).join(',')} />
-                  <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
-                    {canProof ? (
-                      <Button id={`passengers-${i + 1}-idproof-open`} variant="secondary" size="sm" className="min-h-10" aria-label={`Attach ID proof for ${who}`} onClick={() => void attachProof(d, i)}>
-                        <Paperclip aria-hidden="true" />
-                        Attach ID proof
-                      </Button>
-                    ) : null}
-                    <Button id={`passengers-${i + 1}-details`} variant="ghost" size="sm" className="min-h-10" aria-label={`Details for passenger ${i + 1}`} onClick={() => setOpenKey(d.key)}>
-                      <MoreHorizontal aria-hidden="true" />
-                      <span className="max-sm:hidden" aria-hidden="true">
-                        Details
-                      </span>
+        <ol className="m-0 list-none p-0" aria-label="Passengers">
+          {shown.map((d, i) => {
+            const r = d.row;
+            const nameId = `passengers-${i + 1}-name`;
+            const err = nameErr(i);
+            const t = r && r.seq !== null ? saved.get(r.seq) : undefined;
+            const storedProofs = (t?.idProofs ?? []).filter((p) => p.status === 'stored');
+            const real = r !== null && isRealPassenger(r);
+            const who = r?.name.trim() || `passenger ${i + 1}`;
+            const canProof = proofsVisible && editable && view.idProofCanEdit && (t === undefined || t.idProofs !== undefined);
+            const note = rowNote?.key === d.key ? rowNote.text : null;
+            const hasName = Boolean(r?.name.trim());
+            return (
+              <li key={d.key} className="grid grid-cols-[1.5rem_minmax(0,1fr)_4rem_auto] items-center gap-3 border-b border-line px-5 py-3 last:border-b-0 max-sm:grid-cols-[1.25rem_minmax(0,1fr)_auto] max-sm:px-4">
+                <span className="text-xs text-quiet tabular-nums" aria-hidden="true">
+                  {i + 1}
+                </span>
+                <div className="min-w-0">
+                  <Input
+                    id={nameId}
+                    name="travellerName"
+                    aria-label={`Passenger ${i + 1} full name`}
+                    placeholder={`${TYPE_TEXT[d.type]} · full name`}
+                    maxLength={120}
+                    value={r?.name ?? ''}
+                    invalid={Boolean(err)}
+                    aria-describedby={fieldDescribedBy(nameId, { error: err ?? note })}
+                    onChange={(e) => writeRow(d, { name: e.target.value })}
+                    disabled={!editable}
+                  />
+                  {err || note ? (
+                    <p id={`${nameId}-error`} role={note && !err ? 'alert' : undefined} className="m-0 mt-[0.25rem] text-sm font-medium text-status-danger">
+                      {err ?? note}
+                    </p>
+                  ) : null}
+                  {proofsVisible ? (
+                    <p className="m-0 mt-[0.25rem] flex flex-wrap items-center gap-1 text-xs">
+                      {storedProofs.length > 0 ? (
+                        <>
+                          <CircleCheck aria-hidden="true" className="size-3.25 text-status-success" />
+                          <span>ID proof: {storedProofs.length === 1 ? '1 file' : `${storedProofs.length} files`}</span> <CopyState proofs={storedProofs} dealId={view.dealId} retry={actions.retryIdProofCopy} />
+                        </>
+                      ) : d.type === 'adult' && idProofRequired ? (
+                        <>
+                          <CircleAlert aria-hidden="true" className="size-3.25 text-status-danger" />
+                          <span className="text-status-danger">ID proof needed</span>
+                        </>
+                      ) : !idProofRequired ? (
+                        <span className="text-quiet">No ID proof (optional)</span>
+                      ) : (
+                        <span className="text-quiet">No ID proof yet</span>
+                      )}
+                    </p>
+                  ) : null}
+                </div>
+                <span className="text-sm text-quiet max-sm:hidden">{TYPE_TEXT[d.type]}</span>
+                <input type="hidden" name="travellerType" value={real ? d.type : ''} />
+                <input type="hidden" name={TRAVELLER_SEQ_FIELD} value={r?.seq ?? ''} />
+                <input type="hidden" name="travellerAge" value={!r || d.type === 'adult' ? '' : r.age} />
+                <input type="hidden" name="travellerNeeds" value={r?.needs ?? ''} />
+                <input type="hidden" name="travellerRequests" value={(r?.requests ?? []).join(',')} />
+                <div className="flex items-center gap-1">
+                  {canProof ? (
+                    <Button
+                      id={`passengers-${i + 1}-idproof-open`}
+                      variant="secondary"
+                      size="sm"
+                      aria-label={`Attach ID proof for ${who}`}
+                      aria-disabled={hasName ? undefined : true}
+                      title={hasName ? undefined : 'Enter the name first'}
+                      onClick={() => void attachProof(d)}
+                    >
+                      <Paperclip aria-hidden="true" />
+                      Attach ID proof
                     </Button>
-                    {editable && real ? (
-                      <Button variant="ghost" size="sm" className={typeOver ? 'min-h-10' : 'min-h-10 max-sm:hidden'} aria-label={`Remove ${who}`} onClick={() => setRemoveKey(d.key)}>
-                        <Trash2 aria-hidden="true" />
-                      </Button>
-                    ) : editable ? (
-                      <span className="w-9 max-sm:hidden" aria-hidden="true" />
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-        )}
-        {!noCounts ? (
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-line px-5 py-3 text-sm text-quiet max-sm:px-4">
-            <span>
-              Named: {plural(named.adult, 'adult')} · {plural(named.child, 'child')} · {plural(named.infant, 'infant')}
-            </span>
-            {proofMissing.length > 0 ? <span>ID proof still needed: {proofMissing.join(', ')}</span> : null}
-          </div>
-        ) : null}
-        <div className="px-5 pb-4 max-sm:px-4 empty:hidden">
-          <SectionSaveRow label="Save passengers" dirty={f.dirty} editable={editable} pending={submitter.pending} />
+                  ) : null}
+                  <Button id={`passengers-${i + 1}-details`} variant="ghost" size="sm" aria-label={`Details for passenger ${i + 1}`} onClick={() => setOpenKey(d.key)}>
+                    <MoreHorizontal aria-hidden="true" />
+                  </Button>
+                  {editable && real && posOverCount(d) ? (
+                    <Button variant="ghost" size="sm" aria-label={`Remove ${who}`} onClick={() => setRemoveKey(d.key)}>
+                      <Trash2 aria-hidden="true" />
+                    </Button>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+        <div className="flex flex-wrap justify-between gap-2.5 border-t border-line px-5 py-3 text-sm text-quiet max-sm:px-4">
+          <span>{proofsVisible && !idProofRequired ? 'ID proof is optional for flight-only bookings.' : proofsVisible ? (needId.length > 0 ? `ID proof still needed: ${needId.map((d) => d.row?.name.trim() || 'unnamed adult').join(', ')}` : 'All adults have ID proof.') : null}</span>
+          {countsLocked && editable ? (
+            <Button variant="link" onClick={onMorePax}>
+              Need another traveller?
+            </Button>
+          ) : null}
         </div>
+        {!reason && editable && unnamedCount > 0 && (save.state === 'saved' || save.state === 'idle') && view.travellers.length > 0 ? (
+          <p id="warn-passengers" className="m-0 flex items-start gap-1.5 px-5 pb-3 text-sm font-medium text-status-warning max-sm:px-4">
+            <TriangleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+            <span>
+              {unnamedCount === 1 ? '1 traveller' : `${unnamedCount} travellers`} not named yet
+            </span>
+          </p>
+        ) : null}
+        {reason ? (
+          <p id="why-passengers" className="m-0 flex items-start gap-1.5 px-5 pb-3 text-sm font-medium text-status-danger max-sm:px-4">
+            <CircleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+            <span>{reason}</span>
+          </p>
+        ) : null}
       </form>
       {openRow ? (
         <PassengerDrawer
@@ -348,31 +421,25 @@ export function PassengersCard({
           traveller={openRow.row && openRow.row.seq !== null ? (saved.get(openRow.row.seq) ?? null) : null}
           editable={editable}
           actions={actions}
-          reloadHref={reloadHref}
           passengersResult={f.state}
           passengerRefs={refs}
-          onSave={(row) => saveFromDrawer(openRow, row)}
+          onSave={(row) => {
+            writeRow(openRow, row);
+            return saveNow();
+          }}
           onClose={() => {
             const back = `passengers-${openIndex + 1}-details`;
             setOpenKey(null);
             requestAnimationFrame(() => document.getElementById(back)?.focus());
           }}
-          onRemove={
-            openRow.row && isRealPassenger(openRow.row)
-              ? () => {
-                  setRemoveKey(openRow.key);
-                  setOpenKey(null);
-                }
-              : undefined
-          }
         />
       ) : null}
       {proofTraveller ? (
         <IdProofDialog
           view={view}
           traveller={proofTraveller}
-          rowNo={Math.max(1, shown.findIndex((d) => d.row?.seq === proofTraveller.seq) + 1)}
           actions={actions}
+          copiesToBitrix={copyApplies}
           onClose={() => {
             const at = shown.findIndex((d) => d.row?.seq === proofTraveller.seq);
             setProofFor(null);
@@ -386,7 +453,7 @@ export function PassengersCard({
           if (!o) setRemoveKey(null);
         }}
         title={`Remove ${removing?.row?.name.trim() || `passenger ${removeIndex + 1}`} from this booking?`}
-        description="The passenger is removed when you save the passengers. Their ID proof files go with them."
+        description="The passenger is removed from this booking draft. Their ID proof files go with them."
         confirmLabel="Remove passenger"
         cancelLabel="Keep passenger"
         onConfirm={() => {
@@ -397,5 +464,55 @@ export function PassengersCard({
         }}
       />
     </SectionCard>
+  );
+}
+
+/** Change 10: where the newest proof's copy to the Bitrix Deal stands, in words. */
+function CopyState({ proofs, dealId, retry }: { proofs: NonNullable<BookTravellerView['idProofs']>; dealId: string; retry?: B11Action }) {
+  const queue = useSaveQueue();
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const copy = [...proofs].reverse().find((p) => p.bitrixCopy)?.bitrixCopy;
+  if (!copy || copy.status === 'cancelled') return null;
+  if (copy.status === 'pending' || copy.status === 'unknown') {
+    return (
+      <span className="inline-flex items-center gap-1 font-medium text-quiet">
+        <Clock aria-hidden="true" className="size-3.25" />
+        Copying to Bitrix…
+      </span>
+    );
+  }
+  if (copy.status === 'sent') {
+    return (
+      <span className="inline-flex items-center gap-1 font-medium text-status-success">
+        <Check aria-hidden="true" className="size-3.25" />
+        Copied to the Bitrix Deal
+      </span>
+    );
+  }
+  const doRetry = async () => {
+    if (!retry || busy) return;
+    setBusy(true);
+    const fd = new FormData();
+    fd.set('dealId', dealId);
+    fd.set('copyJobId', copy.jobId);
+    const r = await queue.run(async () => normaliseResult(await guard(retry as never)(null, fd)) as UiResult);
+    setBusy(false);
+    setProblem(r.ok ? null : refusalReason(r));
+  };
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1 font-medium text-status-danger">
+      <CircleAlert aria-hidden="true" className="size-3.25" />
+      Copy to Bitrix failed
+      {copy.canRetry && retry ? (
+        <>
+          {' · '}
+          <Button variant="link" size="sm" className={cn('text-xs')} loading={busy} onClick={() => void doRetry()}>
+            Retry
+          </Button>
+        </>
+      ) : null}
+      {problem ? <span role="alert">{problem}</span> : null}
+    </span>
   );
 }

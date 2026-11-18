@@ -57,6 +57,23 @@ import { renderFinanceState } from './finance-states';
 import { renderIntakeState } from './intake-states';
 import { renderLeadIntakeState } from './lead-intake-states';
 import { renderProcurementState } from './procurement-states';
+import { renderPbState } from './pb-states';
+import { renderPurchaseMoneyState } from './purchase-money-states';
+import { renderFlightState } from './flight-states';
+import { renderVisaState } from './visa-states';
+import { renderAccState } from './acc-states';
+import { renderAcc2DocsState } from './acc2-docs-states';
+import { renderAcc2RefundState } from './acc2-refund-states';
+import { renderAcc2SupplierState } from './acc2-supplier-states';
+import { renderAcc2SettingsState } from './acc2-settings-states';
+import { renderAcc2CancelState } from './acc2-cancel-states';
+import { renderAcc3MessagesState } from './acc3-messages-states';
+import { renderAcc3BillsState } from './acc3-bills-states';
+import { renderAcc3WriteoffState } from './acc3-writeoffs-states';
+import { renderAcc3TallyState } from './acc3-tally-states';
+import { renderAcc3AlertsState } from './acc3-alerts-states';
+import { renderAcc3RatesState } from './acc3-rates-states';
+import { renderAcc3ChangesState } from './acc3-changes-states';
 
 /**
  * LOCAL DESIGN-REVIEW GALLERY. Renders the real view components with synthetic
@@ -880,7 +897,7 @@ async function render(state: string): Promise<ReactNode> {
       // Phase 6: approved import list and Bitrix Lead provenance.
       // B1: intake, services, Flight queue, Home counts and workflow switches.
       // B1.1: Book now, claims, department forms, Visa & Passport desk.
-      return renderVnState(state) ?? renderBatch5SearchState(state) ?? renderBatch4SettingsState(state) ?? renderBatch4DeptState(state) ?? renderBatch4AccountsState(state) ?? renderBookformState(state) ?? renderDealWorkspaceState(state) ?? renderBatch3State(state) ?? renderB12QuoteState(state) ?? renderB12ItinState(state) ?? renderB11BookState(state) ?? renderB11WorkState(state) ?? renderB1State(state) ?? renderBookingState(state) ?? renderProcurementState(state) ?? renderIntakeState(state) ?? renderLeadIntakeState(state) ?? renderFinanceState(state);
+      return renderAcc3MessagesState(state) ?? renderAcc3BillsState(state) ?? renderAcc3WriteoffState(state) ?? renderAcc3TallyState(state) ?? renderAcc3AlertsState(state) ?? renderAcc3RatesState(state) ?? renderAcc3ChangesState(state) ?? renderAcc2DocsState(state) ?? renderAcc2RefundState(state) ?? renderAcc2SupplierState(state) ?? renderAcc2SettingsState(state) ?? renderAcc2CancelState(state) ?? renderAccState(state) ?? renderVisaState(state) ?? renderFlightState(state) ?? renderPbState(state) ?? renderPurchaseMoneyState(state) ?? renderVnState(state) ?? renderBatch5SearchState(state) ?? renderBatch4SettingsState(state) ?? renderBatch4DeptState(state) ?? renderBatch4AccountsState(state) ?? renderBookformState(state) ?? renderDealWorkspaceState(state) ?? renderBatch3State(state) ?? renderB12QuoteState(state) ?? renderB12ItinState(state) ?? renderB11BookState(state) ?? renderB11WorkState(state) ?? renderB1State(state) ?? renderBookingState(state) ?? renderProcurementState(state) ?? renderIntakeState(state) ?? renderLeadIntakeState(state) ?? renderFinanceState(state);
   }
 }
 

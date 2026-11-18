@@ -62,7 +62,10 @@ export function TravellerIdProofsCard({ state, headingLevel = 2 }: { state: IdPr
                   <p className="m-0 font-semibold text-ink">
                     {t.fullName || `Traveller ${t.seq}`} <span className="font-normal text-quiet">· {t.type === 'adult' ? 'Adult' : t.type === 'child' ? 'Child' : 'Infant'}</span>
                   </p>
-                  {t.idProofs.length === 0 ? (
+                  {t.idProofs.length === 0 && 'idProofRequired' in state && state.idProofRequired === false ? (
+                    // Accounts phase 0 (contract 11.6): a flight-only booking needs no ID proof.
+                    <p className="m-0 text-sm text-quiet">No ID proof attached (not needed for flight-only bookings).</p>
+                  ) : t.idProofs.length === 0 ? (
                     <p className="m-0 flex gap-2 text-sm text-copy">
                       {t.type === 'adult' ? <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-danger" /> : <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-warning" />}
                       {t.type === 'adult' ? 'No ID proof attached yet. Ask the salesperson.' : 'No ID proof attached (optional for a child).'}

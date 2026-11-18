@@ -14,7 +14,8 @@ import {
 import { scanText } from '../safety';
 import { createUrlPdfRenderer, type PrintPageCheck, type UrlPdfBrowser } from '../render/pdf-url';
 import { MIN_PRINT_TOKEN_SECRET_LENGTH, PDF_RENDER_ONLINE_ENV, PRINT_TOKEN_HEADER, signPrintToken } from '../render/print-token';
-import { processOneJob, type JobOutcome, type WorkerDeps } from '../render/worker-core';
+import { customerRenderClaim, customerRenderComplete, customerRenderInput, type CustomerRenderRpc } from '../render/customer-job-input';
+import { processOneCustomerJob, processOneJob, type CustomerJobOutcome, type CustomerWorkerDeps, type JobOutcome, type WorkerDeps } from '../render/worker-core';
 import { istDate } from './load-quotation-view';
 
 /**
@@ -84,6 +85,8 @@ export interface OnlineRunDeps {
   launch(): Promise<UrlPdfBrowser & { close(): Promise<void> }>;
   /** Claim/input/complete/upload (service role); injected for tests. */
   supabase(worker: string): Pick<WorkerDeps, 'claim' | 'input' | 'complete' | 'upload'>;
+  /** Customer document queue (Accounts phase 2); drained after an idle itinerary run when given (production: service role). */
+  customerSupabase?: (worker: string) => Pick<CustomerWorkerDeps, 'claim' | 'input' | 'complete' | 'upload'>;
   now(): number;
   today(): string;
 }
@@ -170,7 +173,11 @@ export async function handleOnlineRenderRequest(
   const secret = trigger === 'cron' ? deps.env.cronSecret : deps.env.workerSecret;
   if (!secret || secret.length < MIN_WORKER_SECRET_LENGTH) return json(503, { status: 'not_configured', code: 'worker_secret_missing' });
   if (!checkBearer(request.headers.get('authorization'), secret)) return json(401, { status: 'unauthorized' });
-  const result = await runOnlineRenderJob(deps);
+  // Accounts phase 2 (contract 6.8): itinerary first, then customer documents; one job per call.
+  let result: OnlineRunResult | OnlineCustomerRunResult = await runOnlineRenderJob(deps);
+  if (result.status === 'ran' && result.outcome.outcome === 'idle' && deps.customerSupabase) {
+    result = await runOnlineCustomerRenderJob({ ...deps, supabase: deps.customerSupabase });
+  }
   if (result.status === 'switched_off') return json(404, result);
   if (result.status === 'not_configured' || result.status === 'browser_unavailable') return json(503, result);
   return json(200, result);
@@ -181,7 +188,139 @@ export function productionOnlineDeps(): OnlineRunDeps {
     env: getOnlineRenderEnv(),
     launch: launchChromium,
     supabase: serviceRoleJobDeps,
+    customerSupabase: serviceRoleCustomerJobDeps,
     now: () => Date.now(),
     today: () => istDate(),
   };
+}
+
+// ===========================================================================
+// Accounts phase 2 (contract 6.8, LD2): the customer document queue.
+// ===========================================================================
+
+export type OnlineCustomerRunResult =
+  | { status: 'switched_off' }
+  | { status: 'not_configured'; code: 'print_token_secret_missing' | 'site_url_missing' }
+  | { status: 'browser_unavailable' }
+  | { status: 'ran'; outcome: CustomerJobOutcome; launchMs: number };
+
+export interface OnlineCustomerRunDeps {
+  env: OnlineRenderEnv;
+  launch(): Promise<UrlPdfBrowser & { close(): Promise<void> }>;
+  supabase(worker: string): Pick<CustomerWorkerDeps, 'claim' | 'input' | 'complete' | 'upload'>;
+  now(): number;
+  today(): string;
+}
+
+export function serviceRoleCustomerJobDeps(worker: string): Pick<CustomerWorkerDeps, 'claim' | 'input' | 'complete' | 'upload'> {
+  const admin = createSupabaseAdminClient();
+  const rpc = admin as unknown as CustomerRenderRpc;
+  return {
+    claim: () => customerRenderClaim(rpc, worker, ONLINE_LEASE_SECONDS),
+    input: (jobId) => customerRenderInput(rpc, jobId, worker),
+    upload: async (objectPath, pdf) => {
+      const { error } = await admin.storage.from(RENDERED_BUCKET).upload(objectPath, pdf, { contentType: 'application/pdf', upsert: false });
+      if (error) throw new Error('upload failed');
+    },
+    complete: (jobId, outcome) => customerRenderComplete(rpc, jobId, worker, outcome),
+  };
+}
+
+/**
+ * One queued customer document job through the in-app print page
+ * /print/customer-document/<job> (token in the request header). Off unless
+ * PDF_RENDER_ONLINE is "on" (switching it on is a separate APPROVE). The
+ * release action schedules one run with after(); the worker route drains the
+ * queue one job per call after the itinerary queue.
+ */
+export async function runOnlineCustomerRenderJob(deps: OnlineCustomerRunDeps = productionOnlineCustomerDeps()): Promise<OnlineCustomerRunResult> {
+  const { env } = deps;
+  if (!env.on) return { status: 'switched_off' };
+  if (!env.printTokenSecret || env.printTokenSecret.length < MIN_PRINT_TOKEN_SECRET_LENGTH) return { status: 'not_configured', code: 'print_token_secret_missing' };
+  if (!env.siteUrl) return { status: 'not_configured', code: 'site_url_missing' };
+  const origin = new URL(env.siteUrl).origin;
+  const secret = env.printTokenSecret;
+  const worker = `online-${randomUUID().slice(0, 8)}`;
+  const jobs = deps.supabase(worker);
+  // Nothing queued: no browser launch.
+  const first = await jobs.claim();
+  if (!first) return { status: 'ran', outcome: { outcome: 'idle' }, launchMs: 0 };
+  const started = deps.now();
+  let browser: Awaited<ReturnType<OnlineCustomerRunDeps['launch']>>;
+  try {
+    browser = await deps.launch();
+  } catch {
+    // The claimed job's lease runs out and the next run takes it again.
+    return { status: 'browser_unavailable' };
+  }
+  const launchMs = deps.now() - started;
+  try {
+    const renderer = createUrlPdfRenderer({ browser, origin, now: deps.now });
+    const day = deps.today();
+    let current: { url: string; jobId: string; checked: PrintPageCheck } | null = null;
+    const tokenHeader = (jobId: string) => ({ [PRINT_TOKEN_HEADER]: signPrintToken({ jobId, worker, day }, secret, deps.now()) });
+    let claimed = false;
+    const outcome = await processOneCustomerJob({
+      worker,
+      ...jobs,
+      claim: async () => {
+        if (claimed) return null;
+        claimed = true;
+        return first;
+      },
+      renderHtml: async (job) => {
+        const url = `${origin}/print/customer-document/${job.jobId}`;
+        const checked = await renderer.check(url, tokenHeader(job.jobId));
+        current = { url, jobId: job.jobId, checked };
+        return {
+          html: checked.markup,
+          safetyHits: scanText(checked.bodyText),
+          placeholders: checked.placeholders,
+          pageIssues: checked.strayText ? ['page_chrome'] : [],
+        };
+      },
+      renderPdf: async () => {
+        if (!current) throw new Error('print page not checked');
+        return renderer.print(current.url, current.checked, tokenHeader(current.jobId));
+      },
+    });
+    return { status: 'ran', outcome, launchMs };
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
+}
+
+export function productionOnlineCustomerDeps(): OnlineCustomerRunDeps {
+  return {
+    env: getOnlineRenderEnv(),
+    launch: launchChromium,
+    supabase: serviceRoleCustomerJobDeps,
+    now: () => Date.now(),
+    today: () => istDate(),
+  };
+}
+
+// ===========================================================================
+// Accounts phase 3 (contract 5.2 step 4, 6.4): one queued PDF per timer run.
+// ===========================================================================
+
+/**
+ * The timer's render step: renders at most one queued job (itinerary first,
+ * then a customer document, the worker route's order). Returns null while the
+ * online PDF maker is off (PDF_RENDER_ONLINE is not "on"; the timer marks the
+ * step skipped), otherwise counts only (no ids, names or amounts). The timer
+ * route gives the step its own time budget; the claimed job's lease covers a
+ * run that is cut short.
+ */
+export async function renderOneQueuedJob(deps: OnlineRunDeps = productionOnlineDeps()): Promise<Record<string, number> | null> {
+  if (!deps.env.on) return null;
+  let result: OnlineRunResult | OnlineCustomerRunResult = await runOnlineRenderJob(deps);
+  if (result.status === 'ran' && result.outcome.outcome === 'idle' && deps.customerSupabase) {
+    result = await runOnlineCustomerRenderJob({ ...deps, supabase: deps.customerSupabase });
+  }
+  if (result.status !== 'ran') {
+    return { rendered: 0, idle: 0, failed: 1, notConfigured: result.status === 'not_configured' ? 1 : 0 };
+  }
+  const idle = result.outcome.outcome === 'idle';
+  return { rendered: idle ? 0 : 1, idle: idle ? 1 : 0, failed: 0, notConfigured: 0 };
 }

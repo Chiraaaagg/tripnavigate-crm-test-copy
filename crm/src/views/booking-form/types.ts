@@ -1,8 +1,12 @@
+import type { ReactNode } from 'react';
+import type { BitrixRefreshOutcome } from '@/modules/fulfilment/booking-form-contract';
 import type { BookingFormVM } from '@/modules/fulfilment/booking-form-vm';
+import type { BookingActionResult } from '@/modules/fulfilment/contracts';
 import type { PrefillUiVM } from '@/modules/fulfilment/prefill-contract';
 import type { BookLinks } from '../b11/book-screen';
 import type { B11Action, BookActions, BookNowView } from '../b11/shapes';
 import type { VoiceNoteProps } from './vn-types';
+import type { ChangeModeView } from '@/views/booking-changes/types';
 
 /*
  * Props of the booking form screen (lead freeze, 22 October 2026; contract
@@ -24,6 +28,18 @@ export interface BookingFormActions extends BookActions {
   savePrices: B11Action;
   /** Extended booking_billing_propose. */
   saveBillTo: B11Action;
+  /**
+   * Book now v2 (build-plan.md §5.1). Optional in this type until the server
+   * wiring (book-actions.ts, Agent B / C) lands; the screen hides the matching
+   * control while one is absent.
+   * booking_flight_fares_save. FormData: dealId, versionId, rowVersion, requestId,
+   * fareAdultTotalRupees, fareChildTotalRupees, fareInfantTotalRupees.
+   */
+  saveFlightFares?: B11Action;
+  /** booking_flight_returns_add. FormData: dealId, versionId, rowVersion, requestId. */
+  addReturnFlights?: B11Action;
+  /** "Refresh from Bitrix now": reads this one Deal from Bitrix at once (never writes to Bitrix). */
+  refreshFromBitrix?: (dealId: string) => Promise<BookingActionResult<{ outcome: BitrixRefreshOutcome; readAt: string | null; retryAfterSeconds?: number }>>;
 }
 
 export interface BookingFormScreenProps {
@@ -36,4 +52,8 @@ export interface BookingFormScreenProps {
   ownerText?: string | null;
   /** Voice-note batch extras (Deal trip facts, stored hotel and customer search); absent = today's screen. */
   vn?: VoiceNoteProps;
+  /** Accounts phase 3: the open draft is the change version of this approved request (marks and read-only rows). */
+  changeMode?: ChangeModeView | null;
+  /** Accounts phase 3 (contract 5.3 A1, screen 15.1): the Deal's customer language and WhatsApp card, shown on the customer step. */
+  messagePrefsCard?: ReactNode;
 }

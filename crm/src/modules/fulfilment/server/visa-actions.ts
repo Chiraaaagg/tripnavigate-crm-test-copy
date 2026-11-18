@@ -17,6 +17,13 @@ import { FIELD, readUuid } from '../forms';
 import { fail, failFrom, isCode } from './b11-results';
 
 /**
+ * DEPRECATED (Visa build, contract sections 6 C16 and 10): the desk screens
+ * use src/modules/visa/server/actions.ts and evidence.ts. Migration
+ * 20261202000110 revokes visa_application_update / visa_application_set_state,
+ * so every action below except the claim is refused (not_authorized) on a
+ * database with the Visa build. No page calls them; they are removed together
+ * with their tests in tests/unit/b11-actions.test.ts.
+ *
  * Visa & Passport desk commands (appendix A §3.2). requireStaff(), parse,
  * then the database command under the staff member's own session; the
  * database checks the desk role, the assignee and every state rule (documents

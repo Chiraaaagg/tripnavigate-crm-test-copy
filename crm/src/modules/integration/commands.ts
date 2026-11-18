@@ -157,7 +157,9 @@ const ClaimSchema = z
     sourceDealId: sourceIdText.optional(),
     sourceId: sourceIdText.optional(),
     eventType: z.string(),
-    origin: z.enum(['event', 'reconcile', 'manual_retry']),
+    // Book now v2 (20261129000200): 'staff_refresh' rows ("Refresh from Bitrix
+    // now") reach the batch when the staff request did not finish its lease.
+    origin: z.enum(['event', 'reconcile', 'manual_retry', 'staff_refresh']),
     attempts: z.number().int().nonnegative(),
   })
   .transform((row, ctx) => {
@@ -184,8 +186,11 @@ const ClaimSchema = z
     };
   });
 
+/** Inbox origins the database may hold: the frozen InboxOrigin plus 'staff_refresh' (20261129000200). */
+export type ClaimOrigin = ClaimedInboxItem['origin'] | 'staff_refresh';
+
 /** A claimed row with its source object (null = inconsistent row; never sent to Bitrix). */
-export type ClaimedSourceItem = ClaimedInboxItem & { sourceObject: SourceObject | null };
+export type ClaimedSourceItem = Omit<ClaimedInboxItem, 'origin'> & { origin: ClaimOrigin; sourceObject: SourceObject | null };
 
 const ApplySchema = z.object({
   outcome: z.enum(['created', 'updated', 'ignored', 'needs_review', 'stale_ignored']),
@@ -483,6 +488,65 @@ export async function requestReconcile(
 ): Promise<{ portalMemberId: string | null; allowed: boolean; retryAfterSeconds: number }> {
   const fn = 'integration_request_reconcile';
   return parse(fn, RequestReconcileSchema, await invoke(client, fn, {}));
+}
+
+// ---------------------------------------------------------------------------
+// Book now v2: "Refresh from Bitrix now" (migration 20261129000200)
+// ---------------------------------------------------------------------------
+
+const RefreshBeginSchema = z.discriminatedUnion('allowed', [
+  z.object({
+    allowed: z.literal(true),
+    inboxId: z.uuid(),
+    lockToken: z.uuid(),
+    portalMemberId: z.string().min(1),
+    sourceDealId: sourceIdText,
+    sourceObject: z.literal('deal'),
+    eventType: z.string(),
+    origin: z.enum(['event', 'reconcile', 'manual_retry', 'staff_refresh']),
+    attempts: z.number().int().nonnegative(),
+  }),
+  z.object({
+    allowed: z.literal(false),
+    reason: z.enum(['switched_off', 'sync_paused', 'staff_limit', 'too_soon', 'not_bitrix_deal', 'deal_removed']),
+    retryAfterSeconds: z.number().int().min(0).max(3600).optional(),
+  }),
+]);
+
+export type RefreshBegin =
+  | { allowed: true; item: ClaimedSourceItem }
+  | {
+      allowed: false;
+      reason: 'switched_off' | 'sync_paused' | 'staff_limit' | 'too_soon' | 'not_bitrix_deal' | 'deal_removed';
+      retryAfterSeconds: number | null;
+    };
+
+/**
+ * Staff session (booking editors of the Deal): authorizes "Refresh from
+ * Bitrix now", refuses while the scheduled sync is paused, applies the limit
+ * of 10 refreshes per staff member per minute and the 20-second cooldown per
+ * Deal, and leases one inbox
+ * row of the Deal for 90 seconds (audited, ids only). Refusals raise:
+ * 42501 not authorized, 22023 bad input, 55000 environment, 23505 replayed
+ * request id.
+ */
+export async function bitrixRefreshBegin(client: RpcClient, dealId: string, requestId: string): Promise<RefreshBegin> {
+  const fn = 'booking_bitrix_refresh_begin';
+  const r = parse(fn, RefreshBeginSchema, await invoke(client, fn, { p_deal_id: dealId, p_request_id: requestId }));
+  if (!r.allowed) return { allowed: false, reason: r.reason, retryAfterSeconds: r.retryAfterSeconds ?? null };
+  return {
+    allowed: true,
+    item: {
+      inboxId: r.inboxId,
+      lockToken: r.lockToken,
+      portalMemberId: r.portalMemberId,
+      sourceDealId: r.sourceDealId,
+      sourceObject: 'deal',
+      eventType: r.eventType,
+      origin: r.origin,
+      attempts: r.attempts,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------

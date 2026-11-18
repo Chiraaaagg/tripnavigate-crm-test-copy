@@ -1,5 +1,5 @@
 /**
- * integration module - placeholder. See ./README.md. Intentionally exports nothing in
- * Batch 1 so that no other module can depend on unimplemented behaviour.
+ * integration module: client-safe entry. Server-only exports (they touch the
+ * database and Bitrix) live in ./server.ts. See ./README.md.
  */
 export {};

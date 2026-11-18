@@ -1,6 +1,8 @@
 import { type DealDetail, formatPaise } from '@/modules/deals/dto';
 import { BITRIX_NAMES_OFF, type BitrixNameLookup, bitrixName, dealRowOwner, dealStageEntity } from '@/modules/deals/list-model';
 import type { BookNowView, DealServicesView, ServiceDepartment } from '@/modules/fulfilment/contracts';
+import type { DealFlightHistoryDTO } from '@/modules/flight/contracts';
+import type { DealVisaHistoryDTO } from '@/modules/visa/contracts';
 import type { QuotationListView, QuotationStatus, QuotationSummary } from '@/modules/quotations/contracts';
 import type {
   DealBookingState,
@@ -563,6 +565,18 @@ export interface DealHistoryInput {
   quotations: QuotationListView | null;
   /** The viewer's Money model; payment events only when it carries claims. */
   money: DealMoneyVM | undefined;
+  /**
+   * Flight build: loadDealFlightHistory (Sales owner, branch Manager, Accounts).
+   * null / undefined = not readable for this viewer (no Flight group);
+   * 'error' = the flight read failed (History shows the could-not-load line).
+   */
+  flightHistory?: DealFlightHistoryDTO | null | 'error';
+  /**
+   * Visa build: loadDealVisaHistory (Sales owner, branch Manager).
+   * null / undefined = not readable for this viewer (no "Visa and passport" group);
+   * 'error' = the visa read failed (History shows the could-not-load line).
+   */
+  visaHistory?: DealVisaHistoryDTO | null | 'error';
 }
 
 /**
@@ -607,35 +621,100 @@ export function buildDealHistory(input: DealHistoryInput): DealHistoryVM {
     const claims = [...view.claims.claims].sort((a, b) => (a.reportedAt < b.reportedAt ? 1 : a.reportedAt > b.reportedAt ? -1 : 0));
     for (const c of claims) events.push({ kind: 'payment_reported', id: c.claimId, at: c.reportedAt, status: c.displayStatus });
   }
-  return { state: 'ok', events };
+  // Flight build: the Deal's flight events, newest first as the read returns them (explicit key copy).
+  // A failed flight read keeps the rest of History and marks only the Flight group as not loaded.
+  if (input.flightHistory && input.flightHistory !== 'error') {
+    input.flightHistory.events.forEach((e, index) => {
+      events.push({
+        kind: 'flight_event',
+        id: `flight:${e.taskId}:${e.at}:${index}`,
+        at: e.at,
+        flightKind: e.kind,
+        taskId: e.taskId,
+        flightTitle: e.flightTitle,
+        byName: e.byName,
+        byYou: e.byYou,
+        note: e.note,
+        changeNo: e.changeNo,
+      });
+    });
+  }
+  // Visa build: the Deal's visa events, newest first as the read returns them (explicit key copy; no
+  // fee, reference, e-mail or passport number exists in the read). A failed visa read marks only its group.
+  if (input.visaHistory && input.visaHistory !== 'error') {
+    input.visaHistory.events.forEach((e, index) => {
+      events.push({
+        kind: 'visa_event',
+        id: `visa:${e.taskId}:${e.at}:${index}`,
+        at: e.at,
+        visaKind: e.kind,
+        taskId: e.taskId,
+        title: e.title,
+        travellerName: e.travellerName,
+        byName: e.byName,
+        byYou: e.byYou,
+        note: e.note,
+        clubSize: e.clubSize,
+      });
+    });
+  }
+  const vm: DealHistoryVM = { state: 'ok', events };
+  if (input.flightHistory === 'error') vm.flightUnavailable = true;
+  if (input.visaHistory === 'error') vm.visaUnavailable = true;
+  return vm;
 }
 
-export type DealHistoryGroupKey = 'booking' | 'quotations' | 'payments';
+export type DealHistoryGroupKey = 'booking' | 'quotations' | 'payments' | 'flight' | 'visa';
 
 /** One heading per History group (lead ruling 5: grouped History, each group headed). */
 export const DEAL_HISTORY_GROUP_HEADING: Record<DealHistoryGroupKey, string> = {
   booking: 'Booking versions and Accounts reviews',
   quotations: 'Quotations',
   payments: 'Reported payments',
+  flight: 'Flight',
+  visa: 'Visa and passport',
 };
+
+/** Flight build: the one line shown in the Flight group when only the flight read failed. */
+export const DEAL_HISTORY_FLIGHT_UNAVAILABLE_TEXT = 'Flight history could not be loaded. Nothing was changed. Reload the page to try again.';
+
+/** Visa build: the one line shown in the "Visa and passport" group when only the visa read failed. */
+export const DEAL_HISTORY_VISA_UNAVAILABLE_TEXT = 'Visa and passport history could not be loaded. Nothing was changed. Reload the page to try again.';
 
 export interface DealHistoryGroup {
   key: DealHistoryGroupKey;
   heading: string;
   events: DealHistoryEventVM[];
+  /** Flight / Visa build: true only for the Flight or "Visa and passport" group when its read failed (events is then empty). */
+  unavailable?: true;
 }
 
 /**
  * The History events split into their groups, in buildDealHistory's order
  * (each group newest first). Empty groups are left out, so every group shown
- * has a heading and at least one event.
+ * has a heading and at least one event, except the Flight group when
+ * `flightUnavailable` is set: it is then listed last with `unavailable: true`
+ * and no events (show DEAL_HISTORY_FLIGHT_UNAVAILABLE_TEXT). The Visa build's
+ * "Visa and passport" group follows the same rule with `visaUnavailable`
+ * (DEAL_HISTORY_VISA_UNAVAILABLE_TEXT).
  */
-export function dealHistoryGroups(events: DealHistoryEventVM[]): DealHistoryGroup[] {
+export function dealHistoryGroups(events: DealHistoryEventVM[], opts: { flightUnavailable?: boolean; visaUnavailable?: boolean } = {}): DealHistoryGroup[] {
   const groupOf = (e: DealHistoryEventVM): DealHistoryGroupKey =>
-    e.kind === 'quotation_version' ? 'quotations' : e.kind === 'payment_reported' ? 'payments' : 'booking';
-  return (['booking', 'quotations', 'payments'] as const)
+    e.kind === 'quotation_version'
+      ? 'quotations'
+      : e.kind === 'payment_reported'
+        ? 'payments'
+        : e.kind === 'flight_event'
+          ? 'flight'
+          : e.kind === 'visa_event'
+            ? 'visa'
+            : 'booking';
+  const groups: DealHistoryGroup[] = (['booking', 'quotations', 'payments', 'flight', 'visa'] as const)
     .map((key) => ({ key, heading: DEAL_HISTORY_GROUP_HEADING[key], events: events.filter((e) => groupOf(e) === key) }))
     .filter((g) => g.events.length > 0);
+  if (opts.flightUnavailable) groups.push({ key: 'flight', heading: DEAL_HISTORY_GROUP_HEADING.flight, events: [], unavailable: true });
+  if (opts.visaUnavailable) groups.push({ key: 'visa', heading: DEAL_HISTORY_GROUP_HEADING.visa, events: [], unavailable: true });
+  return groups;
 }
 
 // ---------------------------------------------------------------------------
@@ -665,6 +744,10 @@ export interface DealWorkspaceInput extends DealHeaderInput {
   documents?: DealDocumentRow[] | 'error';
   /** True when the B1-2 read exists on this database (decides tab visibility before the rows are read). */
   documentsAvailable?: boolean;
+  /** Flight build: loadDealFlightHistory when the History tab is open; undefined = not read. */
+  flightHistory?: DealFlightHistoryDTO | null | 'error';
+  /** Visa build: loadDealVisaHistory when the History tab is open; undefined = not read. */
+  visaHistory?: DealVisaHistoryDTO | null | 'error';
 }
 
 /** Only the current tab's model is built; the other tab models are left out (no hidden payload). */
@@ -689,7 +772,10 @@ export function buildDealWorkspace(input: DealWorkspaceInput): DealWorkspaceVM {
   }
   if (current === 'history') {
     // The money model is consulted only to decide payment events; it is not attached to History.
-    workspace.history = buildDealHistory({ book: input.book, quotations: input.quotations, money: buildDealMoney(input.deal, view) });
+    workspace.history = buildDealHistory({
+      book: input.book, quotations: input.quotations, money: buildDealMoney(input.deal, view), flightHistory: input.flightHistory,
+      visaHistory: input.visaHistory,
+    });
   }
   if (current === 'documents' && input.documents !== undefined) workspace.documents = toDealDocumentsVM(input.documents);
   return workspace;

@@ -58,119 +58,139 @@ test.describe('B1.1 department cost block', () => {
     await expect(card.getByRole('button', { name: 'Record a cost' })).toHaveCount(0);
   });
 
+  // Flight build (contract D3 / B13, 4 Nov 2026): the manual flight cost card ("Record a cost") is retired; the
+  // per-passenger fares confirmed with the tickets are the only flight cost record. Track C points the old
+  // b11-flight-task-* states at the new Flight workspace; the rules these four tests covered are checked there.
   test('Flight: travellers on this flight, the ₹50,000 direct-payment rule, proof upload', async ({ page }) => {
     await open(page, 'b11-flight-task-cost-empty');
     const main = page.locator('main');
-    await expect(main.getByRole('list', { name: 'Travellers on this flight' })).toContainText('Sample Traveller B');
-    await expect(main).toContainText('Company can pay directly up to ₹50,000 per purchase.');
-    await main.getByRole('button', { name: 'Record a cost' }).click();
-    const form = page.getByRole('form', { name: 'Record a cost' });
-    await form.getByLabel('Paid by').selectOption('company');
-    await form.getByLabel('Amount ₹').fill('60000');
-    await expect(form.getByLabel('Amount ₹')).toHaveAttribute('aria-invalid', 'true');
-    await expect(form.getByRole('button', { name: 'Save cost' })).toBeDisabled();
+    // Kept: the travellers on this flight are listed (D7: by name).
+    await expect(main).toContainText('Example Traveller One');
+    // The ₹50,000 rule is now cumulative per supplier and Deal (C1/L1), stated on the Cost and payment card.
+    const card = page.getByRole('region', { name: 'Cost and payment' });
+    await expect(card).toContainText('within ₹50,000 for this supplier on this Deal');
+    // Retired: no manual cost form; the direct payment (with its proof upload) replaces it.
+    await expect(main.getByRole('button', { name: 'Record a cost' })).toHaveCount(0);
+    await expect(card.getByRole('button', { name: 'Record direct payment' })).toBeVisible();
   });
 
   test('Flight on an international trip: the assigned person sees identity in full; none when absent', async ({ page }) => {
+    // Kept (freeze 3.4 answer 6, unchanged by D7): identity only for the Flight assignee on international trips.
     await open(page, 'b11-flight-task-identity');
-    const list = page.locator('main').getByRole('list', { name: 'Travellers on this flight' });
-    await expect(list.getByRole('listitem').first()).toContainText('Born 1988-04-12 · Indian · passport Z1234567, expires 2031-02-01');
-    await expect(list.getByRole('listitem').nth(1)).not.toContainText('passport');
-    await open(page, 'b11-flight-task-cost-empty');
-    await expect(page.locator('main').getByRole('list', { name: 'Travellers on this flight' })).not.toContainText('passport');
+    await expect(page.locator('main')).toContainText('Born 1985-02-11 · Indian · passport S0000001, expires 2031-05-01');
+    await open(page, 'b4-flight-task-details');
+    await expect(page.locator('main')).not.toContainText('passport');
   });
 
   test('over the limit: the refusal is in words and the field is marked', async ({ page }) => {
+    // Flight build (C1, 11.1): above ₹50,000 for the supplier on the Deal, "Record direct payment" is unavailable
+    // with aria-disabled and one short reason in words (no form to mark any more).
     await open(page, 'b11-flight-task-cost-over-limit');
-    const form = page.getByRole('form', { name: 'Record a cost' });
-    await expect(form.locator('[data-slot="error-summary"]')).toContainText('Above ₹50,000');
-    await expect(form.getByLabel('Amount ₹')).toHaveAttribute('aria-invalid', 'true');
+    const card = page.getByRole('region', { name: 'Cost and payment' });
+    const direct = card.getByRole('button', { name: 'Record direct payment' });
+    await expect(direct).toHaveAttribute('aria-disabled', 'true');
+    await expect(direct).toHaveAccessibleDescription('Above ₹50,000 for this supplier on this Deal: raise a payment request.');
+    await expect(card.getByRole('button', { name: 'Raise payment request' })).toBeVisible();
   });
 
   test('a company-paid cost is sent to Accounts as an expense record, never an approval', async ({ page }) => {
+    // Flight build (B9, L16): a direct payment goes to Accounts for review (accept/return), not as an approval.
     await open(page, 'b11-flight-task-cost-filled');
-    const card = page.getByRole('region', { name: 'Cost' });
-    await expect(card.getByRole('button', { name: 'Send to Accounts' })).toBeVisible();
-    await expect(card).toContainText('synthetic-card-slip.pdf');
+    const card = page.getByRole('region', { name: 'Cost and payment' });
+    await expect(card).toContainText('returned by Accounts');
+    await expect(card.getByRole('button', { name: 'Fix and send the payment again' })).toBeVisible();
     await open(page, 'b11-flight-task-cost-sent');
-    await expect(page.getByRole('region', { name: 'Cost' })).toContainText('Sent to Accounts. A different Accounts person reviews it. This is not a payment approval.');
+    await expect(page.getByRole('region', { name: 'Cost and payment' })).toContainText('Paid directly · with Accounts');
+    // "Approved budget" is the budget line; the payment itself is never described as waiting for an approval.
+    await expect(page.getByRole('region', { name: 'Cost and payment' })).not.toContainText(/waiting for (an )?approval|payment approval/i);
     await pillsHaveIconAndWord(page);
   });
 });
 
-test.describe('B1.1 Visa & Passport desk', () => {
-  test('queue: tasks with state and owner; switched off says what waits', async ({ page }) => {
+// Visa build (contract 8 Nov 2026, 11.1): the old B1.1 desk (views/b11/visa-desk.tsx) is retired; the b11-visa-* state
+// names now open the new screens (src/app/preview/[state]/visa-states.tsx aliases). Each test below keeps the old test's
+// intent and states what replaced the old wording. The new screens are covered in depth by tests/e2e/visa-screens.e2e.ts.
+test.describe('B1.1 Visa & Passport desk (now the Visa build screens)', () => {
+  test('queue: tasks with state and owner; switched off says what waits; an empty queue says so', async ({ page }) => {
     await open(page, 'b11-visa-queue');
     const main = page.locator('main');
-    // Batch 4: the desk opens on "Not taken" (the task already taken is under Mine and All).
-    await expect(main.getByRole('link', { name: /Passport · Renewal/ })).toHaveAttribute('href', /\/app\/visa\//);
-    await expect(main.getByRole('link', { name: /Visa · United Arab Emirates/ })).toHaveCount(0);
+    // Was: "Passport · Renewal" link and "Not taken". Now: task links to /app/visa/<id> and the frozen status words (section 8).
+    await expect(main.locator('a[href*="/app/visa/"]').first()).toBeVisible();
     await expect(main).toContainText('Not taken');
+    // Kept (lead, contract Addendum 1): the queue still says when task creation is switched off.
     await open(page, 'b11-visa-queue-not-launched');
     await expect(page.locator('main')).toContainText('The Visa desk is not started yet.');
     await expect(page.locator('main')).toContainText('Not started yet');
     await open(page, 'b11-visa-queue-empty');
-    await expect(page.locator('main')).toContainText('No tasks here yet');
+    await expect(page.locator('main a[href*="/app/visa/"]')).toHaveCount(0);
   });
 
   test('take the task; a colleague taking it first is said in words', async ({ page }) => {
     await open(page, 'b11-visa-task-new');
     await expect(page.locator('main').getByRole('button', { name: 'Take this task' })).toHaveCount(1);
     await open(page, 'b11-visa-task-claim-conflict');
-    await expect(page.locator('main [data-slot="error-summary"]')).toContainText('already taken this task');
+    // Was: "already taken this task". Now the frozen task_conflict message (6.1).
+    await expect(page.locator('main')).toContainText('Someone at the desk took this task first.');
   });
 
-  test('documents: one status per document, private notice, progress in words', async ({ page }) => {
+  test('documents: received and not received per passenger, in words', async ({ page }) => {
+    // Was: "Documents (1 of 3 checked)" with a per-document status select. Q4: "received" replaces "checked"; the
+    // Passengers table has Received / Not received columns (11.1).
     await open(page, 'b11-visa-task-docs-pending');
-    const main = page.locator('main');
-    await expect(main).toContainText('Private applicant documents: Visa & Passport desk and branch Manager only.');
-    await expect(main.getByRole('heading', { name: /Documents \(1 of 3 checked\)/ })).toBeVisible();
-    await expect(main.getByLabel('Passport copy').first()).toHaveValue('checked');
-    await expect(main.getByRole('list', { name: 'Progress for Sample Traveller A' })).toContainText('Now: Documents checked');
+    const table = page.getByRole('region', { name: /Passengers and documents/ }).first();
+    await expect(table).toContainText('Received documents');
+    await expect(table).toContainText('Not received documents');
+    await expect(page.locator('main')).not.toContainText(/\bchecked\b/i);
   });
 
-  test('submission is refused until every document is checked', async ({ page }) => {
+  test('Applied is refused until the passenger is ready; nothing saved', async ({ page }) => {
+    // Was: "All required documents must be checked". Now the Confirm applied popup shows the refusal and keeps the typed values.
     await open(page, 'b11-visa-task-submit-refused');
-    await expect(page.locator('main [data-slot="error-summary"]').first()).toContainText('All required documents must be checked');
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.locator('[role=alert], [role=status]').or(page.getByText('Nothing was saved')).first()).toBeVisible();
   });
 
-  test('the outcome needs the authority document; a fee receipt never proves issue', async ({ page }) => {
+  test('the decision needs the visa or refusal document (V5)', async ({ page }) => {
+    // Was: "Upload the authority's document" + "A fee receipt or reference never proves issue." Now outcome_document_required (6.1).
     await open(page, 'b11-visa-task-outcome-refused');
-    const main = page.locator('main');
-    await expect(main.locator('[data-slot="error-summary"]').first()).toContainText('Upload the authority’s document');
-    await expect(main).toContainText('A fee receipt or reference never proves issue.');
-    await expect(main.getByLabel('Authority’s document')).toHaveAccessibleDescription(/Upload the approval or refusal letter/);
+    await expect(page.getByRole('dialog')).toContainText('Upload the visa or refusal document first.');
   });
 
-  test('issued: return the documents; refused: inform the customer; returned: closed', async ({ page }) => {
+  test('approved: handover pending; rejected: Apply again; completed: closed', async ({ page }) => {
+    // Was: "Record documents returned" / "Record that the customer was informed" / "This applicant is closed." (old steps).
     await open(page, 'b11-visa-task-issued');
-    await expect(page.locator('main').getByRole('button', { name: 'Record documents returned to the customer' })).toBeVisible();
+    await expect(page.locator('main')).toContainText('Handover pending');
     await open(page, 'b11-visa-task-refused');
-    await expect(page.locator('main').getByRole('button', { name: 'Record that the customer was informed' })).toBeVisible();
+    await expect(page.locator('main').getByRole('button', { name: /Apply again/ }).first()).toBeVisible();
     await open(page, 'b11-visa-task-returned');
-    await expect(page.locator('main')).toContainText('This applicant is closed.');
     await expect(page.locator('main')).toContainText('Completed');
   });
 
-  test('a company-paid fee is an expense record for Accounts review', async ({ page }) => {
+  test('a company-paid fee is a cost for Accounts review, never a payment', async ({ page }) => {
+    // Was: region "Fees and costs" with "It does not approve or make a payment." / "Sent to Accounts". Now "Visa costs per
+    // traveller" (V9) and the returned-fee "Fix fee" (C12).
     await open(page, 'b11-visa-task-fee-expense');
-    const costs = page.getByRole('region', { name: 'Fees and costs' });
-    await expect(costs).toContainText('It does not approve or make a payment.');
-    await expect(costs).toContainText('Sent to Accounts');
+    const main = page.locator('main');
+    await expect(main).toContainText('Visa costs per traveller');
+    await expect(main).toContainText(/These are costs, not the customer.s price\./);
+    await expect(main.getByRole('button', { name: 'Fix fee' }).first()).toBeVisible();
   });
 
   test('a branch Manager reads the desk task without working it', async ({ page }) => {
     await open(page, 'b11-visa-task-manager');
     const main = page.locator('main');
-    await expect(main.getByRole('button', { name: 'Record submission' })).toHaveCount(0);
+    // Was: no "Record submission" button. Now no Applied or Edit controls (D2).
+    await expect(main.getByRole('button', { name: /^(Confirm applied|Mark as applied|Edit)/ })).toHaveCount(0);
     await expect(main.getByRole('button', { name: 'Take this task' })).toHaveCount(0);
+    await expect(main).toContainText('View only. The Visa desk does this work.');
     await expect(main).not.toContainText('Z1234567');
   });
 
   test('another role gets the same "not available" answer and no file names', async ({ page }) => {
     await open(page, 'b11-visa-task-not-visible');
     const main = page.locator('main');
-    await expect(main).toContainText('This task is not available to you.');
+    // Was: "This task is not available to you." Now the shared not-available answer (11.1 "Same answer for missing and not allowed").
+    await expect(main).toContainText(/not available/i);
     await expect(main).not.toContainText('.pdf');
   });
 });

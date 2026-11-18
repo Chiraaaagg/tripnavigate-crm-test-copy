@@ -9,6 +9,12 @@ import type { SwitchState } from '@/modules/settings/contracts';
 import { loadWorkflowSwitchStates } from './intake';
 
 /**
+ * DEPRECATED (Visa build, contract section 10): the desk screens read
+ * src/modules/visa/server/queries.ts (visa_queue, visa_workspace). No page
+ * calls these loaders any more; they stay one release with the deprecated
+ * visa_task_list / visa_task_get reads (C16) and are removed together with
+ * their tests in tests/unit/b11-actions.test.ts.
+ *
  * Visa & Passport desk reads (appendix A §3.2). The database filters rows to
  * the desk role and entity; the DTOs carry no selling price, list price,
  * discount, plan, claims, receipts, contacts or billing. A database without

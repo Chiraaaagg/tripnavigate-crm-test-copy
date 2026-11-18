@@ -164,7 +164,12 @@ export interface CarEstimate {
 }
 export interface FlightEstimate {
   kind: 'flight';
+  /** Legacy total of items saved before Book now v2; never written by the v2 form. */
   fareTotalPaise: string | null;
+  /** Book now v2: fare per person, cost side only. Child and infant only when the trip has them. */
+  fareAdultPaise: string | null;
+  fareChildPaise: string | null;
+  fareInfantPaise: string | null;
 }
 export type ServiceEstimate = HotelEstimate | CarEstimate | FlightEstimate;
 
@@ -193,6 +198,97 @@ export interface FlightSegmentKeys {
   flightNo?: string; // <= 12
   departTime?: string; // HH:MM
   arriveTime?: string; // HH:MM
+}
+
+// ---------------------------------------------------------------------------
+// Book now v2 (owner-approved prototype, 26 October 2026). Frozen contract:
+// docs/implementation/booking-form-v2-2026-10-26/contract.md
+// ---------------------------------------------------------------------------
+
+/** A hotel special request or flight preference, with the traveller it is for. */
+export interface RequestItem {
+  /** 1..80 characters, trimmed; unique per item (case-insensitive). */
+  text: string;
+  /** Traveller seq this request is for; null = everyone on the item. Must be a participant of the item. */
+  forSeq: number | null;
+}
+export const REQUEST_ITEMS_MAX = 20;
+export const REQUEST_TEXT_MAX = 80;
+export const HOTEL_REQUEST_SUGGESTIONS = [
+  'Early check-in', 'Late check-out', 'Honeymoon decoration', 'Birthday or anniversary cake', 'Adjoining rooms',
+  'Ground-floor room', 'High floor', 'Non-smoking room', 'Twin beds', 'Double bed', 'Baby cot', 'Wheelchair access',
+  'Vegetarian meals', 'Jain meals',
+] as const;
+export const FLIGHT_PREFERENCE_SUGGESTIONS = [
+  'Window seat', 'Aisle seat', 'Seats together', 'Extra legroom', 'Extra baggage', 'Vegetarian meal', 'Jain meal',
+  'Child meal', 'Wheelchair help', 'Infant bassinet', 'Senior citizen help',
+] as const;
+
+/** hotel: added key. The server renders the `specialRequests` text from it ("Baby cot (Asha Rao), Early check-in"). */
+export interface HotelFactKeysV2 {
+  requestItems?: RequestItem[];
+}
+
+export type FlightEntryMode = 'typed' | 'screenshot';
+/** flight: added keys. */
+export interface FlightFactKeysV2 {
+  /** Absent = 'typed'. 'screenshot': segments may be [] and the flight needs >= 1 stored screenshot before submit. */
+  entryMode?: FlightEntryMode;
+  /** Note for the Flight team, 1..200 characters, screenshot mode only. */
+  screenshotNote?: string | null;
+  /** The server renders the `preferences` text from them. */
+  requestItems?: RequestItem[];
+  /** Created by "Add return flights" (hides that button). Never asked of staff. */
+  isReturn?: boolean;
+}
+
+export type CarKind = 'airport_pickup' | 'airport_drop' | 'full_trip' | 'point_to_point';
+export const CAR_KINDS = ['airport_pickup', 'airport_drop', 'full_trip', 'point_to_point'] as const satisfies readonly CarKind[];
+export const CAR_KIND_LABEL: Record<CarKind, string> = {
+  airport_pickup: 'Airport pickup',
+  airport_drop: 'Airport drop',
+  full_trip: 'Full trip',
+  point_to_point: 'Point to point',
+};
+/** transfer (shown as "Car"): added keys. */
+export interface TransferFactKeysV2 {
+  carKind?: CarKind;
+  /** service_items.id of the flight it meets (format checked only); null = none. */
+  flightItemId?: string | null;
+}
+
+/** Typed total fare per person for all flights of the draft (one ticket with a layover). Used only for a type no flight prices. */
+export interface FlightFareTotals {
+  adultPaise: string | null;
+  childPaise: string | null;
+  infantPaise: string | null;
+}
+/** booking_flight_fares_save(p_version_id uuid, p_expected_row_version int, p_fares jsonb, p_request_id uuid) */
+export interface FlightFaresSaveResult {
+  rowVersion: number;
+  contentHash: string;
+}
+/** booking_flight_returns_add(p_version_id uuid, p_expected_row_version int, p_request_id uuid) */
+export interface FlightReturnsAddResult {
+  outcome: 'added' | 'no_typed_flights' | 'already_added';
+  itemIds: string[];
+  itemNos: number[];
+  rowVersion: number;
+  contentHash: string;
+}
+
+/** "Refresh from Bitrix now": reads one Deal from Bitrix at once. Never writes to Bitrix. */
+export type BitrixRefreshOutcome = 'updated' | 'unchanged';
+export type BitrixRefreshRefusal =
+  | 'refresh_too_soon'
+  | 'refresh_switched_off'
+  | 'refresh_not_bitrix_deal'
+  | 'bitrix_unavailable'
+  | 'bitrix_deal_not_found';
+export interface BitrixRefreshResult {
+  outcome: BitrixRefreshOutcome;
+  readAt: string | null;
+  retryAfterSeconds?: number;
 }
 
 /**
@@ -322,6 +418,7 @@ export const BOOKING_FORM_ISSUE_CODES = [
   'gst_reason_missing',
   'billing_contact_missing',
   'billing_reach_missing',
+  'flight_screenshot_missing', // Book now v2: "Flight {n}: attach at least one screenshot, or type the details."
 ] as const;
 export type BookingFormIssueCode = (typeof BOOKING_FORM_ISSUE_CODES)[number];
 
@@ -360,6 +457,13 @@ export interface BookingFormServiceItemView {
   estimate?: ServiceEstimateView;
   files?: ServiceItemFileView[];
   locked: boolean;
+  /**
+   * Accounts phase 2 (20261204000130, LD22): hotel items carry the catalogue
+   * hotel the booking picked (booking_form_get item-level key; never inside
+   * facts, whose hotel reader is a fixed key list). Absent on other items and
+   * on an older database; null when no catalogue hotel was picked.
+   */
+  catalogueHotelId?: string | null;
 }
 
 export interface BookingFormStatusLine {
@@ -385,6 +489,17 @@ export interface BookingFormCore {
   coverage: HotelCoverage | null;
   /** Commercial readers only; absent otherwise (Purchase never receives it). */
   prices?: PackagePriceView;
+  /** Book now v2. Commercial readers and the Flight assignee only, like estimates. */
+  flightFareTotals?: FlightFareTotals;
+  /** Book now v2 (change 10, ruling D5): true when an ID proof uploaded now would also be copied to the Bitrix Deal (copy switch on and the Deal came from Bitrix). */
+  idProofCopyApplies: boolean;
+  /**
+   * Accounts phase (20261203000100, contract 5.1): false when every service of
+   * the version is a flight. Adults then need no ID proof (no blocking
+   * id_proof_missing, no child warning); uploads stay allowed. true otherwise,
+   * without a version or services, and on an older database.
+   */
+  idProofRequired: boolean;
   billTo: BillToView | null;
   sectionStatus: Record<BookingFormSection, BookStepStatus>;
 }

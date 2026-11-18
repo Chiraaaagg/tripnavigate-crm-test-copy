@@ -154,14 +154,37 @@ describe('settings change audit: privileges', () => {
               'settings_begin_change', 'settings_end_change'))
        order by 1`,
     );
-    // 10 from this migration plus admin_set_workflow_setting (B1, 20261118000100).
-    expect(rows).toHaveLength(11);
+    // 10 from this migration plus admin_set_workflow_setting (B1, 20261118000100) and
+    // admin_set_supplier_email_sending (Purchase build, 20261130000100); the Accounts phase
+    // (contract 2026-11-10, 6.3.3 and 7.1 T6/T7) adds admin_set_notices_enabled,
+    // admin_set_accounts_exception_owner and admin_set_tally_export_enabled; Accounts phase 2
+    // (contract 2026-11-11, B9 and C12) adds admin_set_customer_documents_enabled and admin_set_refunds_enabled.
+    // Accounts phase 3 (contract 5.9 A7/A8/A10/A11, 6.1 B1/B2, 7.2 C2, 8.3 D5, 9.1 E1, 10.2 G1, 11.1 H1; 16.6 setup update by
+    // Track T) adds eleven Super Admin / policy setters: 17 + 11 = 28.
+    expect(rows).toHaveLength(28);
     expect(rows.filter((r) => r.anon || r.svc)).toEqual([]);
     expect(rows.filter((r) => r.auth).map((r) => r.name)).toEqual([
+      'admin_set_accounts_exception_owner(uuid,uuid,text)',
+      'admin_set_auto_bills(uuid,boolean,boolean,text)',
+      'admin_set_booking_changes_enabled(boolean,text)',
       'admin_set_booking_live(boolean,text)',
+      'admin_set_customer_documents_enabled(uuid,boolean,text)',
+      'admin_set_customer_message_pilot(uuid,boolean,text)',
+      'admin_set_customer_message_switch(uuid,text,text,boolean,text,integer)',
       'admin_set_finance_live_modes(uuid,jsonb,text)',
+      'admin_set_notices_enabled(boolean,text)',
+      'admin_set_push_enabled(boolean,text)',
+      'admin_set_rate_contracts_enabled(boolean,text)',
+      'admin_set_refunds_enabled(uuid,boolean,text)',
+      'admin_set_service_changes_enabled(boolean,text)',
       'admin_set_supplier_confirmation_live(boolean,text)',
+      'admin_set_supplier_email_sending(boolean,text)',
+      'admin_set_tally_export_enabled(uuid,boolean,text)',
+      'admin_set_tally_xml(uuid,boolean,text,text)',
+      'admin_set_timer_enabled(boolean,text)',
+      'admin_set_whatsapp_template_status(uuid,text,text,text)',
       'admin_set_workflow_setting(text,boolean,text)',
+      'admin_set_write_off(uuid,boolean,bigint,text)',
     ]);
   });
 

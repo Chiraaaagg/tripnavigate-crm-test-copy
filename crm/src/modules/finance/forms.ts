@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { maxPaiseForDigits, rupeesToPaise as readRupees } from '@/lib/money';
 import type { BillingFields, DestinationFields, PolicyFields, ReceiptFields } from './commands';
 import type {
   ChequeMarkKind,
@@ -125,18 +126,15 @@ export type Parsed<T> = { ok: true; value: T } | { ok: false; fieldErrors: Field
 // Money and dates
 // ---------------------------------------------------------------------------
 
+const FINANCE_MAX_PAISE = maxPaiseForDigits(16);
+
 /**
- * "1,23,456.5" -> "12345650" (whole paise). Accepts an optional leading ₹,
- * commas and spaces as grouping. '' -> null; anything else -> undefined.
- * At most 16 rupee digits (well inside bigint), at most two decimals.
+ * "1,23,456.5" -> "12345650" (whole paise), by the one money rule
+ * (src/lib/money.ts): digits, comma grouping, at most two decimals; no ₹ sign.
+ * '' -> null; anything else -> undefined. At most 16 rupee digits.
  */
 export function rupeesToPaise(raw: string | null | undefined): string | null | undefined {
-  const value = (raw ?? '').trim().replace(/^₹\s*/, '').replace(/[,\s]/g, '');
-  if (value === '') return null;
-  const match = /^(\d{1,16})(?:\.(\d{1,2}))?$/.exec(value);
-  if (!match) return undefined;
-  const paise = BigInt(match[1]!) * 100n + BigInt((match[2] ?? '').padEnd(2, '0'));
-  return paise.toString();
+  return readRupees(raw, { max: FINANCE_MAX_PAISE });
 }
 
 /** Whole paise -> rupee input text ("12345650" -> "123456.50"). */

@@ -1,11 +1,19 @@
 import { z } from 'zod';
+import { CancellationManagerAdditionsSchema } from '@/modules/cancellations/dto';
 import type { RpcClient, RpcError } from '@/modules/fulfilment/commands';
 import type {
+  CancellationDecision,
+  CancellationStatus,
   CostStage,
+  GoAheadDecision,
+  GoAheadRequestStatus,
+  GoAheadState,
   ProcurementErrorCode,
   ProcurementIssueCode,
   PurchaseEvidenceKind,
   QuoteStatus,
+  SupplierEmailKind,
+  SupplierEmailStatus,
   SupplierFields,
   SupplierServiceType,
 } from './contracts';
@@ -33,6 +41,18 @@ export const PROCUREMENT_ERROR_STATES: Record<ProcurementErrorCode, string> = {
   evidence_rejected: '22023',
   supplier_exists: '23505',
   deal_removed: '55000',
+  // Accounts phase 3, track H (20261205000750): a removed service takes no new Purchase work.
+  service_removed: '55000',
+  // Purchase build (20261130000100..0120).
+  go_ahead_missing: '55000',
+  booking_request_not_sent: '55000',
+  booking_not_approved: '55000',
+  trip_cancelled: '55000',
+  payment_in_progress: '55000',
+  not_self_approval: '42501',
+  already_decided: '55000',
+  duplicate_request: '23505',
+  not_configured: '55000',
 };
 
 const SESSION_STATES = new Set(['PGRST301', 'PGRST302', 'PGRST303', '401']);
@@ -44,6 +64,8 @@ export class ProcurementCommandError extends Error {
     readonly command: string,
     readonly code: ProcurementErrorCode | 'session' | null,
     readonly sqlState: string | null,
+    /** Accounts phase 3: the refused field for invalid_input (database hint), e.g. contractDeviationReason. */
+    readonly hint: string | null = null,
   ) {
     super(`${command} failed${sqlState ? ` (${sqlState})` : ''}${code ? `: ${code}` : ''}`);
   }
@@ -69,7 +91,7 @@ async function invoke(client: RpcClient, fn: string, args: Record<string, unknow
   } catch {
     throw new ProcurementCommandError(fn, null, null);
   }
-  if (result.error) throw new ProcurementCommandError(fn, mapProcurementError(result.error), result.error.code ?? null);
+  if (result.error) throw new ProcurementCommandError(fn, mapProcurementError(result.error), result.error.code ?? null, result.error.hint ?? null);
   return result.data;
 }
 
@@ -93,6 +115,11 @@ export const PROCUREMENT_ISSUE_CODES = [
   'missing_supplier_confirmation_proof',
   'evidence_upload_incomplete',
   'deal_removed',
+  'trip_cancelled',
+  'booking_request_not_sent',
+  'go_ahead_missing',
+  // Accounts phase 3, track H (20261205000750).
+  'service_removed',
 ] as const satisfies readonly ProcurementIssueCode[];
 
 const SERVICE_TYPES = ['hotel', 'transfer', 'activity'] as const satisfies readonly SupplierServiceType[];
@@ -144,7 +171,8 @@ const SupplierDetailSchema = SupplierSchema.extend({
 });
 export type SupplierDetailRecord = z.output<typeof SupplierDetailSchema>;
 
-const TaskSchema = z.object({
+/** Phase 4 hotel task shape inside purchase_workspace (hotel tasks only; the page reads the task through purchase_task_get). */
+export const WorkspaceHotelTaskSchema = z.object({
   taskId: z.uuid(),
   dealReference: z.string().min(1),
   hotelName: z.string().min(1),
@@ -171,15 +199,84 @@ const TaskSchema = z.object({
   canClaim: z.boolean(),
 });
 
+const GO_AHEAD_STATES = ['not_needed', 'not_requested', 'pending', 'approved', 'returned', 'stale'] as const satisfies readonly GoAheadState[];
+const GO_AHEAD_REQUEST_STATUSES = ['pending', 'approved', 'returned', 'superseded'] as const satisfies readonly GoAheadRequestStatus[];
+const EMAIL_KINDS = ['rate_request', 'booking_request'] as const satisfies readonly SupplierEmailKind[];
+const EMAIL_STATUSES = ['marked_sent', 'queued', 'sent', 'failed'] as const satisfies readonly SupplierEmailStatus[];
+const CANCELLATION_STATUSES = ['open', 'charges_entered', 'sent_to_manager', 'approved'] as const satisfies readonly CancellationStatus[];
+/** Absent on a database before the Purchase build: null. */
+const later = <T extends z.ZodType>(schema: T) => schema.nullable().optional().transform((v) => v ?? null);
+
+const GoAheadSchema = z.object({
+  state: z.enum(GO_AHEAD_STATES),
+  requestId: z.uuid().nullable(),
+  costVersionNo: z.number().int().positive().nullable(),
+  requestedAt: timestamp.nullable(),
+  requestedByName: nullableText,
+  decidedAt: timestamp.nullable(),
+  decidedByName: nullableText,
+  returnReason: nullableText,
+});
+export type GoAheadRecord = z.output<typeof GoAheadSchema>;
+
+const EmailSchema = z.object({
+  emailId: z.uuid(),
+  kind: z.enum(EMAIL_KINDS),
+  supplierId: z.uuid(),
+  supplierName: z.string(),
+  toEmail: z.string().min(3).max(254),
+  ccEmails: z.array(z.string().min(3).max(254)).max(10),
+  subject: z.string().min(1).max(300),
+  body: z.string().min(1).max(8000),
+  status: z.enum(EMAIL_STATUSES),
+  costVersionNo: z.number().int().positive().nullable(),
+  sentAt: timestamp,
+  sentByName: nullableText,
+  failed: z.boolean(),
+});
+
+const ChargeSchema = z.object({
+  taskId: z.uuid(),
+  revisionNo: z.number().int().positive(),
+  supplierId: z.uuid(),
+  supplierName: z.string(),
+  committedCostPaise: paise,
+  supplierKeepsPaise: paise,
+  supplierRefundPaise: paise,
+  note: nullableText,
+  creditNoteEvidenceId: z.uuid().nullable(),
+  enteredAt: timestamp,
+  enteredByName: nullableText,
+});
+export type ChargeRecord = z.output<typeof ChargeSchema>;
+
+const TaskCancellationSchema = z.object({
+  /** Null when the panel belongs to a service removal (Accounts phase 3, track H, 11.3). */
+  cancellationId: z.uuid().nullable(),
+  /** Track H: the remove_service request (null for a trip cancellation; absent from older servers). */
+  changeRequestId: z.uuid().nullable().optional().transform((v) => v ?? null),
+  status: z.enum(CANCELLATION_STATUSES),
+  reason: z.string().min(1).max(500),
+  openedAt: timestamp,
+  openedByName: nullableText,
+  rowVersion: z.number().int().positive(),
+  returnReason: nullableText,
+  myCharge: ChargeSchema.nullable(),
+  canEnter: z.boolean(),
+  canSend: z.boolean(),
+  chargesMissing: z.number().int().nonnegative(),
+});
+
 const WorkspaceSchema = z.object({
-  task: TaskSchema,
+  /** Not used for the view: loadPurchaseWorkspace reads the task through purchase_task_get (all service types). */
+  task: z.unknown(),
   canWork: z.boolean(),
   canRelease: z.boolean(),
   canReassign: z.boolean(),
   canApproveOverBudget: z.boolean(),
   assigneeUserId: z.uuid().nullable(),
   reassignCandidates: z.array(z.object({ userId: z.uuid(), name: z.string() })),
-  gateIssue: z.enum(['environment_unset', 'procurement_disabled', 'deal_removed']).nullable(),
+  gateIssue: z.enum(['environment_unset', 'procurement_disabled', 'deal_removed', 'service_removed']).nullable(),
   issues: z.array(z.enum(PROCUREMENT_ISSUE_CODES)),
   supplierReference: nullableText,
   selectedQuoteId: z.uuid().nullable(),
@@ -199,6 +296,8 @@ const WorkspaceSchema = z.object({
       status: z.enum(QUOTE_STATUSES),
       createdAt: timestamp,
       createdByName: nullableText,
+      perRoomNightPaise: later(paise),
+      note: later(z.string().max(300)),
     }),
   ),
   costVersions: z.array(
@@ -226,8 +325,28 @@ const WorkspaceSchema = z.object({
       status: z.enum(['pending_upload', 'stored', 'failed']),
       createdAt: timestamp,
       uploadedByName: nullableText,
+      // Accounts phase 3 (20261205000690): the reconfirmation the proof was uploaded for.
+      reconfirmationId: z.uuid().nullable().optional().transform((v) => v ?? null),
     }),
   ),
+  // Purchase build (20261130000120); absent on an older database.
+  goAhead: later(GoAheadSchema),
+  emails: z.array(EmailSchema).optional().transform((v) => v ?? []),
+  cancellation: later(TaskCancellationSchema),
+  emailSendingEnabled: z.boolean().optional().transform((v) => v ?? false),
+  // Accounts phase 2 (20261204000130, 13.4); absent on an older database.
+  catalogueHotelId: later(z.uuid()),
+  catalogueHotelName: later(z.string()),
+  hotelSuppliers: z
+    .array(z.object({
+      supplierId: z.uuid(),
+      name: z.string(),
+      kind: z.enum(['direct', 'channel']),
+      verification: z.enum(['unverified', 'verified']),
+      bankState: z.enum(['approved', 'on_hold', 'none']),
+    }))
+    .optional()
+    .transform((v) => v ?? []),
 });
 export type WorkspaceRecord = z.output<typeof WorkspaceSchema>;
 
@@ -245,7 +364,15 @@ export async function supplierGet(client: RpcClient, supplierId: string): Promis
   return parse(fn, SupplierDetailSchema.nullable(), await invoke(client, fn, { p_supplier_id: supplierId }));
 }
 
-const SupplierWriteSchema = z.object({ supplierId: z.uuid(), rowVersion: z.number().int().positive() });
+// Accounts phase 2 (20261204000110): create / update also answer near-duplicate warnings (see modules/suppliers).
+const SupplierWriteSchema = z.object({
+  supplierId: z.uuid(),
+  rowVersion: z.number().int().positive(),
+  warnings: z
+    .array(z.object({ supplierId: z.uuid(), name: z.string(), reasons: z.array(z.enum(['similar_name_city', 'same_gstin', 'same_pan', 'same_bank'])) }))
+    .optional()
+    .transform((v) => v ?? []),
+});
 
 export async function supplierCreate(client: RpcClient, entityId: string, fields: SupplierFields) {
   const fn = 'supplier_create';
@@ -288,21 +415,53 @@ export async function purchaseWorkspace(client: RpcClient, taskId: string): Prom
 
 export interface QuoteInput {
   supplierId: string;
+  /** Hotel name, or the service name for transfer and activity tasks. */
   hotelName: string;
   roomType: string | null;
   mealPlan: string | null;
   quotedCostPaise: string;
   holdUntil: string | null;
   cancellationTerms: string | null;
+  /** Purchase build: optional rate per room per night (hotel only). Omitted from the call when null. */
+  perRoomNightPaise?: string | null;
+  /** Purchase build: optional short note (up to 300 characters). Omitted from the call when null. */
+  note?: string | null;
+  /** Accounts phase 2 (13.4): the catalogue hotel (hotel tasks). Omitted from the call when null. */
+  catalogueHotelId?: string | null;
+  /** Accounts phase 3 (E9): the hotel's room type and the meal plan code (EP/CP/MAP/AP/AI). Omitted when null. */
+  roomTypeId?: string | null;
+  mealPlanCode?: string | null;
+  /** Accounts phase 3 (E9): why the offer differs from the contract total (10-300 characters). Omitted when null. */
+  contractDeviationReason?: string | null;
 }
 
 export async function quoteAdd(client: RpcClient, taskId: string, requestId: string, fields: QuoteInput) {
   const fn = 'purchase_quote_add';
   return parse(
     fn,
-    z.object({ quoteId: z.uuid(), created: z.boolean() }),
-    await invoke(client, fn, { p_task_id: taskId, p_request_id: requestId, p_fields: fields }),
+    z.object({
+      quoteId: z.uuid(),
+      created: z.boolean(),
+      // Accounts phase 3 (20261205000520): absent on a replayed or older reply.
+      contractState: z.enum(['none', 'matches', 'differs', 'ended']).optional(),
+      contractTotalPaise: paise.nullable().optional(),
+    }),
+    await invoke(client, fn, { p_task_id: taskId, p_request_id: requestId, p_fields: quoteFields(fields) }),
   );
+}
+
+/** Older databases refuse unknown keys: the Purchase build keys are sent only when set. */
+function quoteFields(fields: QuoteInput): Record<string, string | null> {
+  const { perRoomNightPaise, note, catalogueHotelId, roomTypeId, mealPlanCode, contractDeviationReason, ...base } = fields;
+  return {
+    ...base,
+    ...(perRoomNightPaise ? { perRoomNightPaise } : {}),
+    ...(note ? { note } : {}),
+    ...(catalogueHotelId ? { catalogueHotelId } : {}),
+    ...(roomTypeId ? { roomTypeId } : {}),
+    ...(mealPlanCode ? { mealPlanCode } : {}),
+    ...(contractDeviationReason ? { contractDeviationReason } : {}),
+  };
 }
 
 export async function quoteWithdraw(client: RpcClient, quoteId: string) {
@@ -436,5 +595,298 @@ export async function taskReassign(client: RpcClient, taskId: string, expectedAs
     fn,
     z.object({ taskId: z.uuid(), outcome: Outcome }),
     await invoke(client, fn, { p_task_id: taskId, p_expected_assignee: expectedAssigneeId, p_to_user_id: toUserId }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Purchase build (20261130000100..0120): e-mail, booking request, go-ahead,
+// trip cancellation, e-mail switch
+// ---------------------------------------------------------------------------
+
+const Created = z.enum(['created', 'existing']);
+const EmailResultSchema = z.object({ emailId: z.uuid(), status: z.enum(EMAIL_STATUSES), outcome: Created });
+
+export interface SupplierEmailInput {
+  to: string;
+  cc: string[];
+  subject: string;
+  body: string;
+}
+
+export async function emailRecord(
+  client: RpcClient,
+  input: SupplierEmailInput & { taskId: string; kind: SupplierEmailKind; supplierId: string; requestId: string },
+) {
+  const fn = 'purchase_email_record';
+  return parse(
+    fn,
+    EmailResultSchema,
+    await invoke(client, fn, {
+      p_task_id: input.taskId,
+      p_kind: input.kind,
+      p_supplier_id: input.supplierId,
+      p_to: input.to,
+      p_cc: input.cc,
+      p_subject: input.subject,
+      p_body: input.body,
+      p_request_id: input.requestId,
+    }),
+  );
+}
+
+export async function bookingRequestSend(
+  client: RpcClient,
+  input: SupplierEmailInput & { taskId: string; expectedCostVersionNo: number; requestId: string },
+) {
+  const fn = 'purchase_booking_request_send';
+  return parse(
+    fn,
+    EmailResultSchema.extend({ goAheadRequestId: z.uuid().nullable(), goAheadState: z.enum(GO_AHEAD_STATES) }),
+    await invoke(client, fn, {
+      p_task_id: input.taskId,
+      p_expected_cost_version_no: input.expectedCostVersionNo,
+      p_to: input.to,
+      p_cc: input.cc,
+      p_subject: input.subject,
+      p_body: input.body,
+      p_request_id: input.requestId,
+    }),
+  );
+}
+
+/** Server-only follow-up after the provider call: privileged client only (service_role; never the staff session). */
+export async function emailMarkResult(
+  client: RpcClient,
+  input: { emailId: string; status: 'sent' | 'failed'; providerId: string | null; failure: string | null },
+) {
+  const fn = 'purchase_email_mark_result';
+  return parse(
+    fn,
+    EmailResultSchema,
+    await invoke(client, fn, {
+      p_email_id: input.emailId,
+      p_status: input.status,
+      p_provider_id: input.providerId,
+      p_failure: input.failure,
+    }),
+  );
+}
+
+export async function goAheadDecide(
+  client: RpcClient,
+  input: { goAheadRequestId: string; decision: GoAheadDecision; reason: string | null; expectedRowVersion: number; requestId: string },
+) {
+  const fn = 'purchase_go_ahead_decide';
+  return parse(
+    fn,
+    z.object({ requestId: z.uuid(), status: z.enum(['approved', 'returned']), outcome: Created }),
+    await invoke(client, fn, {
+      p_request: input.goAheadRequestId,
+      p_decision: input.decision,
+      p_reason: input.reason,
+      p_expected_row_version: input.expectedRowVersion,
+      p_request_id: input.requestId,
+    }),
+  );
+}
+
+const CancellationResultSchema = z.object({
+  cancellationId: z.uuid(),
+  status: z.enum(CANCELLATION_STATUSES),
+  rowVersion: z.number().int().positive(),
+  outcome: Created,
+});
+
+export async function cancellationOpen(client: RpcClient, input: { dealId: string; reason: string; requestId: string }) {
+  const fn = 'deal_cancellation_open';
+  return parse(
+    fn,
+    CancellationResultSchema,
+    await invoke(client, fn, { p_deal_id: input.dealId, p_reason: input.reason, p_request_id: input.requestId }),
+  );
+}
+
+export interface CancellationChargeInput {
+  taskId: string;
+  keepsPaise: string;
+  refundPaise: string;
+  note: string | null;
+  creditNoteEvidenceId: string | null;
+  expectedRevision: number;
+  requestId: string;
+}
+
+export async function cancellationChargeSet(client: RpcClient, input: CancellationChargeInput) {
+  const fn = 'purchase_cancellation_charge_set';
+  return parse(
+    fn,
+    // Track H (11.3): a charge of a service removal has no trip cancellation (cancellationId null) and names its request.
+    z.object({ cancellationId: z.uuid().nullable(), changeRequestId: z.uuid().nullable().optional().transform((v) => v ?? null),
+      revisionNo: z.number().int().positive(), status: z.enum(CANCELLATION_STATUSES), outcome: Created }),
+    await invoke(client, fn, {
+      p_task_id: input.taskId,
+      p_keeps_paise: input.keepsPaise,
+      p_refund_paise: input.refundPaise,
+      p_note: input.note,
+      p_credit_note_evidence_id: input.creditNoteEvidenceId,
+      p_expected_revision: input.expectedRevision,
+      p_request_id: input.requestId,
+    }),
+  );
+}
+
+export async function cancellationSend(client: RpcClient, input: { cancellationId: string; expectedRowVersion: number; requestId: string }) {
+  const fn = 'deal_cancellation_send';
+  return parse(
+    fn,
+    CancellationResultSchema,
+    await invoke(client, fn, {
+      p_cancellation_id: input.cancellationId,
+      p_expected_row_version: input.expectedRowVersion,
+      p_request_id: input.requestId,
+    }),
+  );
+}
+
+export async function cancellationDecide(
+  client: RpcClient,
+  input: { cancellationId: string; decision: CancellationDecision; reason: string | null; expectedRowVersion: number; requestId: string },
+) {
+  const fn = 'deal_cancellation_decide';
+  return parse(
+    fn,
+    CancellationResultSchema,
+    await invoke(client, fn, {
+      p_cancellation_id: input.cancellationId,
+      p_decision: input.decision,
+      p_reason: input.reason,
+      p_expected_row_version: input.expectedRowVersion,
+      p_request_id: input.requestId,
+    }),
+  );
+}
+
+/** Super Admin switch; the database refuses everyone else (message 'not authorized', 42501). */
+export async function setSupplierEmailSending(client: RpcClient, enabled: boolean, reason: string) {
+  const fn = 'admin_set_supplier_email_sending';
+  return parse(
+    fn,
+    z.object({ changed: z.boolean(), before: z.boolean(), after: z.boolean(), updatedAt: timestamp }),
+    await invoke(client, fn, { p_enabled: enabled, p_reason: reason }),
+  );
+}
+
+// ---- Reads ----------------------------------------------------------------
+
+const AccountsGoAheadSchema = z.object({
+  requestId: z.uuid(),
+  status: z.enum(GO_AHEAD_REQUEST_STATUSES),
+  current: z.boolean(),
+  dealId: z.uuid(),
+  dealReference: z.string().min(1),
+  branchName: z.string(),
+  taskId: z.uuid(),
+  itemTitle: z.string().min(1).max(400),
+  checkIn: isoDate.nullable(),
+  checkOut: isoDate.nullable(),
+  supplierName: z.string(),
+  amountPaise: paise,
+  costVersionNo: z.number().int().positive(),
+  requestedAt: timestamp,
+  requestedByName: nullableText,
+  decidedAt: timestamp.nullable(),
+  decidedByName: nullableText,
+  returnReason: nullableText,
+  rowVersion: z.number().int().positive(),
+  bookingReviewStatus: z.enum(['pending', 'returned', 'approved', 'missing']),
+  canDecide: z.boolean(),
+  // Accounts phase 3 (20261205000520): additive contract flags of the request's quote.
+  contractState: z.enum(['none', 'matches', 'differs', 'ended']).optional().transform((v) => v ?? 'none'),
+  contractTotalPaise: paise.nullable().optional().transform((v) => v ?? null),
+  contractDeviationReason: nullableText.optional().transform((v) => v ?? null),
+});
+export type AccountsGoAheadRecord = z.output<typeof AccountsGoAheadSchema>;
+
+export async function accountsGoAheadList(client: RpcClient): Promise<AccountsGoAheadRecord[]> {
+  const fn = 'accounts_go_ahead_list';
+  return parse(fn, z.array(AccountsGoAheadSchema).max(500), await invoke(client, fn, {}));
+}
+
+const ManagerCancellationSchema = z.object({
+  cancellationId: z.uuid(),
+  dealId: z.uuid(),
+  dealReference: z.string().min(1),
+  branchName: z.string(),
+  status: z.enum(CANCELLATION_STATUSES),
+  reason: z.string().min(1).max(500),
+  openedAt: timestamp,
+  openedByName: nullableText,
+  sentAt: timestamp.nullable(),
+  sentByName: nullableText,
+  decidedAt: timestamp.nullable(),
+  decidedByName: nullableText,
+  returnReason: nullableText,
+  rowVersion: z.number().int().positive(),
+  charges: z.array(ChargeSchema.extend({ itemTitle: z.string().min(1).max(400) })),
+  totalKeepsPaise: paise,
+  totalRefundPaise: paise,
+  canDecide: z.boolean(),
+  // Accounts phase 2 (Track C, 7.4): Flight charges and the combined kept charges (Manager).
+}).extend(CancellationManagerAdditionsSchema.shape);
+export type ManagerCancellationRecord = z.output<typeof ManagerCancellationSchema>;
+
+export async function managerCancellationList(client: RpcClient): Promise<ManagerCancellationRecord[]> {
+  const fn = 'manager_cancellation_list';
+  return parse(fn, z.array(ManagerCancellationSchema), await invoke(client, fn, {}));
+}
+
+/**
+ * Lead fix-forward 20261204000920: the same rows, only for the cancellations
+ * waiting for this Manager (sent to the Manager, oldest sent first, the first
+ * 50 — exactly manager_approvals().cancellations). For the Approvals page.
+ */
+export async function managerCancellationsToDecide(client: RpcClient): Promise<ManagerCancellationRecord[]> {
+  const fn = 'manager_cancellations_to_decide';
+  return parse(fn, z.array(ManagerCancellationSchema), await invoke(client, fn, {}));
+}
+
+const DealCancellationSchema = z.object({
+  canOpen: z.boolean(),
+  cancellation: z
+    .object({
+      cancellationId: z.uuid(),
+      status: z.enum(CANCELLATION_STATUSES),
+      reason: z.string().min(1).max(500),
+      openedAt: timestamp,
+      openedByName: nullableText,
+      decidedAt: timestamp.nullable(),
+    })
+    // Accounts phase 2 (Track C, 7.4): Manager only (absent for Purchase, Flight and Sales readers).
+    .extend(CancellationManagerAdditionsSchema.shape)
+    .nullable(),
+});
+export type DealCancellationRecord = z.output<typeof DealCancellationSchema>;
+
+/** null = Deal not found or not readable. */
+export async function dealCancellationSummary(client: RpcClient, dealId: string): Promise<DealCancellationRecord | null> {
+  const fn = 'deal_cancellation_summary';
+  return parse(fn, DealCancellationSchema.nullable(), await invoke(client, fn, { p_deal_id: dealId }));
+}
+
+/** Purchase queue flags (purchase_task_list additions); other keys of the row are read by the fulfilment module. */
+export async function purchaseQueueFlags(client: RpcClient): Promise<Array<{ taskId: string; goAheadState: GoAheadState; tripCancelled: boolean }>> {
+  const fn = 'purchase_task_list';
+  const data = await invoke(client, fn, {});
+  if (data === null) return [];
+  return parse(
+    fn,
+    z.array(
+      z.object({
+        taskId: z.uuid(),
+        goAheadState: z.enum(GO_AHEAD_STATES).optional().transform((v) => v ?? 'not_needed'),
+        tripCancelled: z.boolean().optional().transform((v) => v ?? false),
+      }),
+    ),
+    data,
   );
 }

@@ -612,7 +612,7 @@ describe('conversion into the booking draft', () => {
     });
   });
 
-  it('an item whose lines are not all costed converts with budget 0 ("not set"), so the budget_missing warning shows', async () => {
+  it('an item whose lines are not all costed converts with budget 0 ("not set"); the converted draft follows the v2 budget rule (no budget_missing)', async () => {
     await asOwner(db, async () => {
       const d = await draft({ extraBeds: 1 });
       const lines = [...baseLines(d).map((l) => ({ ...l, unitCostPaise: '200000' })),
@@ -628,7 +628,10 @@ describe('conversion into the booking draft', () => {
                           join public.service_items i on i.id = f.service_item_id where f.booking_version_id = $1 order by i.item_no`, [b]))
         .toEqual([{ n: 1, t: 'hotel', b: '0' }, { n: 2, t: 'transfer', b: '200000' }]);
       const checklist = await h.one<{ items: Array<{ code: string; itemNos?: number[] }> }>(OWNER, 'select public.intake_checklist($1) as r', [DEAL]);
-      expect(checklist.items.find((i) => i.code === 'budget_missing')?.itemNos).toEqual([1]);
+      // Book now v2 (owner decision D2): a booking-form draft (form rules 2, as every conversion is) takes the
+      // budget from the estimate, so the budget_missing warning no longer shows for it.
+      expect(await owner('select form_rules from public.booking_versions where id = $1', [b])).toEqual([{ form_rules: 2 }]);
+      expect(checklist.items.map((i) => i.code)).not.toContain('budget_missing');
     });
   });
 

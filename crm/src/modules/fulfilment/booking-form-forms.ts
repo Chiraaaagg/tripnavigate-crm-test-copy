@@ -6,13 +6,13 @@
  * validates and recomputes everything again.
  */
 
-import type { BillToType, GstStatus, PriceCategory, PriceLine, ServiceEstimate, TripSavePartyKeys } from './booking-form-contract';
-import { CUSTOMER_MARKETS, CUSTOMER_TYPES, PAX_TOTAL_MAX, PRICE_CATEGORIES, type CustomerMarket, type CustomerType } from './booking-form-contract';
+import type { BillToType, CarKind, FlightFareTotals, GstStatus, PriceCategory, PriceLine, RequestItem, ServiceEstimate, TripSavePartyKeys } from './booking-form-contract';
+import { CAR_KINDS, CUSTOMER_MARKETS, CUSTOMER_TYPES, PAX_TOTAL_MAX, PRICE_CATEGORIES, REQUEST_ITEMS_MAX, REQUEST_TEXT_MAX, type CustomerMarket, type CustomerType } from './booking-form-contract';
 import { addDays, GST_REASON_LIMITS, GST_STATE_CODE, gstinMatchesState, isIsoDate, normalisePhone, POSTAL_CODE, rupeesToPaise, EMAIL_SHAPE } from './booking-form-model';
 import { parseBookCustomerForm, parseBookTripBlockForm, type BookCustomerForm, type BookTripBlockForm } from './b11-forms';
 import { derivedAdults } from './passenger-slots';
 import type { BillingProposalFields, ServiceFacts } from './contracts';
-import { FIELD, formReaders, type ParsedForm, parseServiceItemForm, readRowVersion, readUuid, type ServiceItemForm } from './forms';
+import { FIELD, formReaders, type ParsedForm, parseServiceItemForm, readRowVersion, readUuid, requestItemsOk, type ServiceItemForm } from './forms';
 
 const { text, strings } = formReaders;
 
@@ -35,7 +35,30 @@ export const BOOKING_FORM_FIELD = {
   includedKms: 'includedKms',
   vendor: 'vendor',
   vehicleRateRupees: 'vehicleRateRupees',
+  /** Before Book now v2 (one total per flight). No longer read: the v2 form posts the fare per person. */
   fareTotalRupees: 'fareTotalRupees',
+  // Book now v2: fare per person on one flight (cost side; Child / Infant only when the trip has them).
+  fareAdultRupees: 'fareAdultRupees',
+  fareChildRupees: 'fareChildRupees',
+  fareInfantRupees: 'fareInfantRupees',
+  // Book now v2: "Total fare per person, all flights" (booking_flight_fares_save).
+  fareAdultTotalRupees: 'fareAdultTotalRupees',
+  fareChildTotalRupees: 'fareChildTotalRupees',
+  fareInfantTotalRupees: 'fareInfantTotalRupees',
+  // Book now v2: requests "for whom" (hotel special requests, flight preferences). Parallel
+  // repeated inputs: the request text and the traveller seq it is for ('' = everyone).
+  requestItemText: 'requestItemText',
+  requestItemFor: 'requestItemFor',
+  /** Hidden '1' in every hotel and flight drawer with the requests list (zero requests = clear them). */
+  requestItemsPosted: 'requestItemsPosted',
+  // Book now v2: flights.
+  entryMode: FIELD.entryMode,
+  screenshotNote: FIELD.screenshotNote,
+  /** Hidden '1' on a flight added as a return flight (absent = keep the stored flag). */
+  isReturn: 'isReturn',
+  // Book now v2: car type and the flight it meets ('' = none).
+  carKind: 'carKind',
+  flightItemId: 'flightItemId',
   segmentArrivalDate: 'segmentArrivalDate',
   segmentAirline: 'segmentAirline',
   segmentFlightNo: 'segmentFlightNo',
@@ -174,7 +197,10 @@ export interface BookingServiceForm extends Omit<ServiceItemForm, 'facts' | 'req
   facts: ServiceFacts;
   /** null = the editor posted no estimate inputs (unchanged; also what an editor without price access sends). */
   estimate: ServiceEstimate | null;
-  /** null = keep the stored budget on a save (0 on an add). */
+  /**
+   * null = no budget typed: the database keeps a typed budget, else (D2) sets
+   * it from the estimate. An older screen's empty box on an add posts '0'.
+   */
   budgetPaise: string | null;
   /**
    * Voice-note batch: a hotel posted without adults (the box is gone). The
@@ -266,9 +292,41 @@ export function parseBookingServiceForm(formData: FormData): ParsedForm<BookingS
     if (vendor.length > 150) fields.push(B.vendor);
     else if (vendor !== '') extra.vendor = vendor;
     if (formData.has(B.vehicleRateRupees)) estimate = { kind: 'transfer', vehicleRatePaise: readRate(formData, B.vehicleRateRupees, fields) };
+    // Book now v2: car type and the flight it meets.
+    if (formData.has(B.carKind)) {
+      const kind = value(formData, B.carKind);
+      if (kind === '') extra.carKind = null;
+      else if ((CAR_KINDS as readonly string[]).includes(kind)) extra.carKind = kind as CarKind;
+      else fields.push(B.carKind);
+    }
+    if (formData.has(B.flightItemId)) {
+      const id = value(formData, B.flightItemId).toLowerCase();
+      if (id === '') extra.flightItemId = null;
+      else if (UUID_SHAPE.test(id)) extra.flightItemId = id;
+      else fields.push(B.flightItemId);
+    }
+    // Keys the v2 car drawer no longer shows: posted empty = cleared; not posted = kept by the database.
+    if (formData.has(B.includedKms) && kms === null) extra.includedKms = null;
+    if (formData.has(B.vendor) && vendor === '') extra.vendor = null;
   } else if (type === 'flight') {
-    if (formData.has(B.fareTotalRupees)) estimate = { kind: 'flight', fareTotalPaise: readRate(formData, B.fareTotalRupees, fields) };
+    // Book now v2: fare per person (the older total is never written again).
+    if ([B.fareAdultRupees, B.fareChildRupees, B.fareInfantRupees].some((n) => formData.has(n))) {
+      estimate = {
+        kind: 'flight',
+        fareTotalPaise: null,
+        fareAdultPaise: readRate(formData, B.fareAdultRupees, fields),
+        fareChildPaise: readRate(formData, B.fareChildRupees, fields),
+        fareInfantPaise: readRate(formData, B.fareInfantRupees, fields),
+      };
+    }
+    if (formData.has(B.isReturn)) {
+      const raw = value(formData, B.isReturn);
+      if (['1', 'true', 'on'].includes(raw)) extra.isReturn = true;
+      else if (['', '0', 'false'].includes(raw)) extra.isReturn = false;
+      else fields.push(B.isReturn);
+    }
   }
+  const requestItems = readRequestItems(formData, type, fields);
 
   if (fields.length > 0 || !base.ok) return { ok: false, fields: [...new Set(fields)] };
   const v = base.value;
@@ -282,8 +340,9 @@ export function parseBookingServiceForm(formData: FormData): ParsedForm<BookingS
   if (facts.type === 'flight') {
     const segs = flightSegmentExtras(formData, fields);
     if (fields.length > 0) return { ok: false, fields: [...new Set(fields)] };
-    facts = { type: 'flight', facts: { ...facts.facts, segments: facts.facts.segments.map((s, i) => ({ ...s, ...(segs[i] ?? {}) })) } };
+    facts = { type: 'flight', facts: { ...facts.facts, ...extra, segments: facts.facts.segments.map((s, i) => ({ ...s, ...(segs[i] ?? {}) })) } };
   }
+  facts = withV2Keys(facts, formData, requestItems);
   return {
     ok: true,
     value: {
@@ -292,12 +351,104 @@ export function parseBookingServiceForm(formData: FormData): ParsedForm<BookingS
       requestId: requestId!,
       estimate,
       // The existing parser reads an empty budget as '0'; an empty input means "keep" on a save.
-      budgetPaise: value(formData, FIELD.purchaseBudgetRupees) === '' ? (v.itemId ? null : '0') : v.purchaseBudgetPaise,
+      // Book now v2 (owner decision D2): no budget input at all = null, so the database sets the
+      // budget from the estimate (a budget typed in an older screen stays as stored).
+      budgetPaise: !formData.has(FIELD.purchaseBudgetRupees)
+        ? null
+        : value(formData, FIELD.purchaseBudgetRupees) === ''
+          ? v.itemId
+            ? null
+            : '0'
+          : v.purchaseBudgetPaise,
       adultsFromBooking,
       ...(catalogueHotelId !== undefined ? { catalogueHotelId } : {}),
       thenAttach: value(formData, SERVICE_VN_FIELD.thenAttach) === '1',
     },
   };
+}
+
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Book now v2: requests "for whom" of a hotel or flight drawer. Read when the
+ * drawer posts any request or the hidden requestItemsPosted marker; undefined
+ * = not posted (the database keeps the stored requests). Parallel inputs:
+ * requestItemText[i] and requestItemFor[i] ('' = everyone, else a traveller
+ * seq). Blank rows are skipped; texts are trimmed with inner spaces collapsed.
+ */
+function readRequestItems(formData: FormData, type: string, fields: string[]): RequestItem[] | undefined {
+  if (type !== 'hotel' && type !== 'flight') return undefined;
+  if (!formData.has(B.requestItemText) && value(formData, B.requestItemsPosted) !== '1') return undefined;
+  const texts = strings(formData, B.requestItemText);
+  const fors = strings(formData, B.requestItemFor);
+  const out: RequestItem[] = [];
+  const seen = new Set<string>();
+  texts.forEach((raw, i) => {
+    const text = raw.trim().replace(/\s+/g, ' ');
+    if (text === '') return;
+    const forRaw = (fors[i] ?? '').trim();
+    const forSeq = forRaw === '' ? null : /^\d{1,3}$/.test(forRaw) && Number(forRaw) >= 1 && Number(forRaw) <= 100 ? Number(forRaw) : undefined;
+    if (text.length > REQUEST_TEXT_MAX || seen.has(text.toLowerCase())) fields.push(`${B.requestItemText}[${i}]`);
+    if (forSeq === undefined) fields.push(`${B.requestItemFor}[${i}]`);
+    seen.add(text.toLowerCase());
+    if (forSeq !== undefined) out.push({ text, forSeq });
+  });
+  if (out.length > REQUEST_ITEMS_MAX || !requestItemsOk(out)) fields.push(B.requestItemText);
+  return out;
+}
+
+/**
+ * Book now v2 keys on top of the parsed facts. Requests: posted items replace
+ * the readable text (the database writes it); without them, a text box the
+ * drawer did not show is left out so the database keeps the stored text.
+ * Keys the v2 drawers no longer show: posted empty = null (cleared), not
+ * posted = left out (the database keeps the stored value).
+ */
+function withV2Keys(facts: ServiceFacts, formData: FormData, requestItems: RequestItem[] | undefined): ServiceFacts {
+  const clearIfPosted = (f: Record<string, unknown>, key: string, name: string) => {
+    if (formData.has(name) && !(key in f)) f[key] = null;
+  };
+  switch (facts.type) {
+    case 'hotel': {
+      const f: Record<string, unknown> = { ...facts.facts };
+      if (requestItems !== undefined) {
+        delete f.specialRequests;
+        f.requestItems = requestItems;
+      } else if (!formData.has(FIELD.specialRequests)) {
+        delete f.specialRequests;
+      }
+      if (!formData.has(FIELD.children)) delete f.children;
+      clearIfPosted(f, 'area', FIELD.area);
+      clearIfPosted(f, 'exclusions', FIELD.exclusions);
+      clearIfPosted(f, 'bedRemarks', FIELD.bedRemarks);
+      clearIfPosted(f, 'childAges', FIELD.childAges);
+      return { type: 'hotel', facts: f as unknown as typeof facts.facts };
+    }
+    case 'flight': {
+      const f: Record<string, unknown> = { ...facts.facts };
+      if (requestItems !== undefined) {
+        delete f.preferences;
+        f.requestItems = requestItems;
+      } else {
+        clearIfPosted(f, 'preferences', FIELD.flightPreferences);
+      }
+      clearIfPosted(f, 'assistance', FIELD.assistance);
+      clearIfPosted(f, 'tripType', FIELD.tripType);
+      return { type: 'flight', facts: f as unknown as typeof facts.facts };
+    }
+    case 'visa': {
+      const f: Record<string, unknown> = { ...facts.facts };
+      if (!formData.has(FIELD.applyBy)) delete f.applyBy;
+      return { type: 'visa', facts: f as unknown as typeof facts.facts };
+    }
+    case 'passport': {
+      const f: Record<string, unknown> = { ...facts.facts };
+      if (!formData.has(FIELD.neededBy)) delete f.neededBy;
+      return { type: 'passport', facts: f as unknown as typeof facts.facts };
+    }
+    default:
+      return facts;
+  }
 }
 
 /** Segment extras aligned with the segments the facts parser kept (blank rows are skipped there too). */
@@ -348,8 +499,11 @@ export function serviceHintField(key: string): string {
     const name = { arrivalDate: B.segmentArrivalDate, airline: B.segmentAirline, flightNo: B.segmentFlightNo, departTime: B.segmentDepartTime, arriveTime: B.segmentArriveTime, from: FIELD.segmentFrom, to: FIELD.segmentTo, date: FIELD.segmentDate, flex: FIELD.segmentFlex }[part];
     return `${name}[${seg[1]}]`;
   }
-  const est = /^estimate\.(roomRatePaise|extraBedRatePaise|noBedRatePaise|vehicleRatePaise|fareTotalPaise)$/.exec(key);
-  if (est) return { roomRatePaise: B.roomRateRupees, extraBedRatePaise: B.extraBedRateRupees, noBedRatePaise: B.noBedRateRupees, vehicleRatePaise: B.vehicleRateRupees, fareTotalPaise: B.fareTotalRupees }[est[1] as 'roomRatePaise'];
+  const est = /^estimate\.(roomRatePaise|extraBedRatePaise|noBedRatePaise|vehicleRatePaise|fareTotalPaise|fareAdultPaise|fareChildPaise|fareInfantPaise)$/.exec(key);
+  if (est) return { roomRatePaise: B.roomRateRupees, extraBedRatePaise: B.extraBedRateRupees, noBedRatePaise: B.noBedRateRupees, vehicleRatePaise: B.vehicleRateRupees, fareTotalPaise: B.fareAdultRupees, fareAdultPaise: B.fareAdultRupees, fareChildPaise: B.fareChildRupees, fareInfantPaise: B.fareInfantRupees }[est[1] as 'roomRatePaise'];
+  // Book now v2
+  if (key === 'requestItems') return B.requestItemText;
+  if (key === 'segments') return FIELD.segmentFrom;
   if (key === 'purchaseBudgetPaise' || key === 'budget') return FIELD.purchaseBudgetRupees;
   if (key === 'participants') return FIELD.participantSeq;
   return key.replace(/\[\d+\].*$/, '').replace(/\..*$/, '');
@@ -590,3 +744,67 @@ export const BILL_TO_HINTS: Readonly<Record<string, string>> = {
   billing: FIELD.billingName,
   requestId: FIELD.requestId,
 };
+
+// ---------------------------------------------------------------------------
+// Book now v2 · flights (booking_flight_fares_save, booking_flight_returns_add)
+// ---------------------------------------------------------------------------
+
+export interface FlightFaresForm {
+  dealId: string;
+  versionId: string;
+  expectedRowVersion: number;
+  requestId: string;
+  /** Per person, all flights; null = not typed (a type no flight prices). */
+  fares: FlightFareTotals;
+}
+
+/**
+ * "Total fare per person, all flights" (typed only for a traveller type no
+ * flight prices). Each amount: rupees, 0 or more, up to 2 decimals; '' = not
+ * typed. An input the screen did not show (no children, no infants) = null.
+ */
+export function parseFlightFaresForm(formData: FormData): ParsedForm<FlightFaresForm> {
+  const fields: string[] = [];
+  const dealId = readUuid(formData, FIELD.dealId);
+  if (!dealId) fields.push(FIELD.dealId);
+  const versionId = readUuid(formData, FIELD.versionId);
+  if (!versionId) fields.push(FIELD.versionId);
+  const expectedRowVersion = readRowVersion(formData);
+  if (expectedRowVersion === null) fields.push(FIELD.rowVersion);
+  const requestId = readRequestId(formData, fields);
+  const fares: FlightFareTotals = {
+    adultPaise: readRate(formData, B.fareAdultTotalRupees, fields),
+    childPaise: readRate(formData, B.fareChildTotalRupees, fields),
+    infantPaise: readRate(formData, B.fareInfantTotalRupees, fields),
+  };
+  if (fields.length > 0) return { ok: false, fields: [...new Set(fields)] };
+  return { ok: true, value: { dealId: dealId!, versionId: versionId!, expectedRowVersion: expectedRowVersion!, requestId: requestId!, fares } };
+}
+
+export interface ReturnFlightsForm {
+  dealId: string;
+  versionId: string;
+  expectedRowVersion: number;
+  requestId: string;
+}
+
+/** "Add return flights": the draft and its row version (the database decides which flights to reverse). */
+export function parseReturnFlightsForm(formData: FormData): ParsedForm<ReturnFlightsForm> {
+  const fields: string[] = [];
+  const dealId = readUuid(formData, FIELD.dealId);
+  if (!dealId) fields.push(FIELD.dealId);
+  const versionId = readUuid(formData, FIELD.versionId);
+  if (!versionId) fields.push(FIELD.versionId);
+  const expectedRowVersion = readRowVersion(formData);
+  if (expectedRowVersion === null) fields.push(FIELD.rowVersion);
+  const requestId = readRequestId(formData, fields);
+  if (fields.length > 0) return { ok: false, fields: [...new Set(fields)] };
+  return { ok: true, value: { dealId: dealId!, versionId: versionId!, expectedRowVersion: expectedRowVersion!, requestId: requestId! } };
+}
+
+/** Database hint keys of booking_flight_fares_save → form names. */
+export function faresHintField(key: string): string {
+  const m = /^fares\.(adultPaise|childPaise|infantPaise)$/.exec(key);
+  if (m) return { adultPaise: B.fareAdultTotalRupees, childPaise: B.fareChildTotalRupees, infantPaise: B.fareInfantTotalRupees }[m[1] as 'adultPaise'];
+  return key;
+}

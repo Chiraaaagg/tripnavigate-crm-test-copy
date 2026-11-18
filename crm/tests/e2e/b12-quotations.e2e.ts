@@ -17,6 +17,7 @@ const STATES = [
   'b12-quote-draft',
   'b12-quote-ready',
   'b12-quote-ready-gstin-pending',
+  'b12-quote-ready-gstin-unknown-branch',
   'b12-quote-sent',
   'b12-quote-expired',
   'b12-quote-declined',
@@ -31,6 +32,7 @@ const STATES = [
   'b12-quote-preview-no-money',
   'b12-quote-preview-blocked',
   'b12-quote-preview-gstin-pending',
+  'b12-quote-preview-gstin-unknown-branch',
   'b12-quote-not-available',
   'b2-quote-untouched',
   'b2-quote-inline',
@@ -251,17 +253,25 @@ test.describe('B1.2 quotations: read-only states', () => {
     for (const word of COMMERCIAL_WORDS.filter((w) => !/Payment plan|GSTIN/i.test(w.source))) await expect(doc).not.toContainText(word);
   });
 
-  test('DEC-50: a Delhi quotation (company GSTIN not approved) warns before sending, never blocks; the preview says Accounts owns it', async ({ page }) => {
-    const warning = "This quotation prints a '[GSTIN for Delhi]' mark instead of the company GSTIN, because Accounts has not approved it yet. Ask Accounts before sending it to the customer.";
+  test('DEC-50: a quotation without the company GSTIN warns before sending, never blocks; a Delhi quotation prints the company GSTIN (LD1)', async ({ page }) => {
+    // Accounts phase 2 (LD1, company-identity.ts): Delhi and Ahmedabad print the one company GSTIN, so the Delhi
+    // quotation no longer warns. The warning stays for a quotation whose branch is missing or unknown.
     await open(page, 'b12-quote-ready-gstin-pending');
+    await expect(page.locator('main')).not.toContainText('Company GSTIN missing on this quotation');
+    await open(page, 'b12-quote-preview-gstin-pending');
+    await expect(page.locator('#quote-document')).toContainText('GSTIN 08AAFCH9191M1ZV (Rajasthan)');
+    await expect(page.locator('#quote-document .fill')).toHaveText(['Room type']);
+
+    const warning = 'The branch of this document is not known, so the company GSTIN cannot be printed. Tell the CRM team.';
+    await open(page, 'b12-quote-ready-gstin-unknown-branch');
     await expect(page.locator('main')).toContainText('Company GSTIN missing on this quotation');
     await expect(page.locator('main')).toContainText(warning);
     await expect(page.locator('main').getByRole('button', { name: 'Mark as shared' })).toBeEnabled();
-    await open(page, 'b12-quote-preview-gstin-pending');
+    await open(page, 'b12-quote-preview-gstin-unknown-branch');
     await expect(page.locator('main').getByRole('status')).toContainText(warning);
     // The GSTIN is not counted as a fact to fill in; the fixture's one other missing fact still is.
     await expect(page.locator('main').getByRole('status')).toContainText('1 detail missing (shown in [brackets]): Room type.');
-    await expect(page.locator('#quote-document .fill')).toHaveText(['Room type', 'GSTIN for Delhi']);
+    await expect(page.locator('#quote-document .fill')).toHaveText(['Room type', 'GSTIN for branch']);
   });
 
   test('Lead card: Create quotation; lost Deal says why there is none; unknown quotation is "not available"', async ({ page }) => {

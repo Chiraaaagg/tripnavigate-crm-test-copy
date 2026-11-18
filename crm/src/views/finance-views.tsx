@@ -29,6 +29,7 @@ import {
   type FinanceErrorCode,
   RECEIPT_MODE_LABEL,
   type ReceiptView,
+  REVIEW_RETURN_BLOCK_TEXT,
 } from '@/modules/finance/contracts';
 import {
   BillingPill,
@@ -528,6 +529,11 @@ function BookingFacts({ d, actions }: { d: AccountsDealDetail; actions: FinanceA
           <p>Sales sees return reasons in Book now. Only reasons recorded before Sales could see them stay inside Accounts; if this return is that old, tell Sales outside the CRM.</p>
         </div>
       ) : null}
+      {!b.canReturn && b.returnBlock ? (
+        <Notice tone="locked" className="mb-3" title="Return to Sales is not possible">
+          <p>{REVIEW_RETURN_BLOCK_TEXT[b.returnBlock]}</p>
+        </Notice>
+      ) : null}
       {b.reviewStatus === 'pending' && b.reviewedAt && d.billing?.status !== 'verified' ? (
         <Notice tone="warning" role="status" className="mb-3" title="Review waiting again">
           <p>The billing details were saved after the last review, so this review is waiting again. Check the billing details, then approve or return the booking.</p>
@@ -536,7 +542,8 @@ function BookingFacts({ d, actions }: { d: AccountsDealDetail; actions: FinanceA
       {b.reviewStatus !== 'approved' ? (
         <div className="fin-review-actions">
           <ApproveReviewForm dealId={d.dealId} booking={b} action={actions.approveReviewAction} />
-          <ReturnReviewForm dealId={d.dealId} booking={b} action={actions.returnReviewAction} />
+          {/* Accounts phase 0 (contract 5.2, 11.4): the Return button is hidden once the Deal is committed; the reason says what to do instead. */}
+          {b.canReturn ? <ReturnReviewForm dealId={d.dealId} booking={b} action={actions.returnReviewAction} /> : null}
         </div>
       ) : (
         <p className="m-0">Approved. Approval posts no money and issues no document. Saving billing details again puts the review back to waiting.</p>
@@ -888,6 +895,7 @@ export function AccountsDealView({
   openClaimId,
   tabParam,
   documents,
+  money,
   tabHref,
 }: {
   detail: AccountsDealDetail;
@@ -902,8 +910,10 @@ export function AccountsDealView({
   destinationOptionsUnavailable?: boolean;
   /** Raw `?tab=` from the address (Batch 4 DA-15); allowlisted here, else the tab of the next action. */
   tabParam?: string | string[];
-  /** Documents tab content from the route (traveller ID proofs). */
+  /** Documents tab content from the route (traveller ID proofs; Accounts phase 2: customer documents). */
   documents?: ReactNode;
+  /** Accounts phase 2: Money tab content from the route (the Deal's refunds), shown under the money summary. */
+  money?: ReactNode;
   /** Preview gallery only: where each tab link points. Routes omit it. */
   tabHref?: (tab: AccountsDealTab) => string;
 }) {
@@ -959,7 +969,10 @@ export function AccountsDealView({
 
       <div data-slot="accounts-deal-tab" data-tab={tab}>
         {tab === 'money' ? (
-          <MoneyTab d={d} claimActions={claimActions} destinationOptions={destinationOptions} destinationOptionsUnavailable={destinationOptionsUnavailable} openClaimId={openClaimId} />
+          <>
+            <MoneyTab d={d} claimActions={claimActions} destinationOptions={destinationOptions} destinationOptionsUnavailable={destinationOptionsUnavailable} openClaimId={openClaimId} />
+            {money ? <div className="mt-5 flex flex-col gap-5">{money}</div> : null}
+          </>
         ) : tab === 'review' ? (
           <>
             <div className="fin-grid">

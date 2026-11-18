@@ -935,6 +935,9 @@ describe('P3-07 Purchase sees scope and budget only', () => {
         createdAt: expect.any(String),
         // Phase 4: Sales and Purchase may see when the supplier confirmed (P4-D6); null until then.
         supplierConfirmedAt: null,
+        // Purchase build (20261130000120): computed hotel go-ahead state and the trip-cancelled flag (no amounts).
+        goAheadState: 'not_requested',
+        tripCancelled: false,
         // B1 (20261118000100): the sold service behind the task; hotel facts mirror the version columns.
         serviceType: 'hotel',
         department: 'purchase',

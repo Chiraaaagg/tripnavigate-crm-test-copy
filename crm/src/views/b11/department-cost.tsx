@@ -63,6 +63,9 @@ export function ExpenseStatusPill({ status, accounts = false }: { status: Expens
   );
 }
 
+/** Flight build: shown on an older flight cost card instead of the over-limit rule. */
+export const FLIGHT_COST_MOVED_TEXT = 'Flight costs now come from the fares confirmed with the tickets on the Flight workspace. Older entries stay here and can still be sent to Accounts.';
+
 export interface CostActions {
   save: B11Action;
   submit: B11Action;
@@ -107,7 +110,8 @@ export function DepartmentCostCard({
             <Notice tone="locked">{readOnlyReason ?? DEPARTMENT_COST_TEXT.purchasePlaceholder}</Notice>
           ) : (
             <>
-              {department === 'flight' ? <Notice tone="info">{DEPARTMENT_COST_TEXT.flightOverLimit}</Notice> : null}
+              {/* Flight build (decision 3): flight costs come only from the fares confirmed with the tickets; older manual entries stay readable and can still be sent. */}
+              {department === 'flight' ? <Notice tone="info">{FLIGHT_COST_MOVED_TEXT}</Notice> : null}
               {department === 'visa' ? <Notice tone="info">{DEPARTMENT_COST_TEXT.companyFeeNote}</Notice> : null}
             </>
           )}
@@ -134,15 +138,7 @@ export function DepartmentCostCard({
               ))}
             </ul>
           ) : null}
-          {canRecord && actions && department === 'flight' ? (
-            <details className="rounded-control border border-line bg-canvas">
-              <summary className="flex min-h-11 cursor-pointer items-center px-3 font-medium text-brand-strong">Upload the direct-payment proof</summary>
-              <div className="border-t border-line bg-card px-3 py-3">
-                <DepartmentUploadForm taskId={taskId} kinds={[{ value: 'direct_payment_proof', label: 'Direct payment proof' }]} action={actions.upload} label="Upload the direct-payment proof" />
-              </div>
-            </details>
-          ) : null}
-          {canRecord && actions && department !== 'purchase' ? (
+          {canRecord && actions && department === 'visa' ? (
             adding ? (
               <CostForm taskId={taskId} department={department} receipts={receipts} action={actions.save} initialState={initialState} onDone={() => setAdding(false)} />
             ) : (
@@ -439,6 +435,8 @@ function ExpenseCard({ record, acceptAction, returnAction }: { record: AccountsE
         <ExpenseStatusPill status={record.status} accounts />
       </div>
       <SummaryList>
+        {/* Visa build (VL16): the traveller of a per-passenger visa cost, as its own row (never a Sales note). */}
+        {record.department === 'visa' && record.applicantName ? <SummaryRow label="Applicant">{record.applicantName}</SummaryRow> : null}
         <SummaryRow label="Amount" numeric>
           {inr(record.amountPaise)}
         </SummaryRow>

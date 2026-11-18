@@ -88,7 +88,9 @@ export type FinanceErrorCode =
   | 'deal_not_active'
   | 'receipt_required'
   // B1.1 revision (20261119000300): review, receipt and claim commands on a replaced version
-  | 'version_superseded';
+  | 'version_superseded'
+  // Accounts phase (20261203000110): return refused once the Deal is committed or tickets exist
+  | 'review_return_committed';
 
 /** SQLSTATE each token must arrive with; anything else maps to null (fail closed). */
 export const FINANCE_ERROR_STATES: Record<FinanceErrorCode, string> = {
@@ -115,6 +117,7 @@ export const FINANCE_ERROR_STATES: Record<FinanceErrorCode, string> = {
   deal_not_active: '55000',
   receipt_required: '55000',
   version_superseded: '55000',
+  review_return_committed: '55000',
 };
 
 export const FINANCE_ERROR_TEXT: Record<FinanceErrorCode, string> = {
@@ -142,6 +145,24 @@ export const FINANCE_ERROR_TEXT: Record<FinanceErrorCode, string> = {
   deal_not_active: 'This deal is lost or rejected in Bitrix, so new booking work is paused.',
   receipt_required: 'The fee receipt (or, for a flight, the direct-payment proof) must be stored before this expense record can be accepted.',
   version_superseded: 'This booking version was replaced by a newer one. Reload to see the current version.',
+  // Accounts phase (contract 5.2, owner answer H6)
+  review_return_committed:
+    'This booking cannot be returned: a supplier has already confirmed it. To stop or change the trip, ask the branch Manager to start a cancellation.',
+};
+
+/**
+ * Accounts phase (20261203000110): why the booking can no longer be returned
+ * (accounts_deal_detail booking.returnBlock; also the hint of
+ * review_return_committed). null = no block. Since 20261203000130 (lead
+ * correction) the database produces only 'committed'; 'tickets_issued' is
+ * kept in the type for compatibility and is never sent.
+ */
+export type ReviewReturnBlock = 'committed' | 'tickets_issued' | null;
+export const REVIEW_RETURN_BLOCKS = ['committed', 'tickets_issued'] as const satisfies readonly Exclude<ReviewReturnBlock, null>[];
+/** The reason line shown where the Return button would be (same words as the refusal). */
+export const REVIEW_RETURN_BLOCK_TEXT: Record<Exclude<ReviewReturnBlock, null>, string> = {
+  committed: FINANCE_ERROR_TEXT.review_return_committed,
+  tickets_issued: FINANCE_ERROR_TEXT.review_return_committed,
 };
 
 export const RECEIPT_MODE_LABEL: Record<ReceiptMode, string> = {
@@ -292,6 +313,10 @@ export interface BookingReviewView {
   reviewedAt: string | null;
   canApprove: boolean;
   approveBlock: ActionBlock | 'billing_not_verified';
+  /** Accounts phase (20261203000110): Return is offered (review not returned and the Deal not committed). */
+  canReturn: boolean;
+  /** Accounts phase (20261203000110): why Return is hidden after commitment; null otherwise. */
+  returnBlock: ReviewReturnBlock;
   // B1.1 additive keys (appendix B §3.3, freeze note §3.1). Absent on older databases.
   serviceType?: 'hotel' | 'package';
   listPricePaise?: Paise | null;
@@ -916,6 +941,12 @@ export interface AccountsExpenseRecordItem {
   rowVersion: number;
   evidence: ExpenseEvidenceView[];
   actions: Record<ExpenseAction, ExpenseActionBlock>;
+  /**
+   * Visa build (contract 9.4, VL16): the traveller's full name for a visa cost linked to one
+   * passenger (shown as a separate "Applicant" row); null for every other cost. Nothing else of
+   * the visa task reaches Accounts.
+   */
+  applicantName: string | null;
 }
 
 export interface AccountsExpenseRecordsPage {

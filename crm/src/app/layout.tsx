@@ -37,11 +37,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           Skip to main content
         </a>
         {liveDatabase ? (
-          <div className="env-banner" role="note">
+          <div className="env-banner print:hidden" role="note">
             Local production build: connected to the live company database. Changes are real.
           </div>
         ) : appEnv && appEnv !== 'production' ? (
-          <div className="env-banner" role="note">
+          <div className="env-banner print:hidden" role="note">
             {appEnv === 'staging' ? 'Staging' : 'Local development'} environment: synthetic data only. Do not
             enter real customer or traveller information.
           </div>

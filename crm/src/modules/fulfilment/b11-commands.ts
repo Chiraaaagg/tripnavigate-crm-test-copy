@@ -80,6 +80,10 @@ import {
   type IdentityExtraKeys,
   type PriceLine,
   type PricesSaveResult,
+  type FlightEstimate,
+  type FlightFareTotals,
+  type FlightFaresSaveResult,
+  type FlightReturnsAddResult,
   type ServiceEstimate,
   type ServiceSaveResult,
   type TripSavePartyKeys,
@@ -234,8 +238,22 @@ const PricesSchema = z.object({
 const EstimateSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('hotel'), roomRatePaise: optionalNull(paise), extraBedRatePaise: optionalNull(paise), noBedRatePaise: optionalNull(paise) }),
   z.object({ kind: z.literal('transfer'), vehicleRatePaise: optionalNull(paise) }),
-  z.object({ kind: z.literal('flight'), fareTotalPaise: optionalNull(paise) }),
+  // Book now v2: fare per person (absent on an older database = null).
+  z.object({
+    kind: z.literal('flight'),
+    fareTotalPaise: optionalNull(paise),
+    fareAdultPaise: optionalNull(paise),
+    fareChildPaise: optionalNull(paise),
+    fareInfantPaise: optionalNull(paise),
+  }),
 ]) satisfies z.ZodType<ServiceEstimate, unknown>;
+
+/** Book now v2: typed total fare per person of all flights (null = none typed). */
+export const FlightFareTotalsSchema = z.object({
+  adultPaise: optionalNull(paise),
+  childPaise: optionalNull(paise),
+  infantPaise: optionalNull(paise),
+});
 
 const ItemFileRowSchema = z.object({
   fileId: z.uuid(),
@@ -252,9 +270,11 @@ const ItemFileRowSchema = z.object({
 export type ItemFileRecord = z.output<typeof ItemFileRowSchema>;
 
 /** A service item of booking_form_get plus the booking form keys (estimate and files only for allowed viewers). */
-const FormItemSchema = ServiceItemRecordSchema.extend({
+export const FormItemSchema = ServiceItemRecordSchema.extend({
   estimate: EstimateSchema.nullable().optional(),
   files: z.array(ItemFileRowSchema).max(20).optional(),
+  /** Accounts phase 2 (20261204000130, LD22): hotel items' catalogue hotel (item-level; absent on other items and older databases). */
+  catalogueHotelId: z.uuid().nullable().optional(),
 });
 export type FormItemRecord = z.output<typeof FormItemSchema>;
 
@@ -510,6 +530,16 @@ export const BookingFormSchema = z.object({
   itemFilesCanEdit: z.boolean().optional(),
   /** Voice-note batch (20261128000110): trip facts from the Bitrix Deal; anything unexpected reads as absent (the form then asks as before). */
   tripFacts: TripFactsSchema.nullable().optional().catch(undefined),
+  /** Book now v2 (20261129000120): typed total fare per person of all flights; commercial readers only (absent otherwise). */
+  flightFareTotals: FlightFareTotalsSchema.nullable().optional(),
+  /** Book now v2 (20261129000120): the Deal's page in Bitrix; null for a Deal not imported from Bitrix. */
+  bitrixDealHref: z.string().regex(/^https:\/\/[a-z0-9.-]+\/crm\/deal\/details\/[0-9]+\/$/).nullable().optional().catch(undefined),
+  /** Book now v2 (20261129000120, ruling D5): an ID proof stored now would also be copied to the Bitrix Deal. */
+  idProofCopyApplies: z.boolean().optional(),
+  /** Visa build (20261202000200, QB1): the highest traveller number the Deal ever used (absent on an older database). */
+  travellerSeqHigh: z.number().int().min(0).max(100).optional(),
+  /** Accounts phase (20261203000100): false when the version the form shows is flight-only (adults need no ID proof); absent on an older database. */
+  idProofRequired: z.boolean().optional(),
 });
 export type BookingFormRecord = z.output<typeof BookingFormSchema>;
 
@@ -1224,7 +1254,12 @@ const StoredIdProofTravellersSchema = z
     )
     .max(100);
 
-const TaskIdProofsSchema = z.object({ taskId: z.uuid(), travellers: StoredIdProofTravellersSchema });
+const TaskIdProofsSchema = z.object({
+  taskId: z.uuid(),
+  /** Accounts phase (20261203000100): false when the task's current version is flight-only; absent on an older database. */
+  idProofRequired: z.boolean().optional(),
+  travellers: StoredIdProofTravellersSchema,
+});
 export type TaskIdProofsRecord = z.output<typeof TaskIdProofsSchema>;
 
 /** traveller_id_proofs_for_deal: every traveller of the Deal (by seq) with STORED proofs; for the Accounts deal screen and any viewer. */
@@ -1438,11 +1473,57 @@ export async function bookingServiceSave(
     p_service_type: input.serviceType,
     p_facts: input.facts,
     p_purchase_budget_paise: input.purchaseBudgetPaise,
-    p_estimate: input.estimate,
+    // Book now v2: the older flight total is never written (the database accepts it only unchanged).
+    p_estimate: input.estimate?.kind === 'flight' ? withoutLegacyFare(input.estimate) : input.estimate,
     p_participants: input.participants,
     p_request_id: input.requestId,
   });
   return parseReply(fn, ServiceSaveSchema, data);
+}
+
+function withoutLegacyFare(estimate: FlightEstimate): Omit<FlightEstimate, 'fareTotalPaise'> {
+  const { fareTotalPaise: _legacy, ...rest } = estimate;
+  void _legacy;
+  return rest;
+}
+
+const FaresSaveSchema = z.object({ rowVersion: z.number().int().positive(), contentHash: z.string().min(1) });
+
+/** Book now v2: booking_flight_fares_save (commercial readers who may edit the draft). Amounts are paise digit strings or null. */
+export async function bookingFlightFaresSave(
+  client: RpcClient,
+  input: { versionId: string; expectedRowVersion: number; fares: FlightFareTotals; requestId: string },
+): Promise<FlightFaresSaveResult> {
+  const fn = 'booking_flight_fares_save';
+  const data = await callRpc(client, fn, {
+    p_version_id: input.versionId,
+    p_expected_row_version: input.expectedRowVersion,
+    p_fares: { adultPaise: input.fares.adultPaise, childPaise: input.fares.childPaise, infantPaise: input.fares.infantPaise },
+    p_request_id: input.requestId,
+  });
+  return parseReply(fn, FaresSaveSchema, data);
+}
+
+const ReturnsAddSchema = z.object({
+  outcome: z.enum(['added', 'no_typed_flights', 'already_added']),
+  itemIds: z.array(z.uuid()).max(20),
+  itemNos: z.array(z.number().int().positive()).max(20),
+  rowVersion: z.number().int().positive(),
+  contentHash: z.string().min(1),
+});
+
+/** Book now v2: booking_flight_returns_add (one transaction; "Add return flights"). */
+export async function bookingFlightReturnsAdd(
+  client: RpcClient,
+  input: { versionId: string; expectedRowVersion: number; requestId: string },
+): Promise<FlightReturnsAddResult> {
+  const fn = 'booking_flight_returns_add';
+  const data = await callRpc(client, fn, {
+    p_version_id: input.versionId,
+    p_expected_row_version: input.expectedRowVersion,
+    p_request_id: input.requestId,
+  });
+  return parseReply(fn, ReturnsAddSchema, data);
 }
 
 /** Server-generated <entity>/<deal>/<item>/<file id>. */

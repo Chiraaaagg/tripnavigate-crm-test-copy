@@ -148,7 +148,10 @@ test.describe('B1 intake: structure and wording', () => {
     await expect(main).toContainText('Accepted version saved · tasks created');
     await expect(main).toContainText('1 of 4 confirmed · 1 in progress · 2 not started');
     await expect(main.getByRole('link', { name: 'Open Purchase task' })).toHaveCount(3);
-    await expect(main.getByRole('link', { name: 'Open Flight task' })).toHaveCount(1);
+    // Flight build (11.2, lead UI review 5 Nov 2026): a flight item links to the Deal's flight card for Sales
+    // ("See the flight details", #deal-flights); only Flight and the branch Manager get "Open the flights".
+    await expect(main.getByRole('link', { name: 'Open Flight task' })).toHaveCount(0);
+    await expect(main.getByRole('link', { name: /^(See the flight details|Open the flights)$/ })).toHaveCount(1);
     // Review E11: the "nothing was created twice" sentence belongs to a repeated press, not to the standing note.
     await expect(main).not.toContainText('Nothing was created twice.');
     await expect(main).toContainText('This booking is already confirmed.');
@@ -331,7 +334,11 @@ test.describe('B1 Deal page: services card', () => {
     const card = page.getByRole('region', { name: 'Services sold' });
     await expect(card).toContainText('1 of 4 confirmed · 1 in progress · 2 not started');
     await expect(card.getByRole('link', { name: 'Open Purchase task' }).first()).toHaveAttribute('href', /\/app\/purchase\//);
-    await expect(card.getByRole('link', { name: 'Open Flight task' })).toHaveAttribute('href', /\/app\/flight\//);
+    // Flight build (11.2): the flight item links "See the flight details" to the Deal's flight card for Sales
+    // (or "Open the flights" to the Flight workspace for Flight and the branch Manager); never the old per-task page.
+    const flightLink = card.getByRole('link', { name: /^(See the flight details|Open the flights)$/ });
+    await expect(flightLink).toHaveAttribute('href', /#deal-flights$|\/app\/flight\/deals\//);
+    await expect(card.getByRole('link', { name: 'Open Flight task' })).toHaveCount(0);
     await expect(card).toContainText('Confirmed by supplier');
     await expect(page.locator('main header').getByRole('link', { name: 'Open intake' })).toHaveCount(0);
   });

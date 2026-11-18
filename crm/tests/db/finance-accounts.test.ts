@@ -92,6 +92,19 @@ describe('schema, grants and defaults', () => {
       'accounts_payment_claims', 'receipt_record_from_claim',
       // B1.1c (20261119000500): the Accounts expense-record list.
       'accounts_expense_records',
+      // Purchase build: hotel go-ahead list (20261130000120) and supplier money reads (20261130000210).
+      'accounts_go_ahead_list', 'accounts_supplier_payments', 'accounts_supplier_documents', 'accounts_company_funding',
+      // Accounts phase (contract 2026-11-10, sections 7.1-7.2 and 8.1-8.3, Track B 20261203000230..0250): workspace,
+      // daily check, dues, payables and the Tally commands; accounts_tally_exports lists past exports (screen 11.3).
+      'accounts_records', 'accounts_records_totals', 'accounts_daily_check', 'accounts_dues', 'accounts_supplier_payables',
+      'accounts_tally_match', 'accounts_tally_exception', 'accounts_tally_reopen', 'accounts_tally_invoice_add', 'accounts_tally_invoice_withdraw',
+      'accounts_tally_export_create', 'accounts_tally_export_lines', 'accounts_tally_export_download_log', 'accounts_tally_exports',
+      // Lead-approved addition (10 Nov, Track B addendum): filter choices for the workspace, fenced like accounts_records.
+      'accounts_filter_options',
+      // Accounts phase 3 (contract 7.3-7.4, Track C; 16.6 setup update by Track T): the Tally import file, its left-out
+      // list and download audit (as the CSV's), and the matching upload. All Accounts-only (section 14).
+      'accounts_tally_file_create', 'accounts_tally_file_preview', 'accounts_tally_file_download_log', 'accounts_tally_export_left_out',
+      'accounts_tally_match_stage', 'accounts_tally_match_apply', 'accounts_tally_match_cancel', 'accounts_tally_match_get',
     ].sort());
   });
 

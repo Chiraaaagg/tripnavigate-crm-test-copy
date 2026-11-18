@@ -43,6 +43,12 @@ describe('deal_travellers_save (B1.1)', () => {
         .toEqual([{ traveller_seq: 1 }, { traveller_seq: 2 }, { traveller_seq: 4 }]);
       // The identity of seq 2 survived (same traveller row).
       expect(await owner('select count(*)::int as n from public.traveller_identities where deal_id = $1', [DEAL])).toEqual([{ n: 1 }]);
+      // Visa build (contract 5.6, QB1): seq 3 was removed and is never used again on this Deal; a new traveller gets 5.
+      const rv = (await owner<{ row_version: number }>('select row_version from public.booking_versions where id = $1', [d.versionId]))[0]!.row_version;
+      await refused(OWNER, TRAVELLERS_SQL, [DEAL, rv, JSON.stringify([...next, TRAVELLERS[2]!])], '22023', 'traveller_seq_reused');
+      expect(await h.form(OWNER)).toMatchObject({ travellerSeqHigh: 4 });
+      await h.saveTravellers(OWNER, DEAL, rv, [...next, { ...TRAVELLERS[2]!, seq: 5 }]);
+      expect(await owner('select seq from public.deal_travellers where deal_id = $1 order by seq', [DEAL])).toEqual([1, 2, 4, 5].map((seq) => ({ seq })));
     });
   });
 

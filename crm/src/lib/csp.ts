@@ -75,6 +75,9 @@ export function buildCspDirectives(options: CspOptions): Record<string, string[]
     'base-uri': ["'self'"],
     'form-action': ["'self'"],
     'frame-ancestors': ["'none'"],
+    // Accounts phase 3 (8.4): the service worker /sw.js and the web app manifest.
+    'worker-src': ["'self'"],
+    'manifest-src': ["'self'"],
   };
   if (options.upgradeInsecureRequests) directives['upgrade-insecure-requests'] = [];
   return directives;

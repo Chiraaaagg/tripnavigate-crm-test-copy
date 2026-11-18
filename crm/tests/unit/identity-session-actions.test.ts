@@ -147,7 +147,9 @@ describe('signOutEverywhereAction', () => {
       return { data: null, error: null };
     });
     await expect(signOutEverywhereAction(new FormData())).rejects.toThrow('NEXT_REDIRECT /signed-out?scope=global');
-    expect(calls).toEqual(['db:revoke_my_sessions', 'provider:signOut:{"scope":"global"}', 'redirect:/signed-out?scope=global']);
+    // Accounts phase 3 (Addendum O3): every alert device of the person is removed first, while the
+    // session is still valid (the barrier would refuse it); then the barrier, sign-out and redirect.
+    expect(calls).toEqual(['db:push_devices_remove_all', 'db:revoke_my_sessions', 'provider:signOut:{"scope":"global"}', 'redirect:/signed-out?scope=global']);
   });
 
   it('says so when the provider global sign-out fails (database access already revoked)', async () => {
@@ -184,7 +186,7 @@ describe('signOutEverywhereAction', () => {
     const fd = new FormData();
     fd.set('scope', 'global');
     await expect(signOutAction(fd)).rejects.toThrow('NEXT_REDIRECT /signed-out?scope=global');
-    expect(calls[0]).toBe('db:revoke_my_sessions');
+    expect(calls.slice(0, 2)).toEqual(['db:push_devices_remove_all', 'db:revoke_my_sessions']);
   });
 });
 

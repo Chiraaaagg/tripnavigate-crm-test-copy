@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page, test } from '@playwright/test';
+import { pageReady } from '../helpers/page-ready';
 
 /**
  * Phase 4 Purchase work and supplier screens, through the design-preview
@@ -51,7 +52,7 @@ async function noHorizontalScroll(page: Page) {
 async function open(page: Page, state: string) {
   await page.goto(`/preview/${state}`);
   await expect(page.getByRole('heading', { level: 1 })).toBeAttached();
-  await page.waitForLoadState('networkidle');
+  await pageReady(page);
 }
 
 test.describe('Phase 4 previews: accessibility on desktop and 390 px mobile', () => {
@@ -74,7 +75,7 @@ test.describe('Phase 4 wording and boundaries', () => {
   test('a claimed task is never called booked; the work section says the hotel is not booked yet', async ({ page }) => {
     await open(page, 'procurement-in-progress');
     const main = page.getByRole('main');
-    await expect(main).toContainText('Not confirmed yet · hotel not booked');
+    await expect(main).toContainText('Not booked yet');
     await expect(main).not.toContainText(/hotel (is )?booked\b(?! yet)/i);
     await expect(main).toContainText('Taking the task did not book the hotel.');
   });
@@ -92,32 +93,38 @@ test.describe('Phase 4 wording and boundaries', () => {
     const main = page.getByRole('main');
     // DA-271 status word (was "Supplier confirmed the hotel").
     await expect(main).toContainText('Confirmed by supplier');
-    await expect(main).not.toContainText('Supplier offers');
-    await expect(main).not.toContainText('Cost history');
+    await expect(main).not.toContainText('Rate negotiation');
+    await expect(main).not.toContainText('Purchase files');
     await expect(main).not.toContainText('SYN-CONF-0001');
     await expect(main).not.toContainText('Synthetic Stays');
   });
 
-  test('missing items are listed and the failed file has a repair path', async ({ page }) => {
+  test('missing items are listed under the confirmation and the failed file has a repair path', async ({ page }) => {
     await open(page, 'procurement-in-progress');
-    await expect(page.getByRole('heading', { name: 'Before you can record the supplier’s confirmation' })).toBeVisible();
-    await expect(page.getByText('Upload the supplier’s confirmation email, saved as a PDF or a screenshot (JPG, PNG or WebP).')).toBeVisible();
+    const missing = page.getByRole('list', { name: 'Still needed before the confirmation' });
+    await expect(missing).toContainText('Upload the supplier’s confirmation email, saved as a PDF or a screenshot (JPG, PNG or WebP).');
     await expect(page.getByText('Upload failed — does not count. Remove it and upload again.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Remove synthetic-confirmation.pdf' })).toBeVisible();
   });
 
-  test('cost history says nothing is payable and keeps every version', async ({ page }) => {
+  test('a confirmed task is locked: the final rate is marked confirmed and no rate, e-mail or confirmation can change', async ({ page }) => {
     await open(page, 'procurement-supplier-confirmed');
-    const history = page.getByRole('list', { name: 'Cost versions, newest first' });
-    await expect(history.getByRole('listitem')).toHaveCount(3);
-    await expect(history).toContainText('Committed cost · version 3');
-    await expect(history).toContainText('Not requested for payment');
-    await expect(page.getByRole('main')).toContainText('No payment, bill or invoice was created.');
+    const main = page.getByRole('main');
+    await expect(page.getByRole('list', { name: 'Rates from suppliers' })).toContainText('Final rate · confirmed');
+    await expect(main).toContainText('SYN-CONF-0001');
+    await expect(main).toContainText('The confirmation locked the final rate.');
+    for (const name of ['Use as final rate', 'Add rate', 'Send booking request', 'Ask for rates', 'Record supplier confirmation']) {
+      await expect(page.getByRole('button', { name }), name).toHaveCount(0);
+    }
   });
 
   test('over budget and gate-off states explain why confirmation cannot happen', async ({ page }) => {
     await open(page, 'procurement-over-budget');
-    await expect(page.getByRole('main')).toContainText('The cost is above the approved Purchase budget.');
+    await expect(page.getByRole('main')).toContainText('The branch Manager must approve this final rate before the booking request.');
+    // The unavailable action stays visible and focusable, with one short reason.
+    const send = page.getByRole('button', { name: 'Send booking request' });
+    await expect(send).toHaveAttribute('aria-disabled', 'true');
+    await expect(send).toHaveAccessibleDescription('Waiting for the branch Manager to approve this rate above budget.');
     await open(page, 'procurement-gate-off');
     await expect(page.getByRole('note').filter({ hasText: 'Supplier confirmation is turned off for real bookings' })).toBeVisible();
   });
@@ -150,13 +157,13 @@ test.describe('Phase 4 wording and boundaries', () => {
     await expect(dialog.getByRole('alert')).toContainText('Someone changed this after you opened it.');
   });
 
-  test('bank details show only the last 4 digits and say nothing is paid from them', async ({ page }) => {
+  test('bank details show only the last 4 digits; unapproved latest details hold supplier payments', async ({ page }) => {
     await open(page, 'supplier-detail');
     const list = page.getByRole('list', { name: 'Bank detail revisions, newest first' });
     await expect(list.getByRole('listitem')).toHaveCount(2);
     await expect(list).toContainText('account ending 0042');
     await expect(list).toContainText('not approved');
-    await expect(page.getByRole('main')).toContainText('approved or not, nothing is paid from them in this CRM.');
+    await expect(page.getByRole('note').filter({ hasText: 'Payments to this supplier are on hold' })).toContainText('On hold until the Manager approves the supplier’s latest bank details.');
   });
 
   test('suppliers nav marks only Suppliers as the current page', async ({ page }) => {
@@ -223,11 +230,11 @@ test.describe('Amendment A1: manager decisions, release and reassignment (previe
   test('the branch manager reads the work read-only and sees approve and reassign controls only', async ({ page }) => {
     await open(page, 'procurement-manager-view');
     const main = page.getByRole('main');
-    await expect(main).toContainText('As the branch manager, approve it below if you agree.');
+    await expect(main).toContainText('The branch Manager must approve this final rate before the booking request.');
     await expect(page.getByRole('button', { name: /Approve this cost above budget/ })).toBeVisible();
     await expect(main).toContainText('Approves only this cost version.');
     await expect(page.getByRole('form', { name: 'Reassign task' }).getByLabel('Move to')).toHaveValue(/.+/);
-    for (const name of ['Record supplier confirmation', 'Hand the task back', 'Add offer', 'Upload file']) {
+    for (const name of ['Record supplier confirmation', 'Hand the task back', 'Add rate', 'Upload file', 'Send booking request', 'Use as final rate']) {
       await expect(page.getByRole('button', { name })).toHaveCount(0);
     }
     await expect(main).not.toContainText(/selling|margin/i);
@@ -235,7 +242,7 @@ test.describe('Amendment A1: manager decisions, release and reassignment (previe
 
   test('an approved over-budget version says who approved it and is ready to confirm', async ({ page }) => {
     await open(page, 'procurement-over-budget-approved');
-    await expect(page.getByRole('list', { name: 'Cost versions, newest first' })).toContainText('Approved above budget by Synthetic Manager Delhi');
+    await expect(page.getByRole('list', { name: 'Rates from suppliers' })).toContainText('Approved above budget by Synthetic Manager Delhi');
     await expect(page.getByRole('button', { name: 'Record supplier confirmation' })).toBeVisible();
   });
 
@@ -245,7 +252,7 @@ test.describe('Amendment A1: manager decisions, release and reassignment (previe
     await expect(page.getByRole('main')).toContainText('Offers, costs and files stay for the next person.');
     await open(page, 'procurement-released');
     await expect(page.getByRole('button', { name: 'Take this task' })).toBeVisible();
-    await expect(page.getByRole('list', { name: 'Supplier offers' })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Rates from suppliers' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Hand the task back' })).toHaveCount(0);
   });
 

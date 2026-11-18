@@ -119,8 +119,8 @@ describe('render worker against the real 0500 commands', () => {
         OWNER, 'select public.itinerary_document_get($1) as r', [d.documentId]);
       expect(got.jobs[0]).toMatchObject({ status: 'succeeded' });
       expect(ItineraryDocumentGetSchema.parse(got).subject.branchCode).toBe('DEL');
-      // DEC-50: the fixture Deal is in Delhi, whose GSTIN is not given yet: the preview carries exactly that one placeholder.
-      expect(got.rendered).toEqual([expect.objectContaining({ kind: 'preview', pageCount: 3, qa: { placeholders: 1, layoutIssues: [], safetyHits: [] } })]);
+      // LD1 (Accounts phase 2): the fixture Deal is in Delhi, which now prints the company GSTIN: no placeholder.
+      expect(got.rendered).toEqual([expect.objectContaining({ kind: 'preview', pageCount: 3, qa: { placeholders: 0, layoutIssues: [], safetyHits: [] } })]);
       // Nothing left to do.
       expect(await processOneJob(deps(d.entity, uploads))).toEqual({ outcome: 'idle' });
     });

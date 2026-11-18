@@ -1,18 +1,18 @@
 import type { ReactNode } from 'react';
-import type { FlightTaskView, PurchaseTaskSummary, TaskIdProofsView, VisaQueueView } from '@/modules/fulfilment/contracts';
+import type { FlightTaskView, PurchaseTaskSummary, TaskIdProofsView } from '@/modules/fulfilment/contracts';
 import { taskTabsFor, type DepartmentTaskHistoryRecord, type TaskTab } from '@/modules/settings/contracts';
 import { StaffShell, type ShellViewer } from '@/views/StaffShell';
 import { DepartmentCostCard } from '@/views/b11/department-cost';
 import { TravellerIdProofsCard } from '@/views/b11/id-proofs-list';
-import { VisaQueuePage, VisaTaskPage } from '@/views/b11/visa-desk';
 import type { QueueShow } from '@/views/department/queue-show';
 import { toTaskHistoryVM } from '@/views/department/task-history-vm';
 import type { TaskFilesVM } from '@/views/department/task-frame';
 import { FlightQueuePage, FlightTaskPage } from '@/views/flight-views';
-import { PurchaseWorkSection } from '@/views/procurement-views';
+import { PurchaseWorkTab } from '@/views/purchase/work-tab';
+import { PB_ACTIONS } from './pb-actions';
 import { PurchaseQueuePage, PurchaseTaskPage } from '@/views/purchase-views';
 import { flight, flightView, purchase, purchaseQueue, purchaseView } from './b1-states';
-import { applicant, cost, costActions, docs, outcomeDoc, proof, visaActions, visaDesk, visaTask } from './b11-work-states';
+import { cost, costActions, proof } from './b11-work-states';
 import { previewB11SavedAction } from './b11-preview-actions';
 import { confirmed as confirmedWs, inProgress, managerView, task as hotelTask } from './procurement-states';
 
@@ -31,6 +31,7 @@ const sales: ShellViewer = { ...purchase, displayName: 'Synthetic Sales Delhi A'
 
 const ID_PROOFS: TaskIdProofsView = {
   taskId: hotelTask.taskId,
+  idProofRequired: true,
   travellers: [
     { seq: 1, fullName: 'Sample Traveller A', type: 'adult', idProofs: [{ fileId: 'ip000000-0000-4000-8000-000000000001', fileName: 'sample-id-a.pdf', mime: 'application/pdf', sizeLabel: '210 KB', storedAt: '2026-10-02T06:00:00Z', downloadHref: '/preview/b4-purchase-task-files' }] },
     { seq: 2, fullName: 'Sample Traveller B', type: 'adult', idProofs: [] },
@@ -69,13 +70,6 @@ const FLIGHT_HISTORY = history('flight', [
   ev({ kind: 'created', at: '2026-10-09T07:05:00Z' }),
 ]);
 
-const VISA_HISTORY = history('visa', [
-  ev({ kind: 'applicant_stage', at: '2026-11-05T06:00:00Z', byYou: true, applicantSeq: 1, state: 'submitted' }),
-  ev({ kind: 'applicant_updated', at: '2026-11-04T06:00:00Z', byName: 'Synthetic Visa Desk Jodhpur', applicantSeq: 2 }),
-  ev({ kind: 'taken', at: '2026-11-02T09:30:00Z', byName: 'Synthetic Visa Desk Jodhpur' }),
-  ev({ kind: 'created', at: '2026-11-02T09:00:00Z' }),
-]);
-
 function tabsOf(current: TaskTab, has: { work: boolean; files: boolean; history: boolean } = { work: true, files: true, history: true }) {
   const tabs = taskTabsFor(has);
   return { tabs, current: tabs.includes(current) ? current : 'details' } as const;
@@ -103,7 +97,7 @@ function purchaseQueuePage(viewer: ShellViewer, canTake: boolean, show?: QueueSh
 const idProofsCard = <TravellerIdProofsCard state={ID_PROOFS} />;
 const purchaseWork = (
   <div className="flex flex-col gap-5">
-    <PurchaseWorkSection ws={inProgress} />
+    <PurchaseWorkTab ws={inProgress} payments={null} actions={PB_ACTIONS} senderName="Synthetic Purchase Jodhpur" />
     <DepartmentCostCard taskId={hotelTask.taskId} department="purchase" costs={[]} canRecord={false} readOnlyReason={null} />
   </div>
 );
@@ -159,30 +153,6 @@ function flightTask(tab: TaskTab, task: FlightTaskView = flightMine, has?: { wor
 
 const FLIGHT_QUEUE = { tasks: [flightView, { ...flightMine }, { ...flightView, taskId: 'f0000000-0000-4000-8000-0000000000b6', itemTitle: 'JAI → DEL', status: 'supplier_confirmed' as const, assigneeName: 'Synthetic Flight Colleague', purchaseBudgetPaise: '9000000', supplierConfirmedAt: '2026-10-09T09:30:00Z' }] };
 
-// --- Visa ---------------------------------------------------------------------
-
-const visaQueue = (launch: VisaQueueView['launch'], tasks = true): VisaQueueView => ({
-  launch,
-  waitingCount: launch === 'off' ? 3 : null,
-  tasks: tasks ? [visaTask(), visaTask({ taskId: 'vt2', serviceType: 'passport', itemTitle: 'Renewal · Jaipur', facts: { applicationType: 'renewal', officeCity: 'Jaipur', neededBy: '2026-11-01' }, status: 'not_started', assigneeName: null, assignedToYou: false })] : [],
-});
-
-function visaTaskState(tab: TaskTab, over: Parameters<typeof visaTask>[0] = {}): ReactNode {
-  const t = visaTask({ evidence: [outcomeDoc, { ...proof, id: 'de4', kind: 'fee_receipt', fileName: 'synthetic-fee-receipt.pdf' }], ...over });
-  return shell(
-    visaDesk,
-    '/app/visa',
-    <VisaTaskPage
-      task={t}
-      actions={visaActions}
-      tabs={tabsOf(tab)}
-      idProofs={tab === 'details' ? idProofsCard : undefined}
-      files={tab === 'files' ? { department: t.evidence, idProofs: ID_PROOFS } : undefined}
-      history={tab === 'history' ? toTaskHistoryVM(VISA_HISTORY, 'visa') : undefined}
-    />,
-  );
-}
-
 const STATES: Record<string, () => ReactNode> = {
   // Purchase lists
   'b4-purchase-queue': () => purchaseQueuePage(purchase, true),
@@ -204,9 +174,9 @@ const STATES: Record<string, () => ReactNode> = {
   'b4-purchase-task-not-taken': () =>
     shell(purchase, '/app/purchase', <PurchaseTaskPage task={purchaseView(purchaseQueue[0]!)} tabs={tabsOf('details', { work: true, files: true, history: true })} />),
   'b4-purchase-task-confirmed': () =>
-    shell(purchase, '/app/purchase', <PurchaseTaskPage task={confirmedWs.task} tabs={tabsOf('work')} work={<PurchaseWorkSection ws={confirmedWs} />} />),
+    shell(purchase, '/app/purchase', <PurchaseTaskPage task={confirmedWs.task} tabs={tabsOf('work')} work={<PurchaseWorkTab ws={confirmedWs} payments={null} actions={PB_ACTIONS} senderName="Synthetic Purchase Jodhpur" />} />),
   'b4-purchase-task-manager': () =>
-    shell(manager, '/app/purchase', <PurchaseTaskPage task={managerView.task} managerReadOnly tabs={tabsOf('work')} work={<PurchaseWorkSection ws={managerView} />} />),
+    shell(manager, '/app/purchase', <PurchaseTaskPage task={managerView.task} managerReadOnly tabs={tabsOf('work')} work={<PurchaseWorkTab ws={managerView} payments={null} actions={PB_ACTIONS} senderName="Synthetic Purchase Jodhpur" />} />),
   'b4-purchase-task-manager-details': () => shell(manager, '/app/purchase', <PurchaseTaskPage task={managerView.task} managerReadOnly tabs={tabsOf('details')} />),
   // Sales opening a Purchase task: status only, no tab bar (R11).
   'b4-purchase-task-sales': () => shell(sales, '/app/deals', <PurchaseTaskPage task={{ ...confirmedWs.task, assignedToYou: false }} tabs={tabsOf('details', { work: false, files: false, history: false })} />),
@@ -219,16 +189,6 @@ const STATES: Record<string, () => ReactNode> = {
   'b4-flight-task-files': () => flightTask('files'),
   'b4-flight-task-history': () => flightTask('history'),
   'b4-flight-task-not-taken': () => flightTask('details', flightView),
-  // Visa
-  'b4-visa-queue': () => shell(visaDesk, '/app/visa', <VisaQueuePage queue={visaQueue('on')} />),
-  'b4-visa-queue-all': () => shell(visaDesk, '/app/visa', <VisaQueuePage queue={visaQueue('on')} show="all" />),
-  'b4-visa-queue-off': () => shell(visaDesk, '/app/visa', <VisaQueuePage queue={visaQueue('off', false)} />),
-  'b4-visa-queue-unknown': () => shell(visaDesk, '/app/visa', <VisaQueuePage queue={visaQueue('unknown')} show="all" />),
-  'b4-visa-task-details': () => visaTaskState('details'),
-  'b4-visa-task-work': () => visaTaskState('work', { applicants: [applicant({ documents: docs(['checked', 'checked', 'checked']) })] }),
-  'b4-visa-task-files': () => visaTaskState('files'),
-  'b4-visa-task-history': () => visaTaskState('history'),
-  'b4-visa-task-not-taken': () => visaTaskState('details', { status: 'not_started', assigneeName: null, assignedToYou: false, canClaim: true, canWork: false }),
 };
 
 export const BATCH4_DEPT_PREVIEW_STATES = Object.keys(STATES);

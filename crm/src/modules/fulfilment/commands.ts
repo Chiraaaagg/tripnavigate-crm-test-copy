@@ -51,8 +51,12 @@ import {
   type ServiceNextStep,
   TRIP_SCOPES,
   VISA_FEE_PAID_BY,
+  VISA_FACT_LIMITS,
+  VISA_JURISDICTIONS,
+  VISA_KINDS,
   type VisaServiceFacts,
 } from './contracts';
+import { CAR_KINDS, REQUEST_ITEMS_MAX, REQUEST_TEXT_MAX } from './booking-form-contract';
 
 /**
  * Typed wrappers for agent B's booking / Purchase commands (contract §5) and
@@ -129,6 +133,15 @@ export const BOOKING_ERROR_STATES: Record<BookingErrorCode, string> = {
   // Booking form (20261124000110)
   priced_per_person: '55000',
   item_file_limit: '55000',
+  // Book now v2: "Refresh from Bitrix now" refusals. Set by the server action, not raised by a
+  // database command today; the states are the ones such a refusal would use.
+  refresh_too_soon: '55000',
+  refresh_switched_off: '55000',
+  refresh_not_bitrix_deal: '55000',
+  bitrix_unavailable: '55000',
+  bitrix_deal_not_found: 'P0002',
+  // Visa build (20261202000200, QB1)
+  traveller_seq_reused: '22023',
 };
 
 /** PostgREST / GoTrue codes meaning the JWT is missing, expired or invalid. */
@@ -273,6 +286,8 @@ export const ISSUE_CODES = [
   'gst_reason_missing',
   'billing_contact_missing',
   'billing_reach_missing',
+  // Book now v2 (20261129000120)
+  'flight_screenshot_missing',
   'prices_ask_owner',
 ] as const satisfies readonly BookingIssueCode[];
 type MissingIssueCode = Exclude<BookingIssueCode, (typeof ISSUE_CODES)[number]>;
@@ -624,8 +639,11 @@ const taskPaise = z.string().regex(/^(0|[1-9][0-9]{0,18})$/).nullable().optional
 const TaskEstimateSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('hotel'), roomRatePaise: taskPaise, extraBedRatePaise: taskPaise, noBedRatePaise: taskPaise }),
   z.object({ kind: z.literal('transfer'), vehicleRatePaise: taskPaise }),
-  z.object({ kind: z.literal('flight'), fareTotalPaise: taskPaise }),
+  // Book now v2: fare per person (absent on an older database = null).
+  z.object({ kind: z.literal('flight'), fareTotalPaise: taskPaise, fareAdultPaise: taskPaise, fareChildPaise: taskPaise, fareInfantPaise: taskPaise }),
 ]);
+/** Book now v2: typed total fare per person of all flights of the booking (Flight assignee only; null = none typed). */
+const TaskFareTotalsSchema = z.object({ adultPaise: taskPaise, childPaise: taskPaise, infantPaise: taskPaise });
 const TaskFileSchema = z.object({
   fileId: z.uuid(),
   kind: z.literal('flight_screenshot'),
@@ -705,6 +723,11 @@ const nullableInt = (min: number, max: number) => optionalNull(z.number().int().
  * check-in, ordered segment dates) are the database's; the client-side
  * mirror lives in forms.ts.
  */
+/** Book now v2: requests "for whom" as stored (shape only; the database checks the travellers). */
+const RequestItemsSchema = z
+  .array(z.strictObject({ text: text(REQUEST_TEXT_MAX).min(1), forSeq: z.number().int().min(1).max(100).nullable().optional().transform((v) => v ?? null) }))
+  .max(REQUEST_ITEMS_MAX);
+
 export const HotelFactsSchema = z.strictObject({
   /** B1.1: absent in 'preferences' mode (validated below). */
   hotelName: optionalNull(text(200).min(1)),
@@ -728,6 +751,8 @@ export const HotelFactsSchema = z.strictObject({
   extraBeds: z.number().int().min(0).max(20).nullable().optional(),
   childrenWithoutBed: z.number().int().min(0).max(20).nullable().optional(),
   bedRemarks: text(300).min(1).nullable().optional(),
+  // Book now v2: requests "for whom" (the readable text is in specialRequests).
+  requestItems: RequestItemsSchema.nullable().optional(),
 })
   .refine((f) => (f.mode === 'preferences' ? !!f.preferences : !!f.hotelName)) satisfies z.ZodType<HotelServiceFacts, unknown>;
 
@@ -746,6 +771,9 @@ export const TransferFactsSchema = z.strictObject({
   quantity: z.number().int().min(1).max(100).nullable().optional(),
   includedKms: z.number().int().min(0).max(100_000).nullable().optional(),
   vendor: text(150).min(1).nullable().optional(),
+  // Book now v2: car type and the flight it meets.
+  carKind: z.enum(CAR_KINDS).nullable().optional(),
+  flightItemId: z.uuid().nullable().optional(),
 }) satisfies z.ZodType<TransferServiceFacts, unknown>;
 
 export const ActivityFactsSchema = z.strictObject({
@@ -759,6 +787,7 @@ export const ActivityFactsSchema = z.strictObject({
 }) satisfies z.ZodType<ActivityServiceFacts, unknown>;
 
 export const FlightFactsSchema = z.strictObject({
+  // Book now v2: a flight added from a screenshot has no typed leg (checked below).
   segments: z
     .array(
       z.strictObject({
@@ -774,7 +803,6 @@ export const FlightFactsSchema = z.strictObject({
         arriveTime: time24.nullable().optional(),
       }),
     )
-    .min(L.segments.min)
     .max(MAX_FLIGHT_SEGMENTS),
   passengers: z.number().int().min(L.passengers.min).max(L.passengers.max),
   preferredTime: nullableText(L.preferredTime),
@@ -783,7 +811,14 @@ export const FlightFactsSchema = z.strictObject({
   tripType: z.enum(FLIGHT_TRIP_TYPES).nullable().optional(),
   preferences: text(B11.flightPreferences).min(1).nullable().optional(),
   assistance: text(B11.assistance).min(1).nullable().optional(),
-}) satisfies z.ZodType<FlightServiceFacts, unknown>;
+  // Book now v2
+  entryMode: z.enum(['typed', 'screenshot']).nullable().optional(),
+  screenshotNote: text(200).min(1).nullable().optional(),
+  requestItems: RequestItemsSchema.nullable().optional(),
+  isReturn: z.boolean().nullable().optional(),
+})
+  // Typed details need at least one leg; a screenshot flight may have none.
+  .refine((f) => f.entryMode === 'screenshot' || f.segments.length >= L.segments.min) satisfies z.ZodType<FlightServiceFacts, unknown>;
 
 /** B1.1 visa facts (appendix A §1.2). */
 export const VisaFactsSchema = z.strictObject({
@@ -793,6 +828,11 @@ export const VisaFactsSchema = z.strictObject({
   applyBy: optionalNull(isoDate),
   feePaidBy: z.enum(VISA_FEE_PAID_BY),
   notes: nullableText(B11.notes),
+  // Visa build (20261202000200, contract 5.5): optional on the wire, absent stays absent.
+  visaKind: z.enum(VISA_KINDS).nullable().optional(),
+  jurisdiction: z.enum(VISA_JURISDICTIONS).nullable().optional(),
+  jurisdictionPlace: text(VISA_FACT_LIMITS.jurisdictionPlace).min(1).nullable().optional(),
+  documentsNeeded: z.array(text(VISA_FACT_LIMITS.documentLabel).min(1)).max(VISA_FACT_LIMITS.documentsNeeded).nullable().optional(),
 }) satisfies z.ZodType<VisaServiceFacts, unknown>;
 
 /** B1.1 passport facts (appendix A §1.2). */
@@ -982,6 +1022,8 @@ const FlightDetailSchema = FlightSummarySchema.extend({
   travellerCount: count,
   ...TaskB11Extras,
   estimate: TaskEstimateSchema.nullable().optional(),
+  /** Book now v2 (20261129000120): assignee only; absent otherwise and on an older database. */
+  fareTotals: TaskFareTotalsSchema.nullable().optional(),
   files: z.array(TaskFileSchema).max(20).optional(),
 });
 export type FlightTaskDetailRecord = z.output<typeof FlightDetailSchema>;

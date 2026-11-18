@@ -21,14 +21,21 @@
  * values are never logged.
  */
 
-import type { ImportStatus, ImportSummaryView } from '@/views/booking-form/vn-types';
+import type { ImportStatus, ImportSummaryView, SupplierImportRowView, SupplierImportSummary } from '@/views/booking-form/vn-types';
 import { normalisePhone } from '@/modules/fulfilment/booking-form-model';
 import { looksLikeFormula, safeCellText, type CsvTable } from './csv';
 
 export type { ImportStatus, ImportSummaryView };
-export type ImportKind = 'hotel' | 'customer';
-export const IMPORT_KINDS = ['hotel', 'customer'] as const satisfies readonly ImportKind[];
-export const IMPORT_KIND_LABEL: Record<ImportKind, string> = { hotel: 'Hotels', customer: 'Customers' };
+export type ImportKind = 'hotel' | 'customer' | 'supplier';
+/** Accounts phase 2 (contract 5.6): 'supplier' (Accounts or Super Admin; never matched by name). */
+export const IMPORT_KINDS = ['hotel', 'customer', 'supplier'] as const satisfies readonly ImportKind[];
+export const IMPORT_KIND_LABEL: Record<ImportKind, string> = { hotel: 'Hotels', customer: 'Customers', supplier: 'Suppliers' };
+/**
+ * Accounts phase 3 (contract 9.4, LD22): rate sheets (Purchase or Super Admin) use the same
+ * column mapping and the same import commands. Kept apart from ImportKind so the hotel,
+ * customer and supplier screens and their types stay unchanged.
+ */
+export type AnyImportKind = ImportKind | 'rate_sheet';
 
 export interface ImportFieldDef {
   /** The database row key (import_batch_stage p_rows). */
@@ -68,8 +75,59 @@ export const CUSTOMER_IMPORT_FIELDS = [
   { key: 'gstReason', label: 'Reason for no GSTIN', required: false, aliases: ['gst reason', 'reason', 'no gst reason', 'unregistered reason'] },
 ] as const satisfies readonly ImportFieldDef[];
 
-export function importFields(kind: ImportKind): readonly ImportFieldDef[] {
-  return kind === 'hotel' ? HOTEL_IMPORT_FIELDS : CUSTOMER_IMPORT_FIELDS;
+/**
+ * Supplier row keys (contract 5.6). The aliases cover the owner's file and a
+ * TallyPrime ledger list of the Sundry Creditors group (GUID = source
+ * reference). sourceRef is required: rows match stored suppliers by it only.
+ */
+export const SUPPLIER_IMPORT_FIELDS = [
+  { key: 'sourceRef', label: 'Supplier ID or Tally GUID', required: true, aliases: ['supplier id', 'id', 'guid', 'tally guid', 'ledger guid', 'code', 'supplier code', 'source id', 'ref', 'reference'] },
+  { key: 'name', label: 'Supplier name', required: true, aliases: ['supplier name', 'supplier', 'name', 'ledger name', 'party name', 'company name'] },
+  { key: 'supplierKind', label: 'Kind (direct, or agent or booking channel)', required: false, aliases: ['kind', 'supplier type', 'supplier kind', 'type'] },
+  { key: 'serviceTypes', label: 'Services (hotel; transfer; activity; flight)', required: false, aliases: ['services', 'service', 'service types', 'service type'] },
+  { key: 'city', label: 'City', required: false, aliases: ['city', 'town'] },
+  { key: 'stateCode', label: 'State (name or GST code)', required: false, aliases: ['state', 'state name', 'state code', 'gst state'] },
+  { key: 'gstin', label: 'GSTIN', required: false, aliases: ['gstin', 'gstin uin', 'gst', 'gst no', 'gst number', 'gstin number'] },
+  { key: 'pan', label: 'PAN', required: false, aliases: ['pan', 'pan no', 'pan number', 'pan it no', 'it pan'] },
+  { key: 'address', label: 'Address', required: false, aliases: ['address', 'supplier address', 'full address'] },
+  { key: 'tallyLedgerName', label: 'Tally ledger name', required: false, aliases: ['tally ledger name', 'tally ledger', 'tally name'] },
+  { key: 'contactName', label: 'Contact name', required: false, aliases: ['contact name', 'contact person', 'contact'] },
+  { key: 'contactPhone', label: 'Contact phone', required: false, aliases: ['contact phone', 'phone', 'mobile', 'mobile no', 'mobile number', 'phone number', 'contact number'] },
+  { key: 'contactEmail', label: 'Contact e-mail', required: false, aliases: ['contact email', 'email', 'e mail', 'email id', 'mail'] },
+  { key: 'paymentTerms', label: 'Payment terms', required: false, aliases: ['payment terms', 'terms', 'credit terms'] },
+  { key: 'hotelSourceRefs', label: 'Hotel IDs sold (separated by ;)', required: false, aliases: ['hotel ids', 'hotel id', 'hotels', 'hotel source refs', 'hotel refs'] },
+  { key: 'bankAccountHolder', label: 'Bank account holder', required: false, aliases: ['account holder', 'bank account holder', 'beneficiary', 'beneficiary name', 'a c holder'] },
+  { key: 'bankName', label: 'Bank name', required: false, aliases: ['bank name', 'bank'] },
+  { key: 'ifsc', label: 'IFSC', required: false, aliases: ['ifsc', 'ifsc code', 'ifs code'] },
+  { key: 'accountNumber', label: 'Bank account number', required: false, aliases: ['account number', 'account no', 'a c no', 'bank account number', 'bank account', 'ac no'] },
+] as const satisfies readonly ImportFieldDef[];
+
+/**
+ * Accounts phase 3 (contract 9.4): rate-sheet row keys. Suppliers and hotels are matched by
+ * their ID (source reference) or exact name (a hotel name with its city); never guessed.
+ */
+export const RATE_SHEET_IMPORT_FIELDS = [
+  { key: 'supplierRef', label: 'Supplier ID or exact supplier name', required: true, aliases: ['supplier', 'supplier id', 'supplier name', 'supplier ref', 'vendor', 'vendor name'] },
+  { key: 'hotelRef', label: 'Hotel ID or exact hotel name', required: true, aliases: ['hotel', 'hotel id', 'hotel name', 'hotel ref', 'property', 'property name'] },
+  { key: 'city', label: 'Hotel city (when the hotel is given by name)', required: false, aliases: ['city', 'hotel city', 'town'] },
+  { key: 'validFrom', label: 'Contract from (YYYY-MM-DD)', required: true, aliases: ['valid from', 'contract from', 'contract start', 'validity from', 'start date'] },
+  { key: 'validTo', label: 'Contract to (YYYY-MM-DD)', required: true, aliases: ['valid to', 'valid till', 'valid until', 'contract to', 'contract end', 'validity to', 'end date'] },
+  { key: 'seasonFrom', label: 'Season from (YYYY-MM-DD)', required: true, aliases: ['season from', 'season start', 'from date', 'from'] },
+  { key: 'seasonTo', label: 'Season to (YYYY-MM-DD)', required: true, aliases: ['season to', 'season end', 'to date', 'to'] },
+  { key: 'roomType', label: 'Room type', required: true, aliases: ['room type', 'room', 'room category', 'category'] },
+  { key: 'mealPlan', label: 'Meal plan (EP, CP, MAP, AP or AI)', required: true, aliases: ['meal plan', 'meal', 'plan', 'board'] },
+  { key: 'rate', label: 'Rate per room per night (rupees)', required: true, aliases: ['rate', 'room rate', 'rate per night', 'tariff', 'net rate'] },
+  { key: 'weekendRate', label: 'Weekend rate, Friday and Saturday nights (rupees)', required: false, aliases: ['weekend rate', 'weekend', 'weekend tariff'] },
+  { key: 'extraAdult', label: 'Extra adult (rupees)', required: false, aliases: ['extra adult', 'extra adult rate', 'extra person', 'extra bed adult'] },
+  { key: 'childWithBed', label: 'Child with bed (rupees)', required: false, aliases: ['child with bed', 'cwb', 'extra bed child'] },
+  { key: 'childWithoutBed', label: 'Child without bed (rupees)', required: false, aliases: ['child without bed', 'cnb', 'child no bed'] },
+  { key: 'blackoutDates', label: 'Blackout dates (from..to; separated by ;)', required: false, aliases: ['blackout dates', 'blackout', 'blackouts'] },
+  { key: 'cancellationTerms', label: 'Cancellation terms', required: false, aliases: ['cancellation terms', 'cancellation', 'cancellation policy'] },
+] as const satisfies readonly ImportFieldDef[];
+
+export function importFields(kind: AnyImportKind): readonly ImportFieldDef[] {
+  if (kind === 'rate_sheet') return RATE_SHEET_IMPORT_FIELDS;
+  return kind === 'hotel' ? HOTEL_IMPORT_FIELDS : kind === 'customer' ? CUSTOMER_IMPORT_FIELDS : SUPPLIER_IMPORT_FIELDS;
 }
 
 /** "Hotel  Name", "hotel_name", "HOTEL-NAME" → "hotel name". */
@@ -108,7 +166,7 @@ export interface MappingResult {
  * without a choice maps only when its normalised name is a known name of
  * exactly one field. Nothing else is guessed.
  */
-export function resolveMapping(kind: ImportKind, headers: readonly string[], chosen: Readonly<Record<string, string>> = {}): MappingResult {
+export function resolveMapping(kind: AnyImportKind, headers: readonly string[], chosen: Readonly<Record<string, string>> = {}): MappingResult {
   const fields = importFields(kind);
   const fieldKeys = new Set(fields.map((f) => f.key));
   const aliasOwner = new Map<string, string[]>();
@@ -168,12 +226,12 @@ export function resolveMapping(kind: ImportKind, headers: readonly string[], cho
 }
 
 /** Labels of field keys for staff (unknown keys shown as they are). */
-export function fieldLabel(kind: ImportKind, key: string): string {
+export function fieldLabel(kind: AnyImportKind, key: string): string {
   return importFields(kind).find((f) => f.key === key)?.label ?? key;
 }
 
 /** Plain words for a mapping that cannot be used (empty when it can). */
-export function mappingBlockers(kind: ImportKind, m: MappingResult): string[] {
+export function mappingBlockers(kind: AnyImportKind, m: MappingResult): string[] {
   const out: string[] = [];
   if (m.missingRequired.length > 0) out.push(`Add a column for: ${m.missingRequired.map((k) => fieldLabel(kind, k)).join(', ')}.`);
   if (m.duplicateTargets.length > 0) out.push(`Two columns are used for: ${m.duplicateTargets.map((k) => fieldLabel(kind, k)).join(', ')}. Rename or delete one of them.`);
@@ -239,8 +297,12 @@ export function prepareRows(kind: ImportKind, table: CsvTable, mapping: MappingR
         out[f.key] = null;
         continue;
       }
-      if (f.key !== 'phone' && looksLikeFormula(v)) formula = true;
+      if (f.key !== 'phone' && f.key !== 'contactPhone' && looksLikeFormula(v)) formula = true;
+      if (f.key === 'contactPhone' && looksLikeFormula(v) && !/^[+-]?[0-9][0-9 ().,/-]*$/.test(v)) formula = true;
       out[f.key] = v;
+    }
+    if (kind === 'supplier') {
+      prepareSupplier(out, states);
     }
     if (out.phone) {
       if (looksLikeFormula(out.phone) && normalisePhone(out.phone) === undefined) formula = true;
@@ -255,7 +317,7 @@ export function prepareRows(kind: ImportKind, table: CsvTable, mapping: MappingR
       if (out.gstin) out.gstin = out.gstin.toUpperCase().replace(/\s/g, '');
       if (out.gstStatus) out.gstStatus = yesNo(out.gstStatus);
       if (out.partyType === 'business' && !out.gstStatus && out.gstin) out.gstStatus = 'registered';
-    } else {
+    } else if (kind === 'hotel') {
       if (out.starCategory) out.starCategory = /^[1-7](\.0)?(\s*star)?$/i.test(out.starCategory) ? out.starCategory[0]! : out.starCategory;
       if (out.status) out.status = out.status.toLowerCase();
     }
@@ -264,6 +326,26 @@ export function prepareRows(kind: ImportKind, table: CsvTable, mapping: MappingR
     return out;
   });
   return { kind, rows, names, formulaRows };
+}
+
+/** Supplier cells tidied the way staff type them (never invented; the database names anything unreadable). */
+function prepareSupplier(out: Record<string, string | null>, states: StateList): void {
+  if (out.gstin) out.gstin = out.gstin.toUpperCase().replace(/\s/g, '');
+  if (out.pan) out.pan = out.pan.toUpperCase().replace(/\s/g, '');
+  if (out.ifsc) out.ifsc = out.ifsc.toUpperCase().replace(/\s/g, '');
+  if (out.accountNumber) out.accountNumber = out.accountNumber.replace(/[\s-]/g, '');
+  if (out.stateCode) out.stateCode = stateCode(out.stateCode, states);
+  if (out.contactEmail) out.contactEmail = out.contactEmail.toLowerCase();
+  if (out.serviceTypes) out.serviceTypes = out.serviceTypes.toLowerCase().split(/[;,]/).map((x) => x.trim()).filter(Boolean).join(';');
+  if (out.supplierKind) out.supplierKind = supplierKindWord(out.supplierKind);
+}
+
+/** "Direct" → direct; "Agent", "Booking channel", "Agent or booking channel" → channel; anything else as typed (refused). */
+export function supplierKindWord(v: string): string {
+  const t = v.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (t === 'direct' || t === 'direct supplier') return 'direct';
+  if (['channel', 'booking channel', 'agent or booking channel', 'agent / booking channel'].includes(t)) return 'channel';
+  return v;
 }
 
 export function formulaRowsText(rows: readonly number[]): string {
@@ -298,10 +380,35 @@ export const IMPORT_REASON_TEXT: Record<string, string> = {
   gstin_missing: 'Business is GST registered but has no GSTIN.',
   gst_reason_invalid: 'Reason for no GSTIN must be 10 to 500 characters.',
   gst_reason_missing: 'Business is not GST registered: give the reason.',
-  source_ref_invalid: 'ID is longer than 80 characters.',
+  source_ref_invalid: 'ID is missing or longer than 80 characters (letters, digits and . _ : / - only).',
   unknown_column: 'The row has a column the list cannot store.',
   not_text: 'A value is not plain text.',
   duplicate_in_file: 'This ID appears more than once in the file.',
+  // Accounts phase 2 (contract 13.3): supplier rows.
+  name_required: 'Supplier name is empty.',
+  name_exists: 'A supplier with this exact name already exists (or the name is used twice in the file). Nothing is merged by name.',
+  kind_invalid: 'Kind must be direct, or agent or booking channel.',
+  service_types_invalid: 'Services must be one to four of hotel, transfer, activity, flight (separated by ;). A new supplier needs at least one.',
+  pan_invalid: 'PAN shape is wrong (for example ABCDE1234F).',
+  state_invalid: 'State is not an Indian state name or GST state code.',
+  gstin_pan_mismatch: 'PAN is not the PAN inside the GSTIN (characters 3 to 12).',
+  contact_invalid: 'Contact name, phone or e-mail is not valid.',
+  bank_incomplete: 'Bank details need all four: account holder, bank name, IFSC and account number.',
+  ifsc_invalid: 'IFSC shape is wrong (11 characters, the fifth is 0).',
+  account_invalid: 'Bank account number must be 6 to 18 digits.',
+  formula_cell: 'A cell starts like a spreadsheet formula (=, + or @).',
+  tally_ledger_invalid: 'Tally ledger name is longer than 100 characters.',
+  payment_terms_invalid: 'Payment terms are longer than 1000 characters.',
+  hotel_refs_invalid: 'Hotel IDs must be up to 50 IDs separated by ; (letters, digits and . _ : / - only).',
+};
+
+/** Supplier import warning words (contract 5.6); warnings never block. */
+export const SUPPLIER_IMPORT_WARNING_TEXT: Record<string, string> = {
+  similar_name_city: 'Similar name in the same city as a stored supplier',
+  same_gstin: 'Same GSTIN as a stored supplier',
+  same_pan: 'Same PAN as a stored supplier',
+  same_bank: 'Same bank account (IFSC and last 4 digits) as a stored supplier',
+  hotel_not_found: 'Hotel ID not found in the hotel list (no link is made)',
 };
 
 export const DUPLICATE_KIND_TEXT = {
@@ -333,6 +440,61 @@ export interface ImportValidation {
   /** Echo-A M1: the branch the customers go to (null with entityWide = every branch). */
   branchName?: string | null;
   entityWide?: boolean;
+  /** Accounts phase 2 (13.3): supplier batches only. */
+  warnings?: { similarNameCity: number; sameGstin: number; samePan: number; sameBank: number; hotelNotFound: number };
+  withBankDetails?: number;
+}
+
+/** One supplier row of import_batch_get (13.3), as imports-db parses it. */
+export interface SupplierImportRowResult {
+  rowNo: number;
+  outcome: string;
+  reasons: string[];
+  warnings: Array<{ code: string; supplierId: string | null; supplierName: string | null; hotelSourceRef: string | null }>;
+  targetId: string | null;
+  values: {
+    name: string | null; supplierKind: string | null; serviceTypes: string[] | null; city: string | null; stateCode: string | null;
+    gstin: string | null; panMasked: string | null; tallyLedgerName: string | null; sourceRef: string | null; contactName: string | null;
+    contactPhone: string | null; contactEmail: string | null; hotelSourceRefs: string[] | null;
+    bank: { holder: string | null; bankName: string | null; ifsc: string | null; accountLast4: string | null } | null;
+  };
+}
+
+const SUPPLIER_OUTCOMES = new Set(['create', 'update', 'unchanged', 'skipped_checked', 'invalid', 'duplicate_in_file']);
+
+/** The supplier extras of the summary (counts, bank rows, the first rows with masked values). */
+export function supplierImportSummary(v: ImportValidation, rows: readonly SupplierImportRowResult[]): SupplierImportSummary {
+  const shown = rows.filter((r) => SUPPLIER_OUTCOMES.has(r.outcome)).slice(0, SUMMARY_LIST_LIMIT);
+  return {
+    warnings: v.warnings ?? { similarNameCity: 0, sameGstin: 0, samePan: 0, sameBank: 0, hotelNotFound: 0 },
+    withBankDetails: v.withBankDetails ?? 0,
+    rows: shown.map((r): SupplierImportRowView => ({
+      rowNo: r.rowNo,
+      outcome: r.outcome as SupplierImportRowView['outcome'],
+      reasons: [...new Set(r.reasons.map((c) => IMPORT_REASON_TEXT[c] ?? 'This row cannot be imported.'))],
+      warnings: r.warnings.map((w) => w.code),
+      warningDetails: r.warnings.map((w) => ({ code: w.code, supplierId: w.supplierId, supplierName: w.supplierName === null ? null : safeCellText(w.supplierName),
+        hotelSourceRef: w.hotelSourceRef })),
+      values: {
+        name: r.values.name === null ? null : safeCellText(r.values.name),
+        supplierKind: r.values.supplierKind,
+        serviceTypes: r.values.serviceTypes ? r.values.serviceTypes.join('; ') : null,
+        city: r.values.city,
+        stateCode: r.values.stateCode,
+        gstin: r.values.gstin,
+        panMasked: r.values.panMasked,
+        tallyLedgerName: r.values.tallyLedgerName,
+        sourceRef: r.values.sourceRef,
+        contactName: r.values.contactName,
+        contactPhone: r.values.contactPhone,
+        contactEmail: r.values.contactEmail,
+        hotelSourceRefs: r.values.hotelSourceRefs ? r.values.hotelSourceRefs.join('; ') : null,
+        bank: r.values.bank,
+      },
+      targetId: r.targetId,
+    })),
+    ...(rows.length > shown.length ? { moreRows: rows.length - shown.length } : {}),
+  };
 }
 
 /** Assumption notes of import_batch_validate (Atlas v4) in plain words. */
@@ -377,6 +539,8 @@ export function importSummaryView(input: {
   /** Row outcomes for the proposed list (first create/update rows); absent = no list, counts only. */
   outcomes?: readonly ImportRowOutcome[];
   status?: ImportStatus;
+  /** Accounts phase 2: the supplier rows of import_batch_get (supplier batches only). */
+  supplierRows?: readonly SupplierImportRowResult[];
 }): ImportSummaryWithNotes {
   const { kind, mapping, validation: v } = input;
   const status: ImportStatus = input.status ?? (v.status === 'applied' ? 'applied' : v.status === 'validated' ? 'validated' : 'expired');
@@ -417,9 +581,39 @@ export function importSummaryView(input: {
     rowVersion: v.rowVersion,
     proposalHash: v.proposalHash ?? null,
     ...(kind === 'customer' ? { branchName: v.entityWide ? null : (v.branchName ?? null) } : {}),
+    ...(kind === 'supplier' ? { supplier: supplierImportSummary(v, input.supplierRows ?? []) } : {}),
     rowNotes: (v.rowNotes ?? []).slice(0, SUMMARY_LIST_LIMIT).flatMap((r) => {
       const words = [...new Set(r.notes.map((n) => importNoteText(kind, n)).filter((n): n is string => Boolean(n)))];
       return words.length > 0 ? [{ rowNo: r.rowNo, text: words.join(' ') }] : [];
     }),
   };
+}
+
+/**
+ * Accounts phase 3 (contract 9.4): rate-sheet rows for import_batch_stage (kind rate_sheet).
+ * Mapped keys only; '' -> null; values as typed (spaces tidied; the cancellation terms keep
+ * their line breaks). The database parses dates, amounts and meal plans and names every
+ * problem; formula-looking cells refuse the file here as for the other lists.
+ */
+export function prepareRateSheetRows(table: CsvTable, mapping: MappingResult): { rows: Array<Record<string, string | null>>; formulaRows: number[] } {
+  const formulaRows: number[] = [];
+  const rows = table.rows.map((cells, i) => {
+    const out: Record<string, string | null> = {};
+    let formula = false;
+    for (const f of RATE_SHEET_IMPORT_FIELDS) {
+      const col = mapping.columns[f.key];
+      if (col === undefined) continue;
+      const raw = cells[col] ?? '';
+      const v = f.key === 'cancellationTerms' ? raw.replace(/\r\n?/g, '\n').trim() : tidy(raw);
+      if (v === '') {
+        out[f.key] = null;
+        continue;
+      }
+      if (looksLikeFormula(v) && !/^[+-]?[0-9][0-9 ().,/-]*$/.test(v)) formula = true;
+      out[f.key] = v;
+    }
+    if (formula) formulaRows.push(i + 1);
+    return out;
+  });
+  return { rows, formulaRows };
 }

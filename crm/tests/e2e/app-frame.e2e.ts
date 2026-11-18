@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page, test } from '@playwright/test';
 import { enforceProductionStylePolicy, LOCAL_NETWORK_ACCESS_OFF, trackViolations } from '../helpers/production-style-policy';
+import { waitForHydration } from './hydration';
 
 /**
  * Staff app frame (Direction A R0, 19 October 2026): grouped sidebar with the
@@ -107,6 +108,11 @@ test.describe('staff app frame: layout and behaviour', () => {
       // Voice-note batch: stored customers that Accounts checks.
       'Customers to check',
       'Reported payments',
+      // Purchase build: hotel commitments and supplier money, after Reported payments.
+      'Hotel go-ahead',
+      'Supplier payments',
+      'Supplier invoices',
+      'Company funding',
       'Department costs',
       'Branch cash',
       'Company accounts',
@@ -138,6 +144,8 @@ test.describe('staff app frame: layout and behaviour', () => {
       '/app/admin/staff',
       '/app/admin/company',
       '/app/admin/finance-policy',
+      // Accounts phase (contract 11.8): notices switch, Tally export switch and exception owner.
+      '/app/admin/accounts',
       '/app/admin/integration',
       // Voice-note batch: Imports (the preview owner holds the import right).
       '/app/admin/imports',
@@ -164,6 +172,9 @@ test.describe('staff app frame: layout and behaviour', () => {
     test(`focused skip link is on top of the frame without banners (production-like) at ${viewport.width}px`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await open(page, 'deals-sales');
+      // Remove the banners only after hydration: removing them earlier makes hydration fail, React rebuilds the tree and
+      // the focused skip link is dropped (seen on a busy CI runner).
+      await waitForHydration(page);
       // Production shows neither the environment nor the preview banner.
       await page.evaluate(() => document.querySelectorAll('body > [role="note"]').forEach((n) => n.remove()));
       await page.keyboard.press('Tab');

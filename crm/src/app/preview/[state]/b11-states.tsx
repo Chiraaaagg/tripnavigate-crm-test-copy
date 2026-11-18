@@ -444,6 +444,7 @@ export function renderB11BookState(state: string): ReactNode | null {
           <TravellerIdProofsCard
             state={{
               taskId: 'task-1',
+              idProofRequired: true,
               travellers: [
                 { seq: 1, fullName: 'Sample Traveller A', type: 'adult', idProofs: [idProof(1), idProof(2)].map((f) => ({ fileId: f.fileId, fileName: f.fileName, mime: f.mime, sizeLabel: f.sizeLabel, storedAt: f.storedAt!, downloadHref: '/preview/b12-task-id-proofs' })) },
                 { seq: 2, fullName: 'Sample Traveller B', type: 'adult', idProofs: [] },

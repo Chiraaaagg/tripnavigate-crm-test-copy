@@ -11,7 +11,7 @@ import { callVn } from './parties-db';
  * produced: objects of camelCase keys with string or null values.
  */
 
-export const IMPORT_KINDS = ['hotel', 'customer'] as const;
+export const IMPORT_KINDS = ['hotel', 'customer', 'supplier'] as const;
 export type ImportKind = (typeof IMPORT_KINDS)[number];
 export const IMPORT_STATUSES = ['staged', 'validated', 'applied', 'cancelled'] as const;
 export const IMPORT_OUTCOMES = ['create', 'update', 'unchanged', 'skipped_checked', 'invalid', 'duplicate_in_file'] as const;
@@ -65,6 +65,9 @@ export const ImportBatchSchema = z.object({
   columns: z.array(z.object({ key: z.string(), filled: Count })).optional(),
   invalidRows: z.array(z.object({ rowNo: z.number().int(), reasons: z.array(z.string()) })).optional(),
   duplicateRows: z.array(z.object({ rowNo: z.number().int(), sourceRef: z.string().nullable(), kind: z.enum(['in_file', 'same_name']) })).optional(),
+  // Accounts phase 2 (13.3): supplier batches only.
+  warnings: z.object({ similarNameCity: Count, sameGstin: Count, samePan: Count, sameBank: Count, hotelNotFound: Count }).optional(),
+  withBankDetails: Count.optional(),
 });
 export type ImportBatch = z.infer<typeof ImportBatchSchema>;
 
@@ -97,7 +100,34 @@ const RowResultSchema = z.object({
   targetId: z.uuid().nullable(),
 });
 export type ImportRowResult = z.infer<typeof RowResultSchema>;
-const GetSchema = z.object({ batch: ImportBatchSchema, rows: z.array(RowResultSchema), hasMore: z.boolean() }).nullable();
+
+/** Accounts phase 2 (13.3): a supplier row — warnings as objects, values with PAN and account number masked. */
+const nullableText = z.string().nullable().optional().transform((v) => v ?? null);
+const SupplierRowSchema = z.object({
+  rowNo: z.number().int(),
+  sourceRef: z.string().nullable(),
+  name: z.string().nullable(),
+  outcome: z.enum(IMPORT_OUTCOMES).nullable().transform((v): ImportOutcome | 'pending' => v ?? 'pending'),
+  reasons: z.array(z.string()),
+  warnings: z.array(z.object({ code: z.string(), supplierId: z.uuid().nullable(), supplierName: z.string().nullable(), hotelSourceRef: z.string().nullable() })),
+  warningCodes: z.array(z.string()),
+  targetId: z.uuid().nullable(),
+  values: z.object({
+    name: nullableText, supplierKind: nullableText, serviceTypes: z.array(z.string()).nullable().optional().transform((v) => v ?? null),
+    city: nullableText, stateCode: nullableText, gstin: nullableText, panMasked: nullableText, tallyLedgerName: nullableText,
+    sourceRef: nullableText, contactName: nullableText, contactPhone: nullableText, contactEmail: nullableText,
+    hotelSourceRefs: z.array(z.string()).nullable().optional().transform((v) => v ?? null),
+    bank: z.object({ holder: nullableText, bankName: nullableText, ifsc: nullableText, accountLast4: nullableText }).nullable().optional()
+      .transform((v) => v ?? null),
+  }),
+});
+export type SupplierImportRow = z.infer<typeof SupplierRowSchema>;
+const GetSchema = z.union([
+  z.object({ batch: ImportBatchSchema.extend({ kind: z.literal('supplier') }), rows: z.array(SupplierRowSchema), hasMore: z.boolean() })
+    .transform((v) => ({ ...v, supplierRows: v.rows })),
+  z.object({ batch: ImportBatchSchema.extend({ kind: z.enum(['hotel', 'customer']) }), rows: z.array(RowResultSchema), hasMore: z.boolean() })
+    .transform((v) => ({ ...v, supplierRows: null as SupplierImportRow[] | null })),
+]).nullable();
 
 const StagedSchema = z.object({ batchId: z.uuid(), rowCount: z.number().int(), outcome: z.enum(['created', 'existing']) });
 const ListSchema = z.object({
@@ -123,7 +153,7 @@ export function stageImport(
   client: RpcClient,
   args: {
     legalEntityId: string; kind: ImportKind; branchId: string | null; fileName: string; sha256: string; rows: ImportRow[]; requestId: string;
-    /** Echo-A M1: customers need branchId, or entityWide true (never both); hotels: neither. */
+    /** Echo-A M1: customers need branchId, or entityWide true (never both); hotels and suppliers: neither. */
     entityWide?: boolean;
   },
 ): Promise<z.infer<typeof StagedSchema>> {
@@ -141,12 +171,21 @@ export function validateImport(client: RpcClient, batchId: string): Promise<Vali
 /** Applies a validated batch (reason 10-500). Idempotent; refuses import_stale when the dry run no longer holds. */
 export function applyImport(
   client: RpcClient,
-  args: { batchId: string; expectedRowVersion: number; reason: string; proposalHash?: string | null },
+  args: {
+    batchId: string; expectedRowVersion: number; reason: string; proposalHash?: string | null;
+    /**
+     * Accounts phase 2 (20261204000140, Addendum L7): supplier batches stage only XXXX<last4>
+     * of a bank account number; Import sends the same file again (its sha256) and the numbers
+     * by row number. Sent only when given (older databases take four arguments).
+     */
+    bank?: { fileSha256: string; accounts: Record<string, string> } | null;
+  },
 ): Promise<ImportApplyResult> {
   // Echo-A L3: expectedRowVersion and proposalHash are the ones of the summary the screen showed.
   return callVn(client, 'import_batch_apply', {
     p_batch_id: args.batchId, p_expected_row_version: args.expectedRowVersion, p_reason: args.reason,
     p_proposal_hash: args.proposalHash ?? null,
+    ...(args.bank ? { p_bank: args.bank } : {}),
   }, ApplyResultSchema.extend({ outcome: z.literal('existing').optional() }));
 }
 

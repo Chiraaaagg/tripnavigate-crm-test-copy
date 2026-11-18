@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page, test } from '@playwright/test';
 import { enforceProductionStylePolicy, LOCAL_NETWORK_ACCESS_OFF, trackViolations } from '../helpers/production-style-policy';
+import { waitForHydration } from './hydration';
 
 /**
  * Deals list through the design preview states (synthetic props). Direction A
@@ -329,19 +330,21 @@ test.describe('Deals list: loading state', () => {
 });
 
 test.describe('Deals list: production style policy', () => {
-  test('every Deals list state renders with zero CSP violations', async ({ browser }) => {
-    const context = await browser.newContext();
-    const applied: string[] = [];
-    await enforceProductionStylePolicy(context, applied, (url) => DEALS_STATES.some((s) => url.pathname === `/preview/${s}`));
-    const { violations } = await trackViolations(context);
-    const page = await context.newPage();
-    for (const state of DEALS_STATES) {
+  // One test per state (one loop over all 14 states ran past the 30 s limit on a busy CI runner).
+  for (const state of DEALS_STATES) {
+    test(`renders with zero CSP violations and no server-rendered style attribute in main: ${state}`, async ({ browser }) => {
+      const context = await browser.newContext();
+      const applied: string[] = [];
+      await enforceProductionStylePolicy(context, applied, (url) => url.pathname === `/preview/${state}`);
+      const { violations } = await trackViolations(context);
+      const page = await context.newPage();
       await open(page, state);
+      await waitForHydration(page);
       const html = await (await page.request.get(`/preview/${state}`)).text();
       expect(html, `${state}: no server-rendered style attribute in main`).not.toMatch(/<main[\s\S]*<[a-z][^>]*\sstyle="[\s\S]*<\/main>/i);
-    }
-    expect(applied.length).toBe(DEALS_STATES.length);
-    expect(violations).toEqual([]);
-    await context.close();
-  });
+      expect(applied.length, `${state}: production style policy applied`).toBe(1);
+      expect(violations).toEqual([]);
+      await context.close();
+    });
+  }
 });

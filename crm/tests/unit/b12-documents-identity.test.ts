@@ -40,15 +40,18 @@ describe('adapters fill the identity from the view branch code', () => {
     expect(r.placeholders.some((p) => p.startsWith('GSTIN'))).toBe(false);
   });
 
-  it('quotation, Delhi: GSTIN placeholder, counted last', () => {
+  it('quotation, Delhi (LD1): the company GSTIN, no GSTIN placeholder; unknown branch: placeholder counted last', () => {
     const r = quotationToEngineQuote(quotationView({ branchCode: 'DEL' }));
     if (!r.ok) throw new Error('refused');
-    expect(r.input.identity.gstin).toBe('[GSTIN for Delhi]');
-    expect(r.input.identity.gstinState).toBe('Delhi');
-    expect(r.placeholders.at(-1)).toBe('GSTIN for Delhi');
+    expect(r.input.identity.gstin).toBe('08AAFCH9191M1ZV');
+    expect(r.input.identity.gstinState).toBe('Rajasthan');
+    expect(gstinOnly(r.placeholders)).toEqual([]);
+    const u = quotationToEngineQuote(quotationView({ branchCode: null }));
+    if (!u.ok) throw new Error('refused');
+    expect(u.placeholders.at(-1)).toBe('GSTIN for branch');
   });
 
-  it('itinerary: Jodhpur has no placeholder at all; Ahmedabad and an unknown branch are blocked by one', () => {
+  it('itinerary: Jodhpur and Ahmedabad (LD1) have no GSTIN placeholder; an unknown branch is blocked by one', () => {
     const jdh = itineraryToEngine(itineraryView({ branchCode: 'JDH' }));
     if (!jdh.ok) throw new Error('refused');
     expect(jdh.input.identity.gstin).toBe('08AAFCH9191M1ZV');
@@ -56,9 +59,8 @@ describe('adapters fill the identity from the view branch code', () => {
 
     const amd = itineraryToEngine(itineraryView({ branchCode: 'AMD' }));
     if (!amd.ok) throw new Error('refused');
-    expect(amd.input.identity.gstin).toBe('[GSTIN for Ahmedabad]');
-    expect(gstinOnly(amd.placeholders)).toEqual(['GSTIN for Ahmedabad']);
-    expect(amd.placeholders.at(-1)).toBe('GSTIN for Ahmedabad');
+    expect(amd.input.identity).toMatchObject({ gstin: '08AAFCH9191M1ZV', gstinState: 'Rajasthan' });
+    expect(gstinOnly(amd.placeholders)).toEqual([]);
 
     const unknown = itineraryToEngine(itineraryView({ branchCode: null }));
     if (!unknown.ok) throw new Error('refused');
@@ -83,13 +85,18 @@ describe('templates print the statutory line', () => {
     expect(doc.safetyHits).toEqual([]);
   });
 
-  it('branded itinerary, Delhi: the GSTIN is a visible fill the page check counts (final blocked)', () => {
-    const r = itineraryToEngine(itineraryView({ branchCode: 'DEL' }));
+  it('branded itinerary, unknown branch: the GSTIN is a visible fill the page check counts (final blocked); Delhi prints the company GSTIN (LD1)', () => {
+    const del = itineraryToEngine(itineraryView({ branchCode: 'DEL' }));
+    if (!del.ok) throw new Error('refused');
+    const delDoc = renderDocumentHtml(BrandedItineraryTemplate, { input: del.input }, { title: 't' });
+    expect(gstinOnly(delDoc.placeholders)).toEqual([]);
+    expect(htmlToText(delDoc.html)).toContain('GSTIN 08AAFCH9191M1ZV (Rajasthan)');
+    const r = itineraryToEngine(itineraryView({ branchCode: null }));
     if (!r.ok) throw new Error('refused');
     const doc = renderDocumentHtml(BrandedItineraryTemplate, { input: r.input }, { title: 't' });
-    expect(gstinOnly(doc.placeholders)).toEqual(['GSTIN for Delhi']);
+    expect(gstinOnly(doc.placeholders)).toEqual(['GSTIN for branch']);
     expect([...doc.placeholders].sort()).toEqual([...r.placeholders].sort());
-    expect(doc.html).toContain('GSTIN <span class="fill">GSTIN for Delhi</span> (Delhi)');
+    expect(doc.html).toContain('GSTIN <span class="fill">GSTIN for branch</span>');
     expect(htmlToText(doc.html)).toContain('PAN AAFCH9191M');
     expect(doc.safetyHits).toEqual([]);
   });
@@ -100,8 +107,9 @@ describe('templates print the statutory line', () => {
     if (!q.ok || !i.ok) throw new Error('refused');
     expect(htmlToText(renderDocumentHtml(PlainQuotationTemplate, { input: q.input }, { title: 't' }).html)).toContain(JDH_LINE);
     const plain = renderDocumentHtml(PlainItineraryTemplate, { input: i.input }, { title: 't' });
-    expect(gstinOnly(plain.placeholders)).toEqual(['GSTIN for Ahmedabad']);
-    expect(htmlToText(plain.html)).toContain('GSTIN GSTIN for Ahmedabad (Gujarat)');
+    // Ahmedabad prints the company GSTIN (LD1).
+    expect(gstinOnly(plain.placeholders)).toEqual([]);
+    expect(htmlToText(plain.html)).toContain('GSTIN 08AAFCH9191M1ZV (Rajasthan)');
   });
 });
 
@@ -172,14 +180,17 @@ describe('staff request and render worker print the same identity (same input ha
     return { hash: stableHash(r.input), placeholders: r.placeholders };
   };
 
-  it('Jodhpur: equal hashes and no placeholder; Delhi: equal hashes with the GSTIN placeholder', () => {
+  it('Jodhpur and Delhi (LD1): equal hashes and no placeholder; unknown branch: equal hashes with the GSTIN placeholder', () => {
     expect(workerHash('JDH')).toEqual(staffHash('JDH'));
     expect(staffHash('JDH').placeholders).toEqual([]);
     expect(workerHash('DEL')).toEqual(staffHash('DEL'));
-    expect(staffHash('DEL').placeholders).toEqual(['GSTIN for Delhi']);
+    expect(staffHash('DEL').placeholders).toEqual([]);
+    expect(workerHash(null)).toEqual(staffHash(null));
+    expect(staffHash(null).placeholders).toEqual(['GSTIN for branch']);
   });
 
-  it('a different branch gives a different input (a final requested for another branch fails input_invalid)', () => {
-    expect(workerHash('DEL').hash).not.toBe(staffHash('JDH').hash);
+  it('a different identity gives a different input (a final requested for another identity fails input_invalid)', () => {
+    // LD1: every known branch prints the same identity; a missing branch prints the placeholder line.
+    expect(workerHash(null).hash).not.toBe(staffHash('JDH').hash);
   });
 });

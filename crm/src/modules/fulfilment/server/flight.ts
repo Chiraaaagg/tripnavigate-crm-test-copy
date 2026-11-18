@@ -9,6 +9,10 @@ import { toFlightTaskSummary, toFlightTaskView } from '../dto';
  * Flight queue reads (mirror of the Purchase loaders in queries.ts). The
  * database filters rows to the viewer's department and entity; the DTOs carry
  * no selling price, acceptance proof or other departments' budgets.
+ *
+ * Deprecated by the Flight build (20261201000110): flight_task_list and
+ * flight_task_get stay for one release; the new screens read
+ * loadFlightQueue / loadFlightWorkspace in src/modules/flight/server/queries.ts.
  */
 
 type Staff = Pick<StaffContext, 'supabase'>;

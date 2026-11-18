@@ -10,7 +10,7 @@ import { check, draftView, emptyDraft, inlinePrefillUi, travellers } from './b11
 import { sales, SAVING_ACTIONS } from './b11-states';
 import type { VoiceNoteProps } from '@/views/booking-form/vn-types';
 import { previewCreatePartyAction, previewPickPartyAction, previewPickPartyFailAction, previewSearchHotelsAction, previewSearchPartiesAction, previewSearchPartiesThrowsAction } from './vn-preview-actions';
-import { previewBookformRefuseBillToAction, previewBookformRefuseCustomerAction, previewBookformRefusePricesAction, previewBookformRefuseServiceAction, previewBookformSavedAction } from './bookform-preview-actions';
+import { previewBookformRefreshAction, previewBookformRefuseBillToAction, previewBookformRefuseCustomerAction, previewBookformRefusePricesAction, previewBookformRefuseServiceAction, previewBookformReturnsAction, previewBookformSavedAction } from './bookform-preview-actions';
 
 /*
  * LOCAL DESIGN-REVIEW GALLERY: the booking form (owner-approved preview of
@@ -30,6 +30,9 @@ const ACTIONS: BookingFormActions = {
   savePrices: saved,
   saveBillTo: saved,
   fillEmptyPrefill: saved,
+  saveFlightFares: saved,
+  addReturnFlights: previewBookformReturnsAction,
+  refreshFromBitrix: previewBookformRefreshAction,
 };
 
 const REFUSING: BookingFormActions = {
@@ -59,8 +62,27 @@ const OWNER_ITEMS: BookingFormServiceItemView[] = [
     3,
     'flight',
     { tripType: 'one_way', cabin: 'Economy', passengers: 4, segments: [{ from: 'Delhi', to: 'Jodhpur', date: '2026-10-25', airline: 'Sample Air', flightNo: 'SA520', departTime: '12:00', arriveTime: '14:00' }] },
-    { purchaseBudgetPaise: null, estimate: { estimate: { kind: 'flight', fareTotalPaise: '1500000' }, totalPaise: '1500000' } },
+    { purchaseBudgetPaise: null, estimate: { estimate: { kind: 'flight', fareTotalPaise: null, fareAdultPaise: '600000', fareChildPaise: '450000', fareInfantPaise: null }, totalPaise: '1500000' } },
   ),
+];
+
+/** Book now v2 (26 October 2026 prototype): request items, car kinds, fare per person and a screenshot flight. */
+const V2_ITEMS: BookingFormServiceItemView[] = [
+  svc(
+    1,
+    'hotel',
+    { mode: 'specific', hotelName: 'Sample Palace Hotel', city: 'Jodhpur', checkIn: '2026-10-25', checkOut: '2026-10-28', rooms: 1, roomType: 'Deluxe', mealPlan: 'Breakfast', adults: 2, children: 2, extraBeds: 1, requestItems: [{ text: 'Baby cot', forSeq: 4 }, { text: 'Early check-in', forSeq: null }], specialRequests: 'Baby cot (Sample Infant D), Early check-in' },
+    { estimate: { estimate: { kind: 'hotel', roomRatePaise: '800000', extraBedRatePaise: '150000', noBedRatePaise: null }, totalPaise: '2850000' } },
+  ),
+  svc(2, 'hotel', { mode: 'specific', hotelName: 'Sample Lake Resort', city: 'Udaipur', checkIn: '2026-10-28', checkOut: '2026-10-31', rooms: 1, adults: 2, children: 2 }, { estimate: { estimate: { kind: 'hotel', roomRatePaise: null, extraBedRatePaise: null, noBedRatePaise: null }, totalPaise: null } }),
+  svc(
+    3,
+    'flight',
+    { tripType: 'one_way', cabin: 'Economy', passengers: 4, entryMode: 'typed', segments: [{ from: 'DEL', to: 'JDH', date: '2026-10-25', airline: 'Sample Air', flightNo: 'SA520', departTime: '08:10', arriveTime: '09:40' }], requestItems: [{ text: 'Wheelchair help', forSeq: 3 }] },
+    { estimate: { estimate: { kind: 'flight', fareTotalPaise: null, fareAdultPaise: '600000', fareChildPaise: '450000', fareInfantPaise: '150000' }, totalPaise: null } },
+  ),
+  svc(4, 'flight', { tripType: 'one_way', cabin: 'Economy', passengers: 4, entryMode: 'screenshot', screenshotNote: 'Book the 08:00 option', segments: [] }, { estimate: { estimate: { kind: 'flight', fareTotalPaise: null, fareAdultPaise: null, fareChildPaise: null, fareInfantPaise: null }, totalPaise: null }, files: [{ fileId: 'f0000000-0000-4000-8000-000000000001', kind: 'flight_screenshot', fileName: 'fare-quote.png', sizeLabel: '210 KB', uploadedAt: '2026-10-24T10:00:00.000Z', uploadedByYou: true, downloadHref: '#', canRemove: true, rowVersion: 1 }] }),
+  svc(5, 'transfer', { carKind: 'airport_pickup', flightItemId: ITEM_ID(3), date: '2026-10-25', pickupTime: '09:40', pickup: 'Jodhpur airport (JDH), flight SA520', drop: 'Sample Palace Hotel, Jodhpur', vehicleType: 'Innova', quantity: 1 }, { estimate: { estimate: { kind: 'transfer', vehicleRatePaise: '250000' }, totalPaise: '250000' } }),
 ];
 
 const PRICES: PriceLine[] = [
@@ -97,6 +119,8 @@ function core(view: BookNowView, over: Partial<BookingFormVM> = {}): BookingForm
     customerType: null,
     market: null,
     prefillMode: 'off',
+    idProofCopyApplies: true,
+    idProofRequired: true,
     formRules: 2,
     items: [],
     coverage: null,
@@ -224,6 +248,36 @@ function scenario(name: string): Scenario | null {
       const view = emptyDraft({ contacts: { contactName: 'Sample Customer A', mobile: '9876500012', email: null, contactConfirmed: false, confirmedAt: null, confirmedByName: null, bookingFor: 'individual', payerDifferent: false, payerName: null } });
       return { view, vm: core(view, { prefillMode: 'auto' }), prefillUi: toFormIds(inlinePrefillUi()) };
     }
+    case 'v2': {
+      // Book now v2: every trip fact from the Bitrix Deal (locked bar), structured requests, fares and a screenshot flight.
+      const view = ownerView();
+      return { view, vm: ownerCore(view, { items: V2_ITEMS, coverage: { nights: 6, covered: 6, missing: [], outside: [] }, flightFareTotals: { adultPaise: null, childPaise: null, infantPaise: null } }), vn: { ...VN_SEARCH, dealFacts: { ...DEAL_FACTS, bitrixDealHref: 'https://example.invalid/crm/deal/details/1/' } } };
+    }
+    case 'flight-only': {
+      // Accounts phase 0 (contract 5.1, 11.6): only flights booked, so adult ID proof is not needed.
+      const view = ownerView();
+      const flights = V2_ITEMS.filter((i) => i.serviceType === 'flight');
+      return { view, vm: ownerCore(view, { items: flights, idProofRequired: false, coverage: null, flightFareTotals: { adultPaise: null, childPaise: null, infantPaise: null } }), vn: { ...VN_SEARCH, dealFacts: DEAL_FACTS } };
+    }
+    case 'v2-nocopy': {
+      // The ID proof is not copied to Bitrix for this Deal (switch off or a Deal not from Bitrix): no copy note.
+      const view = ownerView();
+      return { view, vm: ownerCore(view, { items: V2_ITEMS, idProofCopyApplies: false, flightFareTotals: { adultPaise: null, childPaise: null, infantPaise: null } }), vn: { ...VN_SEARCH, dealFacts: { ...DEAL_FACTS, bitrixDealHref: null } } };
+    }
+    case 'v2-quote': {
+      // Converted from an accepted quotation: the total and the customer's yes come from it; per-person lines are optional.
+      const view = ownerView({
+        evidence: [],
+        checklist: [],
+        quotationSource: { quotationId: 'q0000000-0000-4000-8000-000000000001', reference: 'TQ-1', versionId: 'q0000000-0000-4000-8000-000000000002', versionNo: 1, acceptedAt: '2026-10-24T10:00:00.000Z', acceptedTierKey: 'quoted', acceptanceHref: '#' },
+      });
+      return { view, vm: ownerCore(view, { items: V2_ITEMS, prices: priceView(EMPTY_LINES, { sellingTotalPaise: '3000000', purchaseTotalPaise: null, markupTotalPaise: null, source: 'quotation_total', linesRequired: false }), flightFareTotals: { adultPaise: null, childPaise: null, infantPaise: null } }), vn: { ...VN_SEARCH, dealFacts: DEAL_FACTS } };
+    }
+    case 'v2-empty': {
+      // A new draft with nothing typed and no Bitrix values (prototype start).
+      const view = emptyDraft();
+      return { view, vm: core(view), vn: { ...VN_SEARCH, dealFacts: null } };
+    }
     case 'vn-deal': {
       // Every trip fact from the Bitrix Deal: one read-only line, no trip inputs.
       const view = ownerView();
@@ -272,7 +326,7 @@ function scenario(name: string): Scenario | null {
   }
 }
 
-export const BOOKFORM_SCENARIOS = ['empty', 'owner', 'gaps', 'refused', 'no-price', 'verified', 'legacy', 'read-only', 'auto', 'vn-deal', 'vn-gaps', 'vn-nodeal', 'vn-billto', 'vn-billto-picked', 'vn-billto-pickfail', 'vn-billto-searchfail'] as const;
+export const BOOKFORM_SCENARIOS = ['v2', 'v2-nocopy', 'v2-quote', 'v2-empty', 'empty', 'owner', 'gaps', 'refused', 'no-price', 'verified', 'legacy', 'read-only', 'auto', 'vn-deal', 'vn-gaps', 'vn-nodeal', 'vn-billto', 'vn-billto-picked', 'vn-billto-pickfail', 'vn-billto-searchfail'] as const;
 export const BOOKFORM_STATES = BOOKFORM_SCENARIOS.flatMap((s) => (['travellers', 'stay', 'finish'] as const).map((step) => `bookform-${s}--${step}`));
 
 export function renderBookformState(state: string): ReactNode | null {

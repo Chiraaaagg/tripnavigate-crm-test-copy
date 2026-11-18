@@ -34,7 +34,7 @@ export function SectionCard({
     <Card className={cn('min-w-0 scroll-mt-6', className)}>
       <section id={id} aria-labelledby={`${id}-heading`} data-section={id}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4 max-sm:px-4 max-sm:py-3.5">
-          <h3 id={`${id}-heading`} tabIndex={-1} className="m-0 flex min-w-0 flex-wrap items-center gap-2.25 text-lg font-semibold text-ink outline-none">
+          <h3 id={`${id}-heading`} tabIndex={-1} className="m-0 flex min-w-0 flex-wrap items-center gap-2.25 text-lg font-semibold text-ink shadow-none outline-none focus:shadow-none focus-visible:shadow-none">
             <Icon aria-hidden="true" className="size-4.5 shrink-0 text-quiet" />
             <span className="min-w-0 wrap-anywhere">{title}</span>
             {count !== undefined ? <CountPill n={count} /> : null}
@@ -48,12 +48,17 @@ export function SectionCard({
   );
 }
 
-export function CountPill({ n }: { n: number }) {
+/** The count beside a card title; a screen reader hears "(4 passengers)", not a bare number. */
+export function CountPill({ n, noun = ['item', 'items'] }: { n: number; noun?: readonly [string, string] }) {
   return (
-    <span className="rounded-full bg-wash px-1.75 py-0.5 text-sm font-medium text-quiet tabular-nums">
-      {n}
-      <span className="sr-only"> {n === 1 ? 'item' : 'items'}</span>
-    </span>
+    <>
+      <span aria-hidden="true" className="rounded-full bg-wash px-1.75 py-0.5 text-sm font-medium text-quiet tabular-nums">
+        {n}
+      </span>
+      <span className="sr-only">
+        ({n} {n === 1 ? noun[0] : noun[1]})
+      </span>
+    </>
   );
 }
 

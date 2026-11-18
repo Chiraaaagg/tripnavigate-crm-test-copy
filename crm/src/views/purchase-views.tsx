@@ -1,4 +1,6 @@
-import { ClipboardList, FileQuestion } from 'lucide-react';
+import { Ban, ClipboardList, FileQuestion } from 'lucide-react';
+import { StatusBadge } from '@/components/ui/badge';
+import type { PurchaseQueueFlags } from '@/modules/procurement/contracts';
 import Link from 'next/link';
 import type React from 'react';
 import { buttonVariants } from '@/components/ui/button';
@@ -6,7 +8,7 @@ import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn, focusRing } from '@/components/ui/cn';
 import { PageHeader } from '@/components/ui/page-header';
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Timeline, type TimelineItem } from '@/components/ui/timeline';
+import type { TimelineItem } from '@/components/ui/timeline';
 import {
   type BookingActionResult,
   ERROR_TEXT,
@@ -15,7 +17,6 @@ import {
   type PurchaseTaskView,
   SERVICE_TYPE_LABEL,
 } from '@/modules/fulfilment/contracts';
-import { formatInr } from '@/modules/fulfilment/booking-form-model';
 import { tabHref, type DepartmentTaskTabsVM, type TaskHistoryVM } from '@/modules/settings/contracts';
 import { formatDateOnly } from './booking-views';
 import { formatIst } from './deal-labels';
@@ -36,8 +37,9 @@ import {
   type TaskFilesVM,
 } from './department/task-frame';
 import { ClaimTaskForm } from './purchase-forms';
-import { FactsBlock, factsSummary, ServiceTypePill } from './service-labels';
-import { OrNotRecorded } from './value-states';
+import { factsSummary, ServiceTypePill } from './service-labels';
+import { WhatSalesBookedCard } from './purchase/what-sales-booked';
+import { goAheadOf, GoAheadBadge, type GoAheadState } from './purchase/go-ahead';
 
 /*
  * Purchase screens (Direction A Batch 4, screen plan PU-01 / PU-02, DA-16,
@@ -72,12 +74,15 @@ export function PurchaseQueuePage({
   queue,
   canTakeTasks,
   show,
+  flags = {},
 }: {
   queue: PurchaseQueueView;
   /** The viewer holds the Purchase role. Sales and managers only follow progress. */
   canTakeTasks: boolean;
   /** Batch 4: `?show=` (parseQueueShow). Omitted = the default tab. */
   show?: QueueShow;
+  /** Purchase build: go-ahead state and trip-cancelled flag per task id (loadPurchaseQueueFlags). */
+  flags?: Record<string, PurchaseQueueFlags>;
 }) {
   const current = show ?? parseQueueShow(undefined, canTakeTasks);
   const all = queue.tasks;
@@ -107,11 +112,10 @@ export function PurchaseQueuePage({
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>Service</TableHead>
-                <TableHead>Service details</TableHead>
                 <TableHead>Stay</TableHead>
                 <TableHead>Rooms and travellers</TableHead>
                 <TableHead>Approved budget</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead className="min-w-44">Status</TableHead>
                 <TableHead>Taken by</TableHead>
                 <TableHead>Deal</TableHead>
               </TableRow>
@@ -120,14 +124,15 @@ export function PurchaseQueuePage({
               {tasks.map((t) => (
                 <TableRow key={t.taskId} className="align-top">
                   <TableCell label="Service" className="align-top">
-                    <ServiceTypePill type={t.serviceType} />
-                  </TableCell>
-                  <TableCell label="Service details" className="align-top">
-                    <Link href={`/app/purchase/${t.taskId}`} className={linkClass}>
-                      {t.itemTitle}
-                      <span className="sr-only"> — open task</span>
-                    </Link>
-                    {t.serviceType !== 'hotel' ? <span className="block text-sm text-quiet">{factsSummary(t.facts)}</span> : null}
+                    {/* Prototype (1 Nov): the type pill sits above the service name, so Status keeps its width. */}
+                    <span className="flex flex-col items-start gap-1.5">
+                      <ServiceTypePill type={t.serviceType} />
+                      <Link href={`/app/purchase/${t.taskId}`} className={linkClass}>
+                        {t.itemTitle}
+                        <span className="sr-only"> — open task</span>
+                      </Link>
+                      {t.serviceType !== 'hotel' ? <span className="block text-sm text-quiet">{factsSummary(t.facts)}</span> : null}
+                    </span>
                   </TableCell>
                   <TableCell label="Stay" className="align-top text-sm">
                     {t.serviceType === 'hotel' && t.checkIn && t.checkOut ? (
@@ -150,14 +155,22 @@ export function PurchaseQueuePage({
                   <TableCell label="Approved budget" className="align-top whitespace-nowrap tabular-nums">
                     {budgetText(t.purchaseBudgetPaise)}
                   </TableCell>
-                  <TableCell label="Status" className="align-top">
-                    <TaskStatusBadge department="purchase" status={t.status} wrap />
+                  <TableCell label="Status" className="min-w-44 align-top">
+                    <span className="flex flex-col items-start gap-1.5 max-sm:items-end">
+                      <TaskStatusBadge department="purchase" status={t.status} wrap />
+                      {t.status !== 'supplier_confirmed' ? <GoAheadBadge state={flags[t.taskId]?.goAheadState ?? goAheadOf(t)} compact /> : null}
+                      {flags[t.taskId]?.tripCancelled ? (
+                        <StatusBadge tone="danger" icon={Ban} wrap>
+                          Trip cancelled
+                        </StatusBadge>
+                      ) : null}
+                    </span>
                   </TableCell>
                   <TableCell label="Taken by" className="align-top">
                     {takenByText(t)}
                   </TableCell>
                   <TableCell label="Deal" className="align-top text-sm">
-                    {t.dealReference} · {t.branchName}
+                    <span className="whitespace-nowrap">{t.dealReference}</span> · {t.branchName}
                   </TableCell>
                 </TableRow>
               ))}
@@ -190,20 +203,6 @@ function FactsCard({ id, title, children, className }: { id: string; title: stri
   );
 }
 
-/** Booking form: the supplier estimate of this item (cost only; absent keys show nothing). */
-function EstimateFact({ task }: { task: PurchaseTaskView }) {
-  if (!task.estimate) return null;
-  return (
-    <>
-      <dt className={dtClass}>Estimated supplier cost</dt>
-      <dd className={ddClass}>
-        <span className="whitespace-nowrap tabular-nums">{formatInr(task.estimate.totalPaise, 'Not priced')}</span>
-        <span className="block text-sm text-quiet">An estimate only. It is not a price, a budget or a booking.</span>
-      </dd>
-    </>
-  );
-}
-
 /** Sales submitted → Purchase takes the task → Purchase records the supplier's confirmation. */
 export function taskHandoff(task: PurchaseTaskView): TimelineItem[] {
   const taken = task.assignedToYou || !!task.assigneeName;
@@ -228,66 +227,12 @@ export function taskHandoff(task: PurchaseTaskView): TimelineItem[] {
 }
 
 function PurchaseDetails({ task, idProofs }: { task: PurchaseTaskView; idProofs?: React.ReactNode }) {
+  // Prototype (owner review, 1 Nov 2026): one "What Sales booked" card replaces Stay, Travellers and
+  // budget and Notes from Sales; the Hand-offs card is gone (the Next line and History carry it).
   return (
-    <div className="grid items-start gap-5 md:grid-cols-2">
-      {task.serviceType === 'hotel' ? (
-        <>
-          <FactsCard id="task-stay" title="Stay">
-            <dl className={dlClass}>
-              <dt className={dtClass}>Check-in</dt>
-              <dd className={ddClass}>{task.checkIn ? formatDateOnly(task.checkIn) : 'Not set'}</dd>
-              <dt className={dtClass}>Check-out</dt>
-              <dd className={ddClass}>{task.checkOut ? formatDateOnly(task.checkOut) : 'Not set'}</dd>
-              <dt className={dtClass}>Nights</dt>
-              <dd className={ddClass}>{task.nights}</dd>
-              <dt className={dtClass}>Rooms</dt>
-              <dd className={ddClass}>{task.rooms}</dd>
-              <dt className={dtClass}>Room type</dt>
-              <dd className={ddClass}>
-                <OrNotRecorded value={task.roomType} />
-              </dd>
-              <dt className={dtClass}>Meal plan</dt>
-              <dd className={ddClass}>
-                <OrNotRecorded value={task.mealPlan} />
-              </dd>
-            </dl>
-          </FactsCard>
-          <FactsCard id="task-travellers" title="Travellers and budget">
-            <dl className={dlClass}>
-              <dt className={dtClass}>Adults</dt>
-              <dd className={ddClass}>{task.travellers.adults}</dd>
-              <dt className={dtClass}>Children</dt>
-              <dd className={ddClass}>{task.travellers.children}</dd>
-              <dt className={dtClass}>Approved budget</dt>
-              <dd className={cn(ddClass, 'whitespace-nowrap tabular-nums')}>{budgetText(task.purchaseBudgetPaise)}</dd>
-              <EstimateFact task={task} />
-            </dl>
-          </FactsCard>
-          <FactsCard id="task-notes" title="Notes from Sales" className="md:col-span-2">
-            <dl className={dlClass}>
-              <dt className={dtClass}>Inclusions</dt>
-              <dd className={cn(ddClass, 'whitespace-pre-wrap wrap-break-word')}>{task.inclusions ?? 'None'}</dd>
-              <dt className={dtClass}>Special requests</dt>
-              <dd className={cn(ddClass, 'whitespace-pre-wrap wrap-break-word')}>{task.specialRequests ?? 'None'}</dd>
-            </dl>
-          </FactsCard>
-        </>
-      ) : (
-        <>
-          <FactsCard id="task-facts" title={`${SERVICE_TYPE_LABEL[task.serviceType]} details`}>
-            <FactsBlock facts={task.facts} legacy />
-          </FactsCard>
-          <FactsCard id="task-budget" title="Travellers and budget">
-            <dl className={dlClass}>
-              <dt className={dtClass}>Travellers</dt>
-              <dd className={ddClass}>{travellers(task.travellers)}</dd>
-              <dt className={dtClass}>Approved budget</dt>
-              <dd className={cn(ddClass, 'whitespace-nowrap tabular-nums')}>{budgetText(task.purchaseBudgetPaise)}</dd>
-              <EstimateFact task={task} />
-            </dl>
-          </FactsCard>
-        </>
-      )}
+    <div className="flex flex-col gap-5">
+      <WhatSalesBookedCard task={task} />
+      {idProofs ? <div>{idProofs}</div> : null}
       <FactsCard id="task-origin" title="Where this came from">
         <dl className={dlClass}>
           <dt className={dtClass}>Deal</dt>
@@ -304,10 +249,6 @@ function PurchaseDetails({ task, idProofs }: { task: PurchaseTaskView; idProofs?
           <dd className={ddClass}>{formatIst(task.createdAt)}</dd>
         </dl>
       </FactsCard>
-      <FactsCard id="task-handoffs" title="Hand-offs">
-        <Timeline label="Task hand-offs" items={taskHandoff(task)} showState />
-      </FactsCard>
-      {idProofs ? <div className="md:col-span-2">{idProofs}</div> : null}
     </div>
   );
 }
@@ -321,6 +262,9 @@ export function PurchaseTaskPage({
   files,
   history,
   managerReadOnly = false,
+  goAheadState,
+  nextText,
+  filesExtra,
 }: {
   task: PurchaseTaskView;
   /** Preview gallery only. */
@@ -337,6 +281,12 @@ export function PurchaseTaskPage({
   history?: TaskHistoryVM | null;
   /** The branch Manager reading a Purchase task (DA-272). */
   managerReadOnly?: boolean;
+  /** Purchase build: the hotel's Accounts go-ahead (from the workspace read; absent for viewers without it). */
+  goAheadState?: GoAheadState | null;
+  /** Purchase build: the "Next:" line computed from the workspace (purchaseNextText); default = the task-only line. */
+  nextText?: string;
+  /** Purchase build: supplier invoices and credit notes under the Files list (Files tab only). */
+  filesExtra?: React.ReactNode;
 }) {
   const basePath = `/app/purchase/${task.taskId}`;
   const current = tabs?.current ?? 'details';
@@ -344,7 +294,7 @@ export function PurchaseTaskPage({
   const workLink =
     tabs && tabs.tabs.includes('work') && current !== 'work' && task.assignedToYou && task.status === 'in_progress' ? (
       <Link href={tabHref(basePath, 'work', 'details')} className={buttonVariants({ variant: 'primary', size: 'lg' })}>
-        Record supplier confirmation
+        Open the Work tab
       </Link>
     ) : null;
   const confirmed = task.status === 'supplier_confirmed';
@@ -358,6 +308,7 @@ export function PurchaseTaskPage({
           <>
             <ServiceTypePill type={task.serviceType} />
             <TaskStatusBadge department="purchase" status={task.status} wrap />
+            {task.status !== 'supplier_confirmed' ? <GoAheadBadge state={goAheadState} /> : null}
             <span className="text-copy">Taken by: {takenByText(task)}</span>
           </>
         }
@@ -365,12 +316,12 @@ export function PurchaseTaskPage({
         actions={task.canClaim ? <ClaimTaskForm taskId={task.taskId} canTake={showClaim} initialState={claimInitialState} /> : (workLink ?? undefined)}
         className="mb-3"
       />
-      <TaskNextLine text={taskNextText({ department: 'purchase', status: task.status, assignedToYou: task.assignedToYou, assigneeName: task.assigneeName, canClaim: task.canClaim })}>
+      <TaskNextLine text={nextText ?? taskNextText({ department: 'purchase', status: task.status, assignedToYou: task.assignedToYou, assigneeName: task.assigneeName, canClaim: task.canClaim })}>
         {managerReadOnly ? <p className="m-0 text-sm text-copy">You can view this but not change it. Purchase in {task.branchName} works on it.</p> : null}
         <InternalTaskLine>
           {confirmed
-            ? `Internal task — supplier confirmed${task.supplierConfirmedAt ? ` on ${formatIst(task.supplierConfirmedAt)}` : ''}. The CRM sent nothing to the customer. No payment, bill or invoice was created.`
-            : `Internal task — the hotel is not booked yet. ${task.assignedToYou ? 'Taking the task did not book the hotel. ' : ''}Nothing has been sent to the hotel or the customer by the CRM.`}
+            ? `Internal task — supplier confirmed${task.supplierConfirmedAt ? ` on ${formatIst(task.supplierConfirmedAt)}` : ''}. The CRM sent nothing to the customer. Paying the supplier is a separate request to Accounts.`
+            : `Internal task — ${task.serviceType === 'hotel' ? 'the hotel is' : 'this service is'} not booked yet. ${task.assignedToYou ? `Taking the task did not book ${task.serviceType === 'hotel' ? 'the hotel' : 'it'}. ` : ''}The CRM sends nothing to the customer.`}
         </InternalTaskLine>
       </TaskNextLine>
       {tabs ? <TaskTabsNav basePath={basePath} tabs={tabs} /> : null}
@@ -382,7 +333,10 @@ export function PurchaseTaskPage({
       ) : current === 'work' ? (
         (work ?? null)
       ) : current === 'files' ? (
-        <TaskFilesPanel files={files ?? {}} />
+        <div className="flex flex-col gap-5">
+          <TaskFilesPanel files={files ?? {}} />
+          {filesExtra}
+        </div>
       ) : current === 'history' && history ? (
         <TaskHistoryPanel history={history} />
       ) : (

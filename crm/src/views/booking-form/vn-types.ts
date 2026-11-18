@@ -158,7 +158,7 @@ export interface PartyCheckActions {
 // 5 Admin: imports and destination classes
 // ---------------------------------------------------------------------------
 
-export type ImportKind = 'hotel' | 'customer';
+export type ImportKind = 'hotel' | 'customer' | 'supplier';
 export type ImportStatus = 'validated' | 'applied' | 'expired';
 
 export interface ImportSummaryView {
@@ -183,6 +183,47 @@ export interface ImportSummaryView {
   proposalHash?: string | null;
   /** Echo-A M1 (customer imports): the branch the customers go to; null = the whole company (every branch). */
   branchName?: string | null;
+  /** Accounts phase 2 (contract 5.6, 13.3): supplier imports only. */
+  supplier?: SupplierImportSummary;
+}
+
+/** Supplier import extras (contract 13.3): warning counts, rows with bank details, per-row preview. */
+export interface SupplierImportSummary {
+  warnings: { similarNameCity: number; sameGstin: number; samePan: number; sameBank: number; hotelNotFound: number };
+  withBankDetails: number;
+  /** The first rows of the batch (the screen says how many more were not shown). */
+  rows: SupplierImportRowView[];
+  moreRows?: number;
+}
+
+export type SupplierImportOutcome = 'create' | 'update' | 'unchanged' | 'skipped_checked' | 'invalid' | 'duplicate_in_file';
+
+export interface SupplierImportRowView {
+  rowNo: number;
+  outcome: SupplierImportOutcome;
+  /** Reason words (frozen in parties/import-mapping.ts). */
+  reasons: string[];
+  /** Warning codes (similar_name_city, same_gstin, same_pan, same_bank, hotel_not_found). */
+  warnings: string[];
+  warningDetails: Array<{ code: string; supplierId: string | null; supplierName: string | null; hotelSourceRef: string | null }>;
+  /** Bank account number and PAN are always masked (contract 5.6). */
+  values: {
+    name: string | null;
+    supplierKind: string | null;
+    serviceTypes: string | null;
+    city: string | null;
+    stateCode: string | null;
+    gstin: string | null;
+    panMasked: string | null;
+    tallyLedgerName: string | null;
+    sourceRef: string | null;
+    contactName: string | null;
+    contactPhone: string | null;
+    contactEmail: string | null;
+    hotelSourceRefs: string | null;
+    bank: { holder: string | null; bankName: string | null; ifsc: string | null; accountLast4: string | null } | null;
+  };
+  targetId: string | null;
 }
 
 /** Echo-A M1: where imported customers go. Default = the importer's branch; "Whole company" only when chosen. */

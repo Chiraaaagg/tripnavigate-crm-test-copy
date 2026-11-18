@@ -11,12 +11,15 @@ import { b11Helpers } from './b11-support';
 /** Keys booking_form_get gained in 20261124000120, removed so older-body comparisons still hold. */
 export function stripBookingFormKeys(form: Record<string, unknown>): Record<string, unknown> {
   // tripFacts: voice-note batch (20261128000110), stripped the same way.
-  const { party, coverage, itemFilesCanEdit, prices, tripFacts, ...rest } = form;
+  // flightFareTotals, bitrixDealHref, idProofCopyApplies: Book now v2 (20261129000120/0130), stripped the same way.
+  // travellerSeqHigh: Visa build (20261202000200, contract 5.6 QB1), stripped the same way.
+  const { party, coverage, itemFilesCanEdit, prices, tripFacts, flightFareTotals, bitrixDealHref, idProofCopyApplies, travellerSeqHigh, ...rest } = form;
   void party;
   void coverage;
   void itemFilesCanEdit;
   void prices;
   void tripFacts;
+  void [flightFareTotals, bitrixDealHref, idProofCopyApplies, travellerSeqHigh];
   const out: Record<string, unknown> = { ...rest };
   if (out.version && typeof out.version === 'object') {
     const { formRules, ...v } = out.version as Record<string, unknown>;
@@ -37,9 +40,11 @@ export function stripBookingFormKeys(form: Record<string, unknown>): Record<stri
     out.billing = b;
   }
   if (Array.isArray(out.items)) {
-    out.items = (out.items as Array<Record<string, unknown>>).map(({ estimate, files, ...i }) => {
+    // catalogueHotelId: Accounts phase 2 (20261204000110, contract A10), stripped the same way.
+    out.items = (out.items as Array<Record<string, unknown>>).map(({ estimate, files, catalogueHotelId, ...i }) => {
       void estimate;
       void files;
+      void catalogueHotelId;
       return i;
     });
   }

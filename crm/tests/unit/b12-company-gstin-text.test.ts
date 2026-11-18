@@ -54,10 +54,10 @@ describe('company GSTIN placeholder helpers', () => {
     expect(splitCompanyGstinPlaceholders([])).toEqual({ gstinBranches: [], others: [] });
   });
 
-  it('gap per branch code: none for Jodhpur; Delhi, Ahmedabad and an unknown branch have one', () => {
+  it('gap per branch code (LD1: one company GSTIN): none for any known branch; an unknown branch has one', () => {
     expect(companyGstinGapFor('JDH')).toBeNull();
-    expect(companyGstinGapFor('DEL')).toBe('Delhi');
-    expect(companyGstinGapFor('AMD')).toBe('Ahmedabad');
+    expect(companyGstinGapFor('DEL')).toBeNull();
+    expect(companyGstinGapFor('AMD')).toBeNull();
     expect(companyGstinGapFor(null)).toBe('this branch');
   });
 
@@ -73,8 +73,9 @@ describe('company GSTIN placeholder helpers', () => {
 });
 
 describe('itinerary render job error text', () => {
-  it('placeholders_present on a Delhi document names the company GSTIN; Jodhpur and other codes keep the existing text', () => {
-    expect(renderErrorText('placeholders_present', 'DEL')).toBe(`${DELHI} Any other missing facts show in brackets on the preview.`);
+  it('placeholders_present names the GSTIN only for an unknown branch (LD1); every known branch keeps the existing text', () => {
+    expect(renderErrorText('placeholders_present', 'DEL')).toBe(RENDER_ERROR_TEXT.placeholders_present);
+    expect(renderErrorText('placeholders_present', 'AMD')).toBe(RENDER_ERROR_TEXT.placeholders_present);
     expect(renderErrorText('placeholders_present', 'JDH')).toBe(RENDER_ERROR_TEXT.placeholders_present);
     expect(renderErrorText('layout_overflow', 'DEL')).toBe(RENDER_ERROR_TEXT.layout_overflow);
     expect(renderErrorText('not_a_code', 'JDH')).toBe(RENDER_ERROR_TEXT.internal);
@@ -83,11 +84,12 @@ describe('itinerary render job error text', () => {
 });
 
 describe('made-documents list: the placeholder count in words', () => {
-  it('the GSTIN mark is named, not counted as a fact; singular and plural are right', () => {
+  it('the GSTIN mark is named, not counted as a fact (unknown branch only, LD1); singular and plural are right', () => {
     expect(renderedQaNote(0, 'DEL')).toBeNull();
-    expect(renderedQaNote(1, 'DEL')).toBe('company GSTIN not approved');
-    expect(renderedQaNote(2, 'DEL')).toBe('1 missing fact in brackets · company GSTIN not approved');
-    expect(renderedQaNote(3, 'AMD')).toBe('2 missing facts in brackets · company GSTIN not approved');
+    expect(renderedQaNote(1, 'DEL')).toBe('1 missing fact in brackets');
+    expect(renderedQaNote(2, 'DEL')).toBe('2 missing facts in brackets');
+    expect(renderedQaNote(3, 'AMD')).toBe('3 missing facts in brackets');
+    expect(renderedQaNote(2, null)).toBe('1 missing fact in brackets · company GSTIN not printed (branch not known)');
     expect(renderedQaNote(1, 'JDH')).toBe('1 missing fact in brackets');
     expect(renderedQaNote(2, 'JDH')).toBe('2 missing facts in brackets');
     expect(renderedQaNote(1, null)).toBe('company GSTIN not printed (branch not known)');
@@ -98,11 +100,12 @@ describe('made-documents list: the placeholder count in words', () => {
 describe('preview pages', () => {
   const text = (el: Parameters<typeof renderToStaticMarkup>[0]) => htmlToText(renderToStaticMarkup(el));
 
-  it('quotation preview, Delhi: the send warning; the GSTIN is not counted as a fact to fill in', () => {
+  it('quotation preview, Delhi (LD1): the company GSTIN prints, no send warning; the room type is still a fact to fill in', () => {
     const t = text(createElement(QuotationPreviewPage, { versionId: V2_ID, view: quoteDocumentView({ branchCode: 'DEL' }), moneyVisible: true }));
-    expect(t).toContain(DELHI_QUOTE);
+    expect(t).not.toContain(DELHI_QUOTE);
+    expect(t).toContain('GSTIN 08AAFCH9191M1ZV (Rajasthan)');
     expect(t).toContain('1 detail missing (shown in [brackets]): Room type.');
-    expect(t).not.toContain('GSTIN for Delhi, ');
+    expect(t).not.toContain('GSTIN for Delhi');
   });
 
   it('quotation preview, unknown branch: the CRM team wording, not Accounts', () => {
@@ -117,9 +120,12 @@ describe('preview pages', () => {
     expect(t).toContain('PAN AAFCH9191M · GSTIN 08AAFCH9191M1ZV (Rajasthan)');
   });
 
-  it('itinerary preview, Delhi: the Accounts wording, never "fill them in" for the GSTIN', () => {
-    const t = text(createElement(ItineraryPreviewPage, { documentId: 'it000000-0000-4000-8000-000000000003', view: itineraryDocumentView({ branchCode: 'DEL' }) }));
-    expect(t).toContain(DELHI);
+  it('itinerary preview, Delhi (LD1): no GSTIN wording; unknown branch: the CRM team wording, never "fill them in" for the GSTIN', () => {
+    const del = text(createElement(ItineraryPreviewPage, { documentId: 'it000000-0000-4000-8000-000000000003', view: itineraryDocumentView({ branchCode: 'DEL' }) }));
+    expect(del).not.toContain(DELHI);
+    expect(del).not.toContain('not approved yet');
+    const t = text(createElement(ItineraryPreviewPage, { documentId: 'it000000-0000-4000-8000-000000000003', view: itineraryDocumentView({ branchCode: null }) }));
+    expect(t).toContain(UNKNOWN);
     expect(t).not.toMatch(/missing \(shown in \[brackets\]\): [^.]*GSTIN/);
   });
 });
@@ -132,10 +138,13 @@ describe('quotation page (lead decision: warn, never block)', () => {
     return htmlToText(renderToStaticMarkup(createElement(QuotationPage, { data, actions, today: '2026-10-12' })));
   };
 
-  it('Delhi: the warning is shown and Mark as shared stays available', () => {
-    const t = page('DEL');
+  it('Delhi (LD1): no GSTIN warning; unknown branch: the warning is shown and Mark as shared stays available', () => {
+    const del = page('DEL');
+    expect(del).not.toContain('Company GSTIN missing on this quotation');
+    expect(del).toContain('Mark as shared');
+    const t = page(null);
     expect(t).toContain('Company GSTIN missing on this quotation');
-    expect(t).toContain(DELHI_QUOTE);
+    expect(t).toContain(UNKNOWN);
     expect(t).toContain('Mark as shared');
   });
 

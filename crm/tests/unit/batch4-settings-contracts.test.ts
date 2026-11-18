@@ -36,8 +36,8 @@ const cats = (v: Partial<SettingsViewerFlags>) => settingsTabsFor(v).map((t) => 
 describe('settingsTabsFor: the Settings categories a person may open', () => {
   it('a Super Admin with every right gets the six categories in DA-17 order, at today’s addresses', () => {
     const tabs = settingsTabsFor(ALL);
-    expect(tabs.map((t) => t.label)).toEqual(['People and access', 'Company and branches', 'Money rules', 'Bitrix connection', 'Features', 'System health']);
-    expect(tabs.map((t) => t.href)).toEqual(['/app/admin/staff', '/app/admin/company', '/app/admin/finance-policy', '/app/admin/integration', '/app/admin/workflow', '/app/admin/bookings']);
+    expect(tabs.map((t) => t.label)).toEqual(['People and access', 'Company and branches', 'Money rules', 'Accounts', 'Bitrix connection', 'Features', 'System health']);
+    expect(tabs.map((t) => t.href)).toEqual(['/app/admin/staff', '/app/admin/company', '/app/admin/finance-policy', '/app/admin/accounts', '/app/admin/integration', '/app/admin/workflow', '/app/admin/bookings']);
   });
 
   it('nobody without an admin right gets a Settings tab (no menu item, no tab bar)', () => {
@@ -48,12 +48,13 @@ describe('settingsTabsFor: the Settings categories a person may open', () => {
   it('each right opens only its own categories; Company and branches comes with any admin right (D1)', () => {
     expect(cats({ canAdministerStaff: true })).toEqual(['people', 'company']);
     expect(cats({ canManageGrants: true })).toEqual(['people', 'company']);
-    expect(cats({ canManageFinancePolicy: true })).toEqual(['company', 'money']);
+    // Accounts phase (10 Nov 2026): Settings · Accounts goes with Money rules.
+    expect(cats({ canManageFinancePolicy: true })).toEqual(['company', 'money', 'accounts']);
     expect(cats({ canManageIntegration: true, canOpenBitrixConnection: true })).toEqual(['company', 'bitrix', 'features', 'health']);
   });
 
   it('voice-note batch: Imports comes with canImport only, after Bitrix connection, at /app/admin/imports', () => {
-    expect(cats({ ...ALL, canImport: true })).toEqual(['people', 'company', 'money', 'bitrix', 'imports', 'features', 'health']);
+    expect(cats({ ...ALL, canImport: true })).toEqual(['people', 'company', 'money', 'accounts', 'bitrix', 'imports', 'features', 'health']);
     expect(settingsTabsFor({ canImport: true })).toEqual([{ category: 'imports', label: 'Imports', href: '/app/admin/imports', matchPrefixes: ['/app/admin/imports'] }]);
     expect(cats(ALL)).not.toContain('imports');
   });

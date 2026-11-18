@@ -5,6 +5,14 @@ import { enforceProductionStylePolicy, LOCAL_NETWORK_ACCESS_OFF, trackViolations
 /**
  * B1 Flight queue and task, Purchase facts per service type, and the admin
  * workflow switches, through the design preview states (synthetic props).
+ *
+ * Flight build (contract 4 Nov 2026) updates, each marked "Flight build":
+ * the queue is grouped per Deal with the columns of contract 11.1; the
+ * primary action is "Take these flights"; flight status words are Waiting /
+ * In progress · x of y tickets / All tickets confirmed / Done · ticket issued
+ * (D10 supersedes DEC-59, so "Confirmed by supplier" must be gone); traveller
+ * names are shown to Flight (D7 retires F-04); the conflict text is the
+ * frozen task_conflict message. Assertions that still hold are kept.
  */
 
 test.use(LOCAL_NETWORK_ACCESS_OFF);
@@ -68,24 +76,33 @@ test.describe('B1 Flight queue', () => {
   test('queue: internal-task note, table with status pills, no selling value or proof', async ({ page }) => {
     await open(page, 'flight-queue');
     const main = page.locator('main');
-    await expect(main).toContainText('Issue each ticket outside the CRM, then record the fare on the task.');
+    // Flight build (11.1): the old note ("Issue each ticket outside the CRM, then record the fare on the task.") is retired
+    // with the per-task queue; the grouped queue says one row per Deal and the group take.
+    await expect(main).toContainText('One row per Deal. Taking a Deal takes all its flights.');
+    await expect(main).toContainText('Customer prices and proof files are never shown here.');
     await expect(main).not.toContainText(/Selling/i);
     await expect(main).not.toContainText(/synthetic-acceptance|\.pdf|Download/i);
     await expect(main).not.toContainText('₹1,84,000');
-    const table = page.getByRole('table', { name: '3 flight tasks' });
-    await expect(table.getByRole('columnheader')).toHaveText(['Route', 'Segments', 'Passengers', 'Approved budget', 'Status', 'Taken by', 'Deal']);
-    await expect(table).toContainText('₹52,000.00');
-    await expect(table).toContainText('Confirmed by supplier');
+    // Flight build (11.1): one row per Deal; the caption counts flight rows (wording not frozen).
+    const table = page.getByRole('table', { name: /flight/i });
+    await expect(table.getByRole('columnheader')).toHaveText(['Route', 'Flights', 'Travellers', 'Approved budget', 'Status', 'Taken by', 'Deal']);
+    // Flight build: the new grouped-queue fixture (Track C) carries an approved budget of ₹18,000.00 and a "Budget not set" row.
+    await expect(table).toContainText('₹18,000.00');
+    await expect(table).toContainText('Budget not set');
+    // Flight build (D10 supersedes DEC-59): no "Confirmed by supplier" for flights; the old "ticket not recorded" wording is gone.
+    await expect(table).not.toContainText('Confirmed by supplier');
     await expect(table).not.toContainText('Ticket issued');
-    await expect(table).toContainText('In progress · ticket not recorded in the CRM');
+    await expect(table).not.toContainText('ticket not recorded in the CRM');
+    await expect(table).toContainText(/In progress · \d+ of \d+ tickets|Waiting|All tickets confirmed|Done · ticket issued/);
     for (const pill of await table.locator('[data-slot="status-badge"]').all()) {
       await expect(pill.locator('svg')).toHaveCount(1);
     }
     await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Flight tasks' })).toHaveAttribute('aria-current', 'page');
     // Batch 4: Not taken · Mine · All link tabs over the same rows (counts from the rows on the page).
     const filters = page.getByRole('navigation', { name: 'Flight task filters' });
-    await expect(filters.getByRole('link', { name: /^Not taken/ })).toContainText('1');
-    await expect(filters.getByRole('link', { name: /^All/ })).toHaveAttribute('aria-current', 'page');
+    // Flight build: the new fixture has two Deals not taken; the queue opens on Not taken (as Purchase and the prototype do).
+    await expect(filters.getByRole('link', { name: /^Not taken/ })).toContainText('2');
+    await expect(filters.getByRole('link', { name: /^Not taken/ })).toHaveAttribute('aria-current', 'page');
   });
 
   test('empty queue says the right thing', async ({ page }) => {
@@ -93,28 +110,38 @@ test.describe('B1 Flight queue', () => {
     await expect(page.locator('main').getByRole('status')).toContainText('Tasks appear after Sales submits a booking with a flight.');
   });
 
-  test('task page: one primary "Take this task", facts, no booked claim; conflict and issued states', async ({ page }) => {
+  test('task page: one primary "Take these flights", facts, no booked claim; conflict and issued states', async ({ page }) => {
     await open(page, 'flight-task-open');
     const main = page.locator('main');
-    await expect(main.getByRole('button', { name: 'Take this task' })).toHaveCount(1);
-    await expect(main.getByRole('button', { name: 'Take this task' })).toHaveAccessibleDescription(/does not issue a ticket/);
-    const box = await main.getByRole('button', { name: 'Take this task' }).boundingBox();
+    // Flight build (11.1): the group take is "Take these flights".
+    const take = main.getByRole('button', { name: 'Take these flights' });
+    await expect(take).toHaveCount(1);
+    await expect(main.getByRole('button', { name: 'Take this task' })).toHaveCount(0);
+    await expect(take).toHaveAccessibleDescription(/does not issue a ticket/);
+    const box = await take.boundingBox();
     expect(box?.height).toBeGreaterThanOrEqual(44);
     await expect(main).toContainText('Internal task. Tickets are issued outside the CRM.');
-    await expect(page.getByRole('region', { name: 'Flight details' })).toContainText('DEL → IXZ · 14 Nov; IXZ → DEL · 20 Nov');
-    await expect(page.getByRole('region', { name: 'Travellers and budget' })).toContainText('Traveller names are not shown to the Flight team in this version.');
+    // Flight build: the old "DEL → IXZ" B1 fixture is retired; flight-task-open is now the new workspace (not taken).
+    await expect(main).toContainText('JDH → BOM → GOI');
+    // Flight build (D7): real traveller names are shown to Flight; the F-04 sentence is retired.
+    await expect(main).not.toContainText('Traveller names are not shown to the Flight team in this version.');
     await expect(main).not.toContainText(/Selling/i);
     await open(page, 'flight-task-claim-conflict');
-    await expect(page.locator('main').getByRole('alert')).toContainText('Another Purchase colleague has already taken this task.');
-    await expect(page.locator('main').getByRole('button', { name: 'Take this task' })).toHaveCount(0);
+    // Flight build (6.3): the new workspace shows the frozen task_conflict message after the take is refused (the
+    // preview action answers task_conflict), instead of rendering the alert up front.
+    await page.locator('main').getByRole('button', { name: 'Take these flights' }).click();
+    await expect(page.locator('main').getByRole('alert')).toContainText('Another Flight colleague took these flights first.');
     await open(page, 'flight-task-issued');
-    await expect(page.locator('main')).toContainText('Confirmed by supplier');
-    await expect(page.locator('main')).toContainText('Supplier confirmation recorded');
-    await expect(page.locator('main')).not.toContainText('Ticket issued');
+    // Flight build (D10): done reads "Done · ticket issued"; DEC-59's supplier-confirmation wording is gone.
+    await expect(page.locator('main')).toContainText('Done · ticket issued');
+    await expect(page.locator('main')).not.toContainText('Confirmed by supplier');
+    await expect(page.locator('main')).not.toContainText('Supplier confirmation recorded');
     await expect(page.locator('main')).toContainText('Nothing waiting.');
-    await expect(page.locator('main')).toContainText('No payment, bill or invoice was created by the CRM.');
+    // The old "No payment, bill or invoice was created by the CRM." line no longer holds (D2: flight payments are recorded in the CRM).
+    await expect(page.locator('main')).not.toContainText('costs are locked');
     await open(page, 'flight-task-not-found');
-    await expect(page.locator('main').getByRole('status')).toContainText('We couldn’t find this booking.');
+    // Flight build (6.3): the workspace's not-found state uses the frozen not_found message.
+    await expect(page.locator('main').getByRole('status')).toContainText('This item is no longer available. Reload the page.');
   });
 
   test('Flight nav link only for Flight viewers', async ({ page }) => {

@@ -10,6 +10,10 @@ import { FIELD, readUuid } from '../forms';
  * Flight queue command (mirror of claimPurchaseTaskAction). Session gate
  * first, then the database command under the staff member's own session.
  * Signature fits useActionState: (previous result | null, FormData).
+ *
+ * Flight build (20261201000110, D1): flight_task_claim now takes the whole
+ * flight group of the task's Deal (one Flight person per Deal); the new
+ * screens call claimFlightGroupAction in src/modules/flight/server/actions.ts.
  */
 
 const FLIGHT_PATH = '/app/flight';
@@ -24,6 +28,13 @@ function failFrom(error: unknown): BookingActionResult<never> {
   throw new Error(UNKNOWN_OUTCOME_TEXT);
 }
 
+function revalidateGroup(taskId: string): void {
+  revalidatePath(FLIGHT_PATH);
+  revalidatePath(`${FLIGHT_PATH}/${taskId}`);
+  revalidatePath(`${FLIGHT_PATH}/deals/[dealId]`, 'page');
+  revalidatePath('/app/deals/[id]', 'page');
+}
+
 export async function claimFlightTaskAction(
   _prev: BookingActionResult<ClaimTaskResult> | null,
   formData: FormData,
@@ -33,15 +44,16 @@ export async function claimFlightTaskAction(
   if (!taskId) return fail('invalid_input');
   try {
     const result = await flightTaskClaim(asRpcClient(staff.supabase), taskId);
-    revalidatePath(FLIGHT_PATH);
-    revalidatePath(`${FLIGHT_PATH}/${taskId}`);
+    revalidateGroup(taskId);
     return {
       ok: true,
       data: result,
-      message: result.alreadyYours ? 'This task is already yours.' : 'You have taken this task. It is now in progress. No ticket is issued yet.',
+      message: result.alreadyYours
+        ? 'These flights are already yours.'
+        : 'You have taken the flights of this Deal. They are now in progress. No ticket is issued yet.',
     };
   } catch (error) {
-    if (error instanceof BookingCommandError && error.code === 'task_conflict') revalidatePath(`${FLIGHT_PATH}/${taskId}`);
+    if (error instanceof BookingCommandError && error.code === 'task_conflict') revalidateGroup(taskId);
     return failFrom(error);
   }
 }

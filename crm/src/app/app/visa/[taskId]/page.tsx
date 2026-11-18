@@ -1,68 +1,82 @@
 import type { Metadata } from 'next';
 import { WorkErrorBoundary } from '@/components/WorkErrorBoundary';
-import { saveDepartmentCostAction, submitExpenseRecordAction, uploadDepartmentEvidenceAction } from '@/modules/fulfilment/server/department-actions';
 import { loadTaskIdProofs } from '@/modules/fulfilment/server/id-proofs';
 import { loadTaskHistory } from '@/modules/fulfilment/server/task-history';
-import { loadVisaTask } from '@/modules/fulfilment/server/visa';
-import {
-  claimVisaTaskAction,
-  markVisaDecisionPendingAction,
-  recordCustomerInformedAction,
-  recordDocumentsReturnedAction,
-  recordVisaOutcomeAction,
-  recordVisaSubmissionAction,
-  setApplicantDocumentAction,
-  withdrawVisaApplicationAction,
-} from '@/modules/fulfilment/server/visa-actions';
+import { chooseVisaCancellationAction, setVisaCancellationFeeAction } from '@/modules/cancellations/server/actions';
 import { requireStaff } from '@/modules/identity/server/session';
-import { historyTabFor, parseTaskTab, taskTabsFor } from '@/modules/settings/contracts';
+import { parseTaskTab, type TaskTab } from '@/modules/settings/contracts';
+import {
+  addVisaDocumentAction,
+  applyVisaApplicationsAction,
+  claimVisaTaskAction,
+  confirmVisaTravellerAction,
+  decideVisaApplicationAction,
+  markVisaDeliveredAction,
+  reapplyVisaApplicationAction,
+  removeVisaDocumentAction,
+  saveVisaOtherCostAction,
+  saveVisaRowAction,
+  sendVisaFeeAction,
+  setVisaHandoverAction,
+  withdrawVisaApplicationAction,
+} from '@/modules/visa/server/actions';
+import { uploadVisaDocumentFileAction, uploadVisaEvidenceAction } from '@/modules/visa/server/evidence';
+import { loadVisaWorkspace } from '@/modules/visa/server/queries';
+import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import { TravellerIdProofsCard } from '@/views/b11/id-proofs-list';
-import { VisaTaskNotAvailableView, VisaTaskPage } from '@/views/b11/visa-desk';
 import { toTaskHistoryVM } from '@/views/department/task-history-vm';
+import type { VisaWorkActions } from '@/views/visa/actions';
+import { VisaTaskNotAvailable, VisaTaskPage } from '@/views/visa/workspace';
 
 export const metadata: Metadata = { title: 'Visa and passport task' };
 
+const act = (a: unknown) => a as DecisionAction;
+
+/** Real server actions (the preview gallery passes stubs instead). */
+const ACTIONS: VisaWorkActions = {
+  claim: act(claimVisaTaskAction),
+  saveRow: act(saveVisaRowAction),
+  addDocument: act(addVisaDocumentAction),
+  removeDocument: act(removeVisaDocumentAction),
+  apply: act(applyVisaApplicationsAction),
+  decide: act(decideVisaApplicationAction),
+  setHandover: act(setVisaHandoverAction),
+  markDelivered: act(markVisaDeliveredAction),
+  withdraw: act(withdrawVisaApplicationAction),
+  reapply: act(reapplyVisaApplicationAction),
+  sendFee: act(sendVisaFeeAction),
+  saveOtherCost: act(saveVisaOtherCostAction),
+  confirmTraveller: act(confirmVisaTravellerAction),
+  uploadDocument: act(uploadVisaDocumentFileAction),
+  uploadEvidence: act(uploadVisaEvidenceAction),
+  // Accounts phase 2 (contract 7.4 C10, C11): choices and expected fee refunds after an approved trip cancellation.
+  chooseCancellation: chooseVisaCancellationAction as unknown as DecisionAction,
+  setCancellationFee: setVisaCancellationFeeAction as unknown as DecisionAction,
+};
+
+const TABS: TaskTab[] = ['details', 'work', 'files', 'history'];
+
 /**
- * Visa and passport task (VI-02, DA-16). Same answer for "does not exist" and
- * "not yours", so ids cannot be probed. VisaTaskPage is a client component:
- * only the open tab's Files or History data is passed (T-B4-08).
+ * Visa or passport task (Visa build, contract 9.2 / 11.1): Details · Work ·
+ * Files · History (?tab=, server allowlist). visa_workspace opens it to the
+ * Visa desk and, read-only, to the branch Manager; the same answer for "does
+ * not exist" and "not allowed". The page is a client view from the Work tab
+ * down, so only the open tab's extra data is read (ID proofs on Details for
+ * the assignee, History on History).
  */
 export default async function VisaTaskRoute({ params, searchParams }: { params: Promise<{ taskId: string }>; searchParams: Promise<{ tab?: string | string[] }> }) {
   const [{ taskId }, { tab }] = await Promise.all([params, searchParams]);
   const staff = await requireStaff();
-  const [task, idProofs, historyLoad] = await Promise.all([
-    loadVisaTask(staff, taskId),
-    loadTaskIdProofs(staff, taskId).catch(() => 'error' as const),
-    loadTaskHistory(staff, taskId),
+  const ws = await loadVisaWorkspace(staff, taskId);
+  if (!ws) return <VisaTaskNotAvailable />;
+  const current = parseTaskTab(tab, TABS);
+  const [idProofs, history] = await Promise.all([
+    current === 'details' && ws.assignee.isYou ? loadTaskIdProofs(staff, ws.taskId).catch(() => 'error' as const) : Promise.resolve(null),
+    current === 'history' ? loadTaskHistory(staff, ws.taskId).then((h) => toTaskHistoryVM(h, 'visa')) : Promise.resolve(undefined),
   ]);
-  if (!task) return <VisaTaskNotAvailableView />;
-  // Only the desk and the branch Manager read a visa task: Work and Files always exist for them.
-  const tabs = taskTabsFor({ work: true, files: true, history: historyTabFor(historyLoad, true) });
-  const current = parseTaskTab(tab, tabs);
-  // Echo-A L6 / T-B4-08: VisaTaskPage is a client component, so only the open tab's data goes to the browser.
-  // Applicants, their documents and the costs belong to Work; Files gets the documents through `files`.
-  const pageTask = current === 'work' ? task : { ...task, applicantCount: task.applicantCount ?? task.applicants.length, applicants: [], evidence: [], costs: [] };
   return (
     <WorkErrorBoundary title="Visa and passport task">
-      <VisaTaskPage
-        task={pageTask}
-        tabs={{ tabs, current }}
-        idProofs={idProofs ? <TravellerIdProofsCard state={idProofs} /> : undefined}
-        files={current === 'files' ? { department: task.evidence, idProofs } : undefined}
-        history={current === 'history' ? toTaskHistoryVM(historyLoad, 'visa') : undefined}
-        actions={{
-          claim: claimVisaTaskAction,
-          setDocument: setApplicantDocumentAction,
-          recordSubmission: recordVisaSubmissionAction,
-          decisionPending: markVisaDecisionPendingAction,
-          recordOutcome: recordVisaOutcomeAction,
-          withdraw: withdrawVisaApplicationAction,
-          documentsReturned: recordDocumentsReturnedAction,
-          customerInformed: recordCustomerInformedAction,
-          upload: uploadDepartmentEvidenceAction,
-          cost: { save: saveDepartmentCostAction, submit: submitExpenseRecordAction, upload: uploadDepartmentEvidenceAction },
-        }}
-      />
+      <VisaTaskPage ws={ws} tabs={{ tabs: TABS, current }} actions={ACTIONS} history={history} idProofs={idProofs !== null ? <TravellerIdProofsCard state={idProofs} /> : undefined} />
     </WorkErrorBoundary>
   );
 }

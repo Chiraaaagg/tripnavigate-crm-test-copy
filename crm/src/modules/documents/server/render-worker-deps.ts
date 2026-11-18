@@ -8,9 +8,11 @@ import {
   itineraryRenderCompleteForWorker,
   itineraryRenderInputForWorker,
 } from '@/modules/itineraries/server/render-worker';
-import { localItineraryHtmlStep } from '../render/html';
+import { CustomerDocumentTemplate } from '../render/customer-templates';
+import { customerRenderClaim, customerRenderComplete, customerRenderInput, type CustomerRenderRpc } from '../render/customer-job-input';
+import { localItineraryHtmlStep, renderDocumentHtml } from '../render/html';
 import { renderPdf, type PdfBrowser } from '../render/pdf';
-import type { WorkerDeps } from '../render/worker-core';
+import { RenderStepError, type CustomerWorkerDeps, type WorkerDeps } from '../render/worker-core';
 import { istDate } from './load-quotation-view';
 
 /**
@@ -54,5 +56,31 @@ export function createLocalWorkerDeps(options: { worker: string; browser: PdfBro
         rpc,
       ),
     today: () => istDate(),
+  };
+}
+
+/**
+ * Accounts phase 2 (contract 6.8): the LOCAL worker's customer document queue
+ * (crm/scripts/render-worker.mjs --queue customer). Same Chromium, bucket and
+ * guards as the itinerary queue; the worker commands are service_role only.
+ */
+export function createLocalCustomerWorkerDeps(options: { worker: string; browser: PdfBrowser; css?: string }): CustomerWorkerDeps {
+  const admin = createSupabaseAdminClient();
+  const css = options.css ?? documentCss();
+  const rpc = admin as unknown as CustomerRenderRpc;
+  return {
+    worker: options.worker,
+    claim: () => customerRenderClaim(rpc, options.worker, LEASE_SECONDS),
+    input: (jobId) => customerRenderInput(rpc, jobId, options.worker),
+    renderHtml: async (_job, content, title) => {
+      if (!css.trim()) throw new RenderStepError('asset_missing');
+      return renderDocumentHtml(CustomerDocumentTemplate, { content }, { title, css });
+    },
+    renderPdf: (html) => renderPdf(options.browser, html),
+    upload: async (objectPath, pdf) => {
+      const { error } = await admin.storage.from(RENDERED_BUCKET).upload(objectPath, pdf, { contentType: 'application/pdf', upsert: false });
+      if (error) throw new UploadError('upload failed');
+    },
+    complete: (jobId, outcome) => customerRenderComplete(rpc, jobId, options.worker, outcome),
   };
 }

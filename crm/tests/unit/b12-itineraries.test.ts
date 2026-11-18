@@ -176,10 +176,14 @@ describe('payload, refusals, labels, editor view', () => {
           jobs: [{ jobId: 'c4000000-0000-4000-8000-000000000001', kind: 'final', status: 'failed', attempts: 1, lastErrorCode: 'placeholders_present', createdAt: '2026-10-13T08:00:00Z', finishedAt: '2026-10-13T08:01:00Z' }],
         }),
       );
+    // LD1 (one company GSTIN): Delhi has no GSTIN mark; only a missing branch does.
     const del = made('DEL', 3);
-    expect(del.rendered[0]!.qaNote).toBe('2 missing facts in brackets · company GSTIN not approved');
-    expect(del.jobs[0]!.errorText).toMatch(/^The company GSTIN for Delhi is not approved yet\. Ask Accounts/);
-    expect(made('DEL', 1).rendered[0]!.qaNote).toBe('company GSTIN not approved');
+    expect(del.rendered[0]!.qaNote).toBe('3 missing facts in brackets');
+    expect(del.jobs[0]!.errorText).not.toMatch(/company GSTIN/);
+    const unknown = made(null, 3);
+    expect(unknown.rendered[0]!.qaNote).toBe('2 missing facts in brackets · company GSTIN not printed (branch not known)');
+    expect(unknown.jobs[0]!.errorText).toMatch(/^The branch of this document is not known/);
+    expect(made('DEL', 1).rendered[0]!.qaNote).toBe('1 missing fact in brackets');
     expect(made('JDH', 1).rendered[0]!.qaNote).toBe('1 missing fact in brackets');
     expect(made(null, 1).rendered[0]!.qaNote).toBe('company GSTIN not printed (branch not known)');
   });

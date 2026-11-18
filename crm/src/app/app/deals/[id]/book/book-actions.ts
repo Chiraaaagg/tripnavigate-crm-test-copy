@@ -28,6 +28,8 @@ import {
   startBookingFormAction,
   uploadServiceFileAction,
 } from '@/modules/fulfilment/server/book-form-actions';
+import { refreshFromBitrixAction } from '@/modules/fulfilment/server/bitrix-refresh-action';
+import { addReturnFlightsAction, saveFlightFaresAction } from '@/modules/fulfilment/server/flight-fares-actions';
 import { searchHotelsAction } from '@/modules/hotels/server/hotel-actions';
 import { createPartyAction, pickPartyAction, searchPartiesAction } from '@/modules/parties/server/party-actions';
 import { stepHrefs } from '@/views/b11/book-fields';
@@ -69,6 +71,19 @@ export const BOOK_ACTIONS: BookActions = {
 };
 
 /**
+ * Book now v2 (26 October 2026): the total fare per person of all flights,
+ * "Add return flights" (both useActionState shapes: FormData in, ids out) and
+ * "Refresh from Bitrix now" (dealId in; reads that one Deal, never writes to
+ * Bitrix). Kept as their own object so the screen types gain them in one
+ * place (BookingFormActions in views/booking-form/types.ts).
+ */
+export const BOOKING_FORM_V2_ACTIONS = {
+  saveFlightFares: saveFlightFaresAction,
+  addReturnFlights: addReturnFlightsAction,
+  refreshFromBitrix: refreshFromBitrixAction,
+};
+
+/**
  * The booking form (22 October 2026): the Book now actions plus the booking
  * form commands. Start uses booking_form_start (new drafts get the booking
  * form rules); the customer card saves contact, trip and party (billing moved
@@ -79,6 +94,10 @@ export const BOOKING_FORM_ACTIONS: BookingFormActions = {
   openDraft: startBookingFormAction,
   saveCustomer: saveBookingCustomerAction,
   saveService: saveBookingServiceAction,
+  // Review round 1: the older item commands never run behind the booking form (they bypass the
+  // v2 rules); the keys stay because BookActions requires them, so they point at the v2 save.
+  addServiceItem: saveBookingServiceAction,
+  saveServiceItem: saveBookingServiceAction,
   uploadServiceFile: uploadServiceFileAction,
   removeServiceFile: removeServiceFileAction,
   savePrices: saveBookingPricesAction,
@@ -86,6 +105,8 @@ export const BOOKING_FORM_ACTIONS: BookingFormActions = {
   // Voice-note batch: passengers only when named, never removed implicitly or twice; extra phones.
   saveTravellers: saveBookingTravellersAction,
   saveIdentity: saveBookingIdentityAction,
+  // Book now v2
+  ...BOOKING_FORM_V2_ACTIONS,
 };
 
 /**

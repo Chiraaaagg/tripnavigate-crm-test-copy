@@ -11,6 +11,9 @@ import { isLoopbackDatabaseUrl, isLoopbackUrl } from '../helpers/test-env.mjs';
  * The lead runs it on a disposable local stack; never against a hosted
  * database. Written by Terra; not run by the author (Atlas holds the stack).
  *
+ * Updated for Book now v2 (26 October 2026): cards save themselves once
+ * every check passes, counts are steppers, people on a service are chips.
+ *
  * Covers what unit tests cannot: the count rule refused with typed counts
  * kept; passenger rows from the counts, saved only when named, no duplicate
  * after save and reload; a saved passenger is never removed by a save
@@ -157,31 +160,33 @@ test.describe('Voice-note booking form changes on a real local stack', () => {
       await expect(sales).toHaveURL(new RegExp(`/app/deals/${dealId}/book/travellers`), { timeout: 60_000 });
     });
 
-    await test.step('a split larger than the total is refused; the typed counts stay', async () => {
+    // Book now v2 (26 October 2026): the cards save themselves once every check passes (ruling D1);
+    // counts are adult, child and infant steppers (no total box); people on a service are chips.
+    const draftAdults = async () =>
+      (await db((c) => c.query<{ n: number | null }>('select adults_count as n from public.booking_versions where deal_id = $1 and status = $2', [dealId, 'draft']))).rows[0]?.n ?? null;
+
+    await test.step('no adult is not saved; the typed counts stay', async () => {
       await field('contactName').fill('Synthetic VN Customer');
       await field('mobile').fill('9876500081');
       await field('destination').fill('Goa');
       await field('tripStart').fill('2026-12-10');
       await field('tripEnd').fill('2026-12-13');
       await field('tripScope').selectOption('domestic');
-      await field('paxTotal').fill('5');
-      await field('adults').fill('3');
-      await field('children').fill('3');
-      await field('infants').fill('0');
+      await main.getByRole('spinbutton', { name: 'Adults' }).fill('0');
+      await main.getByRole('spinbutton', { name: 'Children' }).fill('2');
       await main.getByLabel('I confirmed the contact details with the customer').check();
-      await main.getByRole('button', { name: 'Save customer details' }).click();
-      await expect(main.getByText(/add up to 5/).first()).toBeVisible({ timeout: 30_000 });
-      await expect(field('children')).toHaveValue('3');
-      const saved = await db((c) => c.query<{ n: number | null }>('select adults_count as n from public.booking_versions where deal_id = $1 and status = $2', [dealId, 'draft']));
-      expect(saved.rows[0]?.n ?? null).toBeNull();
+      await expect(sales.locator('#pill-customer')).toHaveAttribute('data-state', 'fix', { timeout: 30_000 });
+      await expect(main.getByText('At least one adult travels.').first()).toBeVisible();
+      await expect(main.getByRole('spinbutton', { name: 'Children' })).toHaveValue('2');
+      expect(await draftAdults()).toBeNull();
     });
 
-    await test.step('5 = 3 adults + 2 children saves and reloads; five passenger rows appear with their types', async () => {
-      await field('children').fill('2');
-      await main.getByRole('button', { name: 'Save customer details' }).click();
-      await expect(main.getByRole('status').filter({ hasText: 'Customer details saved.' })).toBeVisible({ timeout: 30_000 });
+    await test.step('3 adults + 2 children save and reload; five passenger rows appear with their types', async () => {
+      await main.getByRole('spinbutton', { name: 'Adults' }).fill('3');
+      await expect.poll(draftAdults, { timeout: 30_000 }).toBe(3);
+      await expect(sales.locator('#pill-customer')).toHaveAttribute('data-state', 'saved', { timeout: 30_000 });
       await sales.reload();
-      await expect(field('adults')).toHaveValue('3');
+      await expect(main.getByRole('spinbutton', { name: 'Adults' })).toHaveValue('3');
       await expect(main.locator('[name="travellerName"]')).toHaveCount(5);
     });
 
@@ -190,13 +195,13 @@ test.describe('Voice-note booking form changes on a real local stack', () => {
       await names.nth(0).fill('Synthetic Adult One');
       await names.nth(1).fill('Synthetic Adult Two');
       await names.nth(3).fill('Synthetic Child One');
-      await main.getByRole('button', { name: 'Save passengers' }).click();
-      await expect(main.getByRole('status').filter({ hasText: 'Passengers saved.' })).toBeVisible({ timeout: 30_000 });
+      const travellerCount = async () => (await db((c) => c.query<{ n: string }>('select count(*)::text as n from public.deal_travellers where deal_id = $1', [dealId]))).rows[0]!.n;
+      await expect.poll(travellerCount, { timeout: 30_000 }).toBe('3');
+      await expect(main).toContainText('All changes saved', { timeout: 30_000 });
       // Standard requests and a child's age live in the passenger's Details drawer ("Save passenger" saves the row).
       const drawer = sales.getByRole('dialog', { name: 'Passenger details' });
-      // The save refreshes the page; a refresh that lands while the drawer is open can close it, so each
-      // drawer edit is retried as a whole (every action in it is safe to repeat).
-      await expect(main).toContainText('All changes saved', { timeout: 30_000 });
+      // A refresh that lands while the drawer is open can close it, so each drawer edit is retried as a whole
+      // (every action in it is safe to repeat).
       const inDrawer = async (row: number, edit: () => Promise<void>) =>
         expect(async () => {
           if (!(await drawer.isVisible())) await main.getByRole('button', { name: `Details for passenger ${row}` }).click();
@@ -206,9 +211,11 @@ test.describe('Voice-note booking form changes on a real local stack', () => {
           await expect(drawer).toBeHidden({ timeout: 15_000 });
         }).toPass({ timeout: 90_000 });
       await inDrawer(1, async () => {
-        const box = drawer.getByRole('checkbox', { name: 'Vegetarian meals' });
-        if (!(await box.isVisible())) await drawer.getByRole('button', { name: /Choose requests|Change/ }).first().click({ timeout: 5_000 });
-        await box.check({ timeout: 5_000 });
+        // Book now v2 (change 17, D6): the same dropdown as hotel and flight requests, fixed codes only.
+        if ((await drawer.getByRole('button', { name: 'Remove Vegetarian meals' }).count()) === 0) {
+          await drawer.getByRole('combobox', { name: /Special requests/ }).click({ timeout: 5_000 });
+          await drawer.getByRole('option', { name: 'Vegetarian meals' }).click({ timeout: 5_000 });
+        }
       });
       await inDrawer(4, async () => {
         await drawer.getByLabel('Age at travel').fill('8', { timeout: 5_000 });
@@ -218,8 +225,7 @@ test.describe('Voice-note booking form changes on a real local stack', () => {
         await sales.reload();
         await expect(main.locator('[name="travellerName"]')).toHaveCount(5);
         await expect(names.nth(0)).toHaveValue('Synthetic Adult One');
-        const n = await db((c) => c.query<{ n: string }>('select count(*)::text as n from public.deal_travellers where deal_id = $1', [dealId]));
-        expect(n.rows[0]!.n).toBe('3');
+        expect(await travellerCount()).toBe('3');
       }
       const rows = await db((c) => c.query<{ full_name: string; traveller_type: string; special_requests: string[] }>('select full_name, traveller_type, special_requests from public.deal_travellers where deal_id = $1 order by seq', [dealId]));
       expect(rows.rows.map((r) => r.full_name)).toEqual(['Synthetic Adult One', 'Synthetic Adult Two', 'Synthetic Child One']);
@@ -235,25 +241,26 @@ test.describe('Voice-note booking form changes on a real local stack', () => {
       await expect(main.getByRole('button', { name: /Attach ID proof for Synthetic Child One/ })).toBeVisible();
     });
 
-    await test.step('lowering adults below the named adults is refused; nobody is removed', async () => {
-      await field('adults').fill('1');
-      await field('paxTotal').fill('3');
-      await main.getByRole('button', { name: 'Save customer details' }).click();
-      await expect(main.getByText(/Nobody was removed/).first()).toBeVisible({ timeout: 30_000 });
+    await test.step('lowering adults below the named adults is not stored; nobody is removed', async () => {
+      await main.getByRole('spinbutton', { name: 'Adults' }).fill('1');
+      // The passengers card names the extra adults and keeps them (each with Remove); the database refuses the count.
+      await expect(main).toContainText('2 adults named, but the booking has 1.', { timeout: 30_000 });
+      await expect(sales.locator('#pill-customer')).toHaveAttribute('data-state', 'fix', { timeout: 30_000 });
       const n = await db((c) => c.query<{ n: string }>('select count(*)::text as n from public.deal_travellers where deal_id = $1', [dealId]));
       expect(n.rows[0]!.n).toBe('3');
+      expect(await draftAdults()).toBe(3);
       await sales.reload();
     });
 
-    await test.step('a hotel saves without an adults box; it takes the booking adults', async () => {
+    await test.step('a hotel saves without an adults box; its people are the chips (D4)', async () => {
       await steps.getByRole('button', { name: /Trip & services/ }).click();
       await main.getByRole('group', { name: 'Choose services' }).getByRole('button', { name: /Hotels/ }).click();
-      await main.getByRole('button', { name: 'Add stay', exact: true }).click();
+      await main.getByRole('button', { name: 'Add hotel', exact: true }).click();
       const d = sales.getByRole('dialog', { name: 'Add hotel stay' });
-      // No adults box: the booking's adults ride as a hidden value and are shown as text.
       await expect(d.locator('input[name="adults"]:not([type="hidden"])')).toHaveCount(0);
-      await expect(d.locator('#svc-adults')).toContainText('3');
       await expect(d.getByText('More details')).toHaveCount(0);
+      // Every named passenger starts chosen (change 6): 2 adults and 1 child.
+      await expect(d.locator('#svc-who-line')).toContainText('3 of 3 chosen');
       await d.getByLabel('City').fill('Goa');
       await d.getByLabel('Hotel', { exact: true }).fill('Synthetic Beach Stay');
       await d.getByLabel('Check-in').fill('2026-12-10');
@@ -261,29 +268,30 @@ test.describe('Voice-note booking form changes on a real local stack', () => {
       await d.getByRole('button', { name: 'Save hotel' }).click();
       await expect(d).toBeHidden({ timeout: 30_000 });
       const facts = await db((c) =>
-        c.query<{ adults: number }>(
-          `select (f.facts ->> 'adults')::int as adults from public.service_item_facts f
+        c.query<{ adults: number; children: number | null }>(
+          `select (f.facts ->> 'adults')::int as adults, (f.facts ->> 'children')::int as children from public.service_item_facts f
            join public.booking_versions v on v.id = f.booking_version_id
            join public.service_items i on i.id = f.service_item_id
            where v.deal_id = $1 and v.status = 'draft' and i.service_type = 'hotel'`,
           [dealId],
         ),
       );
-      expect(facts.rows[0]?.adults).toBe(3);
+      expect(facts.rows[0]).toEqual({ adults: 2, children: 1 });
     });
 
-    await test.step('flight passengers follow the selection and survive a reload', async () => {
+    await test.step('flight passengers follow the chips and survive a reload', async () => {
       await main.getByRole('group', { name: 'Choose services' }).getByRole('button', { name: /Flights/ }).click();
-      await main.getByRole('button', { name: 'Add flight' }).first().click();
+      await main.getByRole('button', { name: 'Add flight', exact: true }).click();
       const d = sales.getByRole('dialog', { name: 'Add flight' });
-      await d.locator('[name="segmentFrom"]').first().fill('Jodhpur');
-      await d.locator('[name="segmentTo"]').first().fill('Goa');
-      await d.locator('[name="segmentDate"]').first().fill('2026-12-10');
-      // Passengers flying: a toggle button opens a list of checkboxes (one per named passenger).
-      await d.getByRole('button', { name: /Choose passengers/ }).click();
-      await d.getByRole('checkbox', { name: /Synthetic Adult One/ }).check();
-      await d.getByRole('checkbox', { name: /Synthetic Child One/ }).check();
-      await d.getByRole('button', { name: /Save flight/ }).click();
+      await d.locator('#ap-from').fill('JDH');
+      await d.locator('#ap-from').press('Enter');
+      await d.locator('#ap-to').fill('GOI');
+      await d.locator('#ap-to').press('Enter');
+      await d.locator('#svc-seg-1-date').fill('2026-12-10');
+      // Everyone named starts chosen; leave out the second adult.
+      await d.getByRole('group', { name: 'Passengers flying' }).getByRole('button', { name: 'Synthetic Adult Two' }).click();
+      await expect(d.locator('#svc-who-line')).toContainText('2 of 3 chosen');
+      await d.getByRole('button', { name: 'Save flight' }).click();
       await expect(d).toBeHidden({ timeout: 30_000 });
       const seats = await db((c) =>
         c.query<{ passengers: number; picked: string }>(
@@ -299,11 +307,12 @@ test.describe('Voice-note booking form changes on a real local stack', () => {
       expect(seats.rows[0]).toEqual({ passengers: 2, picked: '1,3' });
       await sales.reload();
       // After a reload the saved choice comes back in the flight editor.
-      await main.getByRole('button', { name: /^Edit flight/ }).first().click();
+      await main.getByRole('button', { name: 'Edit flight 1' }).click();
       const again = sales.getByRole('dialog', { name: 'Edit flight' });
-      await expect(again.locator('#svc-who-hint')).toHaveText('2 of 3 passengers fly.');
-      await expect(again).toContainText('Synthetic Adult One');
-      await expect(again).toContainText('Synthetic Child One');
+      await expect(again.locator('#svc-who-line')).toContainText('2 of 3 chosen');
+      const who = again.getByRole('group', { name: 'Passengers flying' });
+      await expect(who.getByRole('button', { name: 'Synthetic Adult One' })).toHaveAttribute('aria-pressed', 'true');
+      await expect(who.getByRole('button', { name: 'Synthetic Child One' })).toHaveAttribute('aria-pressed', 'true');
       await again.getByRole('button', { name: 'Cancel' }).click();
       await expect(again).toBeHidden();
     });
@@ -313,13 +322,11 @@ test.describe('Voice-note booking form changes on a real local stack', () => {
       const bill = main.locator('section#billTo');
       await bill.getByRole('combobox').first().fill('Synthetic Stored');
       await sales.getByRole('option', { name: new RegExp(`Synthetic Stored Traders ${tag}`) }).click();
-      await bill.getByRole('button', { name: 'Save Bill To' }).click();
-      await expect(bill.getByRole('status').filter({ hasText: 'Bill To saved. Accounts checks it before use.' })).toBeVisible({ timeout: 30_000 });
-      const snap = await db((c) => c.query<{ party_id: string; billing_name: string }>('select party_id, billing_name from public.customer_billing_profiles where deal_id = $1', [dealId]));
-      expect(snap.rows[0]).toEqual({ party_id: partyId, billing_name: `Synthetic Stored Traders ${tag}` });
+      // Bill To saves itself once the picked customer fills it (change 2).
+      await expect.poll(async () => JSON.stringify((await db((c) => c.query<{ party_id: string; billing_name: string }>('select party_id, billing_name from public.customer_billing_profiles where deal_id = $1', [dealId]))).rows[0] ?? null), { timeout: 30_000 })
+        .toBe(JSON.stringify({ party_id: partyId, billing_name: `Synthetic Stored Traders ${tag}` }));
       await sales.screenshot({ path: `${shotDir}/bill-to-picked.png`, fullPage: true });
     });
-
     await test.step('Add customer (Personal) creates a Not checked customer', async () => {
       const bill = main.locator('section#billTo');
       await bill.getByRole('button', { name: /^Add customer/ }).first().click();

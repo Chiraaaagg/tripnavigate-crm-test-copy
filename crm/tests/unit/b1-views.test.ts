@@ -25,18 +25,7 @@ import {
   travellersNeeded,
 } from '@/views/intake-fields';
 import { IntakeDisabledView, IntakeLoading, IntakeNotAvailableView } from '@/views/intake-views';
-import {
-  countServiceTypes,
-  factsLines,
-  factsSummary,
-  ProgressPill,
-  serviceNextHref,
-  serviceNextLinkText,
-  serviceOwnerText,
-  serviceStateInfo,
-  ServiceStatePill,
-  ServiceTypePill,
-} from '@/views/service-labels';
+import { countServiceTypes, factsLines, factsSummary, ProgressPill, serviceNextHref, serviceNextLinkText, serviceOwnerText, serviceStateInfo, ServiceStatePill, ServiceTypePill, serviceNextStepText } from '@/views/service-labels';
 
 /**
  * B1 pure view helpers and leaf renders (service labels, intake field
@@ -85,7 +74,11 @@ describe('service labels', () => {
   it('state words come from the department (Purchase vs Flight), never colour alone', () => {
     expect(serviceStateInfo(item()).label).toBe('Planned · no task yet');
     const taken = item({ state: 'active', task: { taskId: 't', status: 'in_progress', assigneeName: 'A', assignedToYou: false, supplierConfirmedAt: null }, department: 'flight', serviceType: 'flight' });
-    expect(serviceStateInfo(taken).label).toBe('In progress · ticket not recorded in the CRM');
+    // Flight build (contract 7): flight items use the frozen words Waiting / In progress / Done · ticket issued
+    // (the old "ticket not recorded in the CRM" wording is retired with DEC-59).
+    expect(serviceStateInfo(taken).label).toBe('In progress');
+    expect(serviceStateInfo({ ...taken, task: { ...taken.task!, status: 'not_started' } }).label).toBe('Waiting');
+    expect(serviceStateInfo({ ...taken, task: { ...taken.task!, status: 'completed' } }).label).toBe('Done · ticket issued');
     const purchaseTaken = { ...taken, department: 'purchase' as const };
     expect(serviceStateInfo(purchaseTaken).label).toBe('In progress · not booked yet');
     const html = renderToStaticMarkup(createElement(ServiceStatePill, { item: taken }));
@@ -97,7 +90,8 @@ describe('service labels', () => {
   it('DA-287: Visa and passport items use the Visa desk words (never the Purchase or Flight ones); completed has the success look', () => {
     const visa = (status: 'not_started' | 'in_progress' | 'completed') =>
       item({ state: 'active', department: 'visa', serviceType: 'visa', task: { taskId: 'v', status, assigneeName: null, assignedToYou: false, supplierConfirmedAt: null } });
-    expect(serviceStateInfo(visa('not_started')).label).toBe('Waiting to be taken');
+    // Visa build (contract section 8, VISA_TASK_STATUS_LABEL): a not-started visa task reads "Not taken" (was "Waiting to be taken").
+    expect(serviceStateInfo(visa('not_started')).label).toBe('Not taken');
     expect(serviceStateInfo(visa('in_progress')).label).toBe('In progress');
     expect(serviceStateInfo(visa('completed'))).toMatchObject({ label: 'Completed', tone: 'success' });
     for (const status of ['not_started', 'in_progress', 'completed'] as const) expect(serviceStateInfo(visa(status)).label).not.toMatch(/hotel|ticket/);
@@ -112,8 +106,16 @@ describe('service labels', () => {
     expect(serviceNextLinkText(item())).toBe('Open intake');
     expect(serviceNextHref(mine, 'd1')).toBe('/app/purchase/f1');
     const flightTask = { ...mine, department: 'flight' as const };
-    expect(serviceNextHref(flightTask, 'd1')).toBe('/app/flight/f1');
-    expect(serviceNextLinkText(flightTask)).toBe('Open Flight task');
+    // Flight build (11.1/11.2, fixes the prototype's dead "Open Flight task" link): the Deal's Flight workspace only for
+    // viewers who can open it (Flight, branch Manager); everyone else goes to the Deal page's flight card.
+    expect(serviceNextHref(flightTask, 'd1')).toBe('/app/deals/d1?tab=services#deal-flights');
+    expect(serviceNextLinkText(flightTask)).toBe('See the flight details');
+    expect(serviceNextHref(flightTask, 'd1', { canOpenFlightWorkspace: true })).toBe('/app/flight/deals/d1?flight=f1');
+    expect(serviceNextLinkText(flightTask, { canOpenFlightWorkspace: true })).toBe('Open the flights');
+    expect(serviceNextLinkText(flightTask)).not.toBe('Open Flight task');
+    // Flight build: the next step says what Flight is doing, not the hotel supplier steps.
+    expect(serviceNextStepText({ nextStep: 'take_task', department: 'flight' })).toBe('Waiting for Flight to take it');
+    expect(serviceNextStepText({ nextStep: 'supplier_confirmation', department: 'flight' })).toBe('Flight is confirming the tickets');
   });
 
   it('facts summaries and lines never contain a selling value and cover every type', () => {

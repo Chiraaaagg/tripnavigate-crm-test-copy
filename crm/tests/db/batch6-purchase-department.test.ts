@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { type Actor, FIXTURE_USERS as U, type TestDb, asOwner, createTestDb } from '../helpers/db';
+import { type Actor, FIXTURE_USERS as U, type TestDb, asOwner, createTestDb, expectDbError } from '../helpers/db';
 import { DEAL, FLIGHT, FLIGHT_CLAIM_SQL, FLIGHT_GET_SQL, MANAGER, OWNER, PURCHASE, PURCHASE_CLAIM_SQL, SHA } from './b1-support';
-import { COST_SAVE_SQL, COST_SUBMIT_SQL, DESK, VISA_CLAIM_SQL, WORK_FORM_SQL, b11Helpers, rid } from './b11-support';
+import { COST_SAVE_SQL, DESK, VISA_CLAIM_SQL, WORK_FORM_SQL, b11Helpers, rid } from './b11-support';
 
 /**
  * Batch 6, item 1 (migration 20261127000100_purchase_department_check):
@@ -54,6 +54,15 @@ const EV_REMOVE_SQL = 'select public.purchase_evidence_remove($1) as r';
 const CONFIRM_SQL = 'select public.purchase_supplier_confirm($1, $2, $3) as r';
 const WORKSPACE_SQL = 'select public.purchase_workspace($1) as r';
 const REASSIGN_SQL = 'select public.purchase_task_reassign($1, $2, $3) as r';
+// Flight build (contract A2, 4 Nov 2026): flight tasks move only together, per Deal, through flight_group_reassign;
+// purchase_task_reassign refuses department flight (not_authorized). The flight reassign cases below use it.
+const GROUP_REASSIGN_SQL = 'select public.flight_group_reassign($1, $2, $3, $4, $5) as r';
+const FLIGHT_WORKSPACE_SQL = 'select public.flight_workspace($1) as r';
+const REASSIGN_REASON = 'Synthetic: Flight colleague on leave this week';
+const groupReassign = (from: string, to: string) => [DEAL, from, to, REASSIGN_REASON, crypto.randomUUID()];
+/** Flight build: the branch Manager's reassign candidates for the Deal's flight group (flight_workspace, 9.2). */
+const flightCandidates = async () =>
+  ((await one<{ reassignCandidates?: Array<{ userId: string }> }>(MANAGER, FLIGHT_WORKSPACE_SQL, [DEAL])).reassignCandidates ?? []).map((c) => c.userId);
 
 /** Owner SQL: an active Purchase membership in Jodhpur (the fixtures give visa.jodhpur none). */
 async function addPurchase(user: string): Promise<void> {
@@ -98,6 +107,17 @@ async function installPrevious(): Promise<void> {
       .replace('create function', 'create or replace function'),
   );
   await owner(block('20261107000300_removed_deal_work_pause.sql', 'create or replace function authz.lock_workable_task('));
+  // Purchase build (20261130000110) limits offers to suppliers of the task's service type;
+  // the gap is shown with the offer command of that time (any hotel supplier).
+  await owner(
+    block('20261005000100_purchase_hotel_procurement.sql', 'create function public.purchase_quote_add(')
+      .replace('create function', 'create or replace function'),
+  );
+}
+
+/** The latest offer command (Purchase build), restored after installPrevious. */
+async function installLatestQuoteAdd(): Promise<void> {
+  await owner(block('20261130000110_purchase_workflow_commands.sql', 'create or replace function public.purchase_quote_add('));
 }
 
 /** This migration's statements (between its begin and commit). */
@@ -153,11 +173,41 @@ async function evidence(actor: Actor, taskId: string, store: boolean): Promise<s
   return ev.evidenceId;
 }
 
-/** Quote, cost within every item budget, stored confirmation file: everything supplier confirmation needs. */
+const ACCOUNTS: Actor = { userId: U.accountsJodhpur };
+const BOOKING_REQUEST_SQL = 'select public.purchase_booking_request_send($1, $2, $3, $4::text[], $5, $6, $7) as r';
+const GO_AHEAD_DECIDE_SQL = 'select public.purchase_go_ahead_decide($1, $2, $3, $4, $5) as r';
+const bookingRequestParams = (taskId: string, versionNo: number) => [
+  taskId, versionNo, 'desk@example.test', [], 'Booking request · SYN-DEL-001 · Synthetic Hotel (fixture)',
+  'Synthetic booking request (fixture).', rid(),
+];
+
+/**
+ * Owner decision 1 (2 Nov 2026, migration 20261130000110): the booking
+ * request for the final rate and, for a hotel, the Accounts go-ahead.
+ * SYNTHETIC FIXTURE: the Accounts booking review of the task's current
+ * version is set to approved as the database owner.
+ */
+async function bookingRequestAndGoAhead(actor: Actor, taskId: string, versionNo: number): Promise<void> {
+  await one(actor, BOOKING_REQUEST_SQL, bookingRequestParams(taskId, versionNo));
+  const [pending] = await owner<{ id: string; row_version: number }>(
+    `select id, row_version from public.purchase_go_ahead_requests where task_id = $1 and status = 'pending'`, [taskId]);
+  if (!pending) return; // not a hotel task: no go-ahead
+  await owner(
+    `insert into public.accounts_booking_reviews (booking_version_id, deal_id, legal_entity_id, status, reviewed_by, reviewed_at)
+     select v.id, v.deal_id, v.legal_entity_id, 'approved', $2, now()
+     from public.booking_versions v where v.id = authz.task_current_version($1)
+     on conflict (booking_version_id) do update set status = 'approved', reviewed_by = excluded.reviewed_by, reviewed_at = now()`,
+    [taskId, U.accountsJodhpur],
+  );
+  await one(ACCOUNTS, GO_AHEAD_DECIDE_SQL, [pending.id, 'approve', null, pending.row_version, rid()]);
+}
+
+/** Quote, cost within every item budget, stored confirmation file, booking request and go-ahead: everything supplier confirmation needs. */
 async function prepare(actor: Actor, taskId: string, supplierId: string): Promise<{ quoteId: string; versionNo: number; storedEv: string }> {
   const { quoteId } = await one<{ quoteId: string }>(actor, QUOTE_ADD_SQL, [taskId, rid(), quoteFields(supplierId)]);
   const { versionNo } = await one<{ versionNo: number }>(actor, COST_PROPOSE_SQL, [taskId, quoteId, 0, '2000000', '2026-11-25', null, rid()]);
   const storedEv = await evidence(actor, taskId, true);
+  await bookingRequestAndGoAhead(actor, taskId, versionNo);
   return { quoteId, versionNo, storedEv };
 }
 
@@ -191,6 +241,7 @@ describe('Purchase commands work only on Purchase department tasks', () => {
 
       // This migration: every Purchase command refuses the flight task.
       await installCurrent();
+      await installLatestQuoteAdd();
       const before = await purchaseRows(flightTask);
       expect(before).toEqual({ quotes: 1, costs: 1, evidence: ['pending_upload', 'stored'] });
       const attempts: Array<[string, string, unknown[]]> = [
@@ -201,6 +252,7 @@ describe('Purchase commands work only on Purchase department tasks', () => {
         ['purchase_evidence_finish', EV_FINISH_SQL, [pendingEv, true]],
         ['purchase_evidence_remove', EV_REMOVE_SQL, [storedEv]],
         ['purchase_supplier_confirm', CONFIRM_SQL, [flightTask, versionNo, 'SYN-FLT-0001']],
+        ['purchase_booking_request_send', BOOKING_REQUEST_SQL, bookingRequestParams(flightTask, versionNo)],
       ];
       for (const [name, sql, params] of attempts) {
         await expect(refused(DUAL, sql, params, '42501', 'not_authorized'), name).resolves.toBeUndefined();
@@ -268,14 +320,14 @@ describe('Purchase commands work only on Purchase department tasks', () => {
       expect(await one<{ status: string }>(DUAL, FLIGHT_CLAIM_SQL, [flightTask])).toMatchObject({ status: 'in_progress' });
       expect(await one(DUAL, FLIGHT_GET_SQL, [flightTask])).toMatchObject({ status: 'in_progress', assignedToYou: true });
       expect(await one(DUAL, WORK_FORM_SQL, [flightTask])).toMatchObject({ department: 'flight' });
+      // Flight build (contract 4 Nov 2026, decision D3 / B13): the old manual flight cost form is refused by design;
+      // the per-passenger fare breakup of "Confirm tickets" is the only flight cost record (tested in flight-fares and
+      // flight-payments). This replaces the save / proof / submit steps that held before the build.
       const fare = { costKind: 'fare', amountPaise: '2500000', paidBy: 'company', paymentMode: 'card', paidOn: '2026-10-10' };
-      const saved = await one<{ entryId: string; rowVersion: number; expenseStatus: string }>(DUAL, COST_SAVE_SQL,
-        [flightTask, null, 0, JSON.stringify(fare), rid()]);
-      expect(saved.expenseStatus).toBe('draft');
-      const proof = await deskEvidence(DUAL, flightTask, 'direct_payment_proof');
-      const linked = await one<{ rowVersion: number }>(DUAL, COST_SAVE_SQL,
-        [flightTask, saved.entryId, saved.rowVersion, JSON.stringify({ ...fare, receiptEvidenceId: proof }), rid()]);
-      expect((await one<{ expenseStatus: string }>(DUAL, COST_SUBMIT_SQL, [saved.entryId, linked.rowVersion])).expenseStatus).toBe('submitted');
+      await expectDbError(db, () => run(DUAL, COST_SAVE_SQL, [flightTask, null, 0, JSON.stringify(fare), rid()]),
+        { code: '22023', message: /^invalid_input$/ });
+      // The Flight + Purchase holder may still store a direct-payment proof on the flight task.
+      await deskEvidence(DUAL, flightTask, 'direct_payment_proof');
       expect(await taskRow(flightTask)).toMatchObject({ status: 'in_progress', assignee_user_id: U.purchaseJodhpur });
     });
   });
@@ -303,23 +355,25 @@ describe('Purchase commands work only on Purchase department tasks', () => {
       const { hotelTask, flightTask } = await hotelAndFlight();
       await addFlight(U.visaJodhpur);
       await one(FLIGHT, FLIGHT_CLAIM_SQL, [flightTask]);
-      // Flight task: a Purchase-only person is neither offered nor accepted, the task does not move.
-      expect(await one(MANAGER, WORKSPACE_SQL, [flightTask])).toMatchObject({ canReassign: true, reassignCandidates: [] });
-      await refused(MANAGER, REASSIGN_SQL, [flightTask, U.visaJodhpur, U.purchaseJodhpur], '22023', 'invalid_input');
+      // Flight build (A2): purchase_task_reassign refuses every flight task now, whoever the target is; the task does not move.
+      await refused(MANAGER, REASSIGN_SQL, [flightTask, U.visaJodhpur, U.purchaseJodhpur], '42501', 'not_authorized');
       expect(await taskRow(flightTask)).toMatchObject({ status: 'in_progress', assignee_user_id: U.visaJodhpur });
-      // With an active Flight role the same person is offered and may take it over.
+      // The same coverage moves to flight_group_reassign (A2): a Purchase-only person is neither offered nor accepted.
+      expect(await flightCandidates()).not.toContain(U.purchaseJodhpur);
+      await refused(MANAGER, GROUP_REASSIGN_SQL, groupReassign(U.visaJodhpur, U.purchaseJodhpur), '22023', 'invalid_input');
+      expect(await taskRow(flightTask)).toMatchObject({ status: 'in_progress', assignee_user_id: U.visaJodhpur });
+      // With an active Flight role the same person is offered and may take it over (flight_group_reassign, A2).
       await addFlight(U.purchaseJodhpur);
-      expect(await one(MANAGER, WORKSPACE_SQL, [flightTask])).toMatchObject({
-        reassignCandidates: [{ userId: U.purchaseJodhpur, name: 'Synthetic Purchase Jodhpur' }] });
-      expect(await one(MANAGER, REASSIGN_SQL, [flightTask, U.visaJodhpur, U.purchaseJodhpur])).toMatchObject({ outcome: 'created' });
+      expect(await flightCandidates()).toContain(U.purchaseJodhpur);
+      expect(await one(MANAGER, GROUP_REASSIGN_SQL, groupReassign(U.visaJodhpur, U.purchaseJodhpur))).toBeTruthy();
       expect(await taskRow(flightTask)).toMatchObject({ status: 'in_progress', assignee_user_id: U.purchaseJodhpur });
-      // And back to a Flight person without any Purchase role.
+      // And back to a Flight person without any Purchase role (flight_group_reassign, A2).
       expect(await owner(`select 1 from public.memberships where user_id = $1 and role_code = 'purchase'`, [U.visaJodhpur])).toEqual([]);
-      expect(await candidates(flightTask)).toEqual([U.visaJodhpur]);
-      expect(await one(MANAGER, REASSIGN_SQL, [flightTask, U.purchaseJodhpur, U.visaJodhpur])).toMatchObject({ outcome: 'created' });
+      expect(await flightCandidates()).toContain(U.visaJodhpur);
+      expect(await one(MANAGER, GROUP_REASSIGN_SQL, groupReassign(U.purchaseJodhpur, U.visaJodhpur))).toBeTruthy();
       expect(await taskRow(flightTask)).toMatchObject({ status: 'in_progress', assignee_user_id: U.visaJodhpur });
-      // Still the branch manager only.
-      await refused(PURCHASE, REASSIGN_SQL, [flightTask, U.visaJodhpur, U.purchaseJodhpur], '42501', 'not_authorized');
+      // Still the branch Manager only (flight_group_reassign, A2: a non-Manager is not_authorized).
+      await refused(PURCHASE, GROUP_REASSIGN_SQL, groupReassign(U.visaJodhpur, U.purchaseJodhpur), '42501', 'not_authorized');
 
       // Purchase task: candidates and acceptance unchanged (Purchase people only).
       await one(PURCHASE, PURCHASE_CLAIM_SQL, [hotelTask]);
@@ -347,8 +401,11 @@ describe('Purchase commands work only on Purchase department tasks', () => {
       expect(await openKinds(U.visaJodhpur)).toEqual(['flight']);
       expect(await readsDeal(FLIGHT)).toBe(true);
       expect(await readsDeal(NEW)).toBe(false);
-      expect(await candidates(flightTask)).toEqual([U.salesDelhiB]);
-      expect(await one(MANAGER, REASSIGN_SQL, [flightTask, U.visaJodhpur, U.salesDelhiB])).toMatchObject({ outcome: 'created' });
+      // Flight build (A2): purchase_task_reassign refuses the flight task; the move goes through flight_group_reassign,
+      // whose candidates come from flight_workspace (9.2).
+      await refused(MANAGER, REASSIGN_SQL, [flightTask, U.visaJodhpur, U.salesDelhiB], '42501', 'not_authorized');
+      expect(await flightCandidates()).toEqual([U.salesDelhiB]);
+      expect(await one(MANAGER, GROUP_REASSIGN_SQL, groupReassign(U.visaJodhpur, U.salesDelhiB))).toBeTruthy();
       expect(await openKinds(U.visaJodhpur)).toEqual([]);
       expect(await openKinds(U.salesDelhiB)).toEqual(['flight']);
       expect(await owner(
@@ -388,8 +445,9 @@ describe('Purchase commands work only on Purchase department tasks', () => {
       for (const [name, setup] of cases) {
         await db.exec('savepoint reassign_case');
         await setup();
-        expect(await candidates(flightTask), name).toEqual([]);
-        await expect(refused(MANAGER, REASSIGN_SQL, [flightTask, U.visaJodhpur, TARGET], '22023', 'invalid_input'), name).resolves.toBeUndefined();
+        // Flight build (A2): the same membership checks, now on flight_group_reassign and the flight_workspace candidates.
+        expect(await flightCandidates(), name).toEqual([]);
+        await expect(refused(MANAGER, GROUP_REASSIGN_SQL, groupReassign(U.visaJodhpur, TARGET), '22023', 'invalid_input'), name).resolves.toBeUndefined();
         expect(await taskRow(flightTask), name).toMatchObject({ status: 'in_progress', assignee_user_id: U.visaJodhpur });
         await db.exec('rollback to savepoint reassign_case');
       }
@@ -400,10 +458,13 @@ describe('Purchase commands work only on Purchase department tasks', () => {
       expect((await owner<{ ok: boolean }>(helper, [TARGET]))[0]!.ok).toBe(false);
       await owner(`update public.legal_entities set status = 'enabled' where code = 'SYNTHETIC_B'`);
       expect((await owner<{ ok: boolean }>(helper, [TARGET]))[0]!.ok).toBe(true);
-      // Control: an active Flight membership in the task's entity is offered and accepted.
+      // Control: an active Flight membership in the task's entity is offered and accepted (flight_group_reassign, A2);
+      // purchase_task_reassign refuses the flight task by design (A2).
       await addMembership(TARGET, 'flight');
-      expect(await candidates(flightTask)).toEqual([TARGET]);
-      expect(await one(MANAGER, REASSIGN_SQL, [flightTask, U.visaJodhpur, TARGET])).toMatchObject({ outcome: 'created' });
+      expect(await flightCandidates()).toEqual([TARGET]);
+      await refused(MANAGER, REASSIGN_SQL, [flightTask, U.visaJodhpur, TARGET], '42501', 'not_authorized');
+      expect(await one(MANAGER, GROUP_REASSIGN_SQL, groupReassign(U.visaJodhpur, TARGET))).toBeTruthy();
+      expect(await taskRow(flightTask)).toMatchObject({ status: 'in_progress', assignee_user_id: TARGET });
     });
   });
 

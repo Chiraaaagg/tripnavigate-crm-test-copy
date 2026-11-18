@@ -271,16 +271,19 @@ describe('render requests', () => {
 describe('DEC-50: final render of a Delhi itinerary (company GSTIN not approved yet)', () => {
   const DELHI = 'The company GSTIN for Delhi is not approved yet. Ask Accounts; there is nothing for you to fill in.';
 
-  it('the real adapter on a Delhi view: final refused before any database call, with the Accounts wording', async () => {
+  it('the real adapter (LD1): a Delhi view is blocked only by its open facts; a view with no branch adds the CRM-team GSTIN line', async () => {
     const real = await vi.importActual<typeof import('@/modules/documents/itinerary-adapter')>('@/modules/documents/itinerary-adapter');
+    const { COMPANY_GSTIN_TEXT } = await vi.importActual<typeof import('@/modules/documents/company-identity')>('@/modules/documents/company-identity');
     const { itineraryView } = await import('./b12-documents-fixtures');
-    const view = itineraryView({ branchCode: 'DEL' });
-    loadItineraryDocumentView.mockResolvedValue({ status: 'ok', view });
     itineraryToEngine.mockImplementation((v: Parameters<typeof real.itineraryToEngine>[0]) => real.itineraryToEngine(v));
+    loadItineraryDocumentView.mockResolvedValue({ status: 'ok', view: itineraryView({ branchCode: 'DEL' }) });
+    const del = await actions.requestItineraryRenderAction(null, form({ documentId: DOC, renderKind: 'final' }));
+    expect(del).toMatchObject({ ok: false, code: 'document_blocked' });
+    // The fixture leaves the day plan open: only the facts line (Delhi prints the company GSTIN).
+    expect(del.ok === false && 'blocks' in del ? del.blocks : null).toEqual([DOCUMENT_BLOCK_TEXT.placeholders]);
+    loadItineraryDocumentView.mockResolvedValue({ status: 'ok', view: itineraryView({ branchCode: null }) });
     const r = await actions.requestItineraryRenderAction(null, form({ documentId: DOC, renderKind: 'final' }));
-    expect(r).toMatchObject({ ok: false, code: 'document_blocked' });
-    // The fixture also leaves the day plan open, so both lines show: the GSTIN first, then the facts to fill in.
-    expect(r.ok === false && 'blocks' in r ? r.blocks : null).toEqual([DELHI, DOCUMENT_BLOCK_TEXT.placeholders]);
+    expect(r.ok === false && 'blocks' in r ? r.blocks : null).toEqual([COMPANY_GSTIN_TEXT.unknownBranch, DOCUMENT_BLOCK_TEXT.placeholders]);
     expect(rpc).not.toHaveBeenCalled();
   });
 

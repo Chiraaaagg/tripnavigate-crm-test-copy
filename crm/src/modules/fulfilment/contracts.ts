@@ -1,4 +1,4 @@
-import type { ServiceEstimateView, ServiceItemFileView } from './booking-form-contract';
+import type { BitrixRefreshRefusal, CarKind, FlightEntryMode, FlightFareTotals, RequestItem, ServiceEstimateView, ServiceItemFileView } from './booking-form-contract';
 import type { SwitchState } from '@/modules/settings/contracts';
 
 /**
@@ -102,6 +102,8 @@ export type BookingIssueCode =
   | 'gst_reason_missing'
   | 'billing_contact_missing'
   | 'billing_reach_missing'
+  // Book now v2 (20261129000120): a flight added from a screenshot has no stored screenshot
+  | 'flight_screenshot_missing'
   // Booking form: the three price codes as one line for viewers without price access
   | 'prices_ask_owner'
   // B1.1 revision drafts (appendix A §2.2, Stage 3 §11)
@@ -163,7 +165,11 @@ export type BookingErrorCode =
   // Booking form (20261124000110): booking_commercials_save while per-person price lines exist
   | 'priced_per_person'
   // Booking form (20261124000110): five live files per item already
-  | 'item_file_limit';
+  | 'item_file_limit'
+  // Book now v2: "Refresh from Bitrix now" refusals (booking-form-contract.ts)
+  | BitrixRefreshRefusal
+  // Visa build (20261202000200, QB1): deal_travellers_save with a traveller number used before on the Deal
+  | 'traveller_seq_reused';
 
 export interface OpenDraftResult {
   versionId: string;
@@ -424,6 +430,8 @@ export const ISSUE_TEXT: Record<BookingIssueCode, string> = {
   gst_reason_missing: 'Record why the business has no GSTIN (10 to 500 characters).',
   billing_contact_missing: 'Add the contact name at the business.',
   billing_reach_missing: 'Add a billing phone number or email.',
+  // Book now v2 (the booking form names the flights: "Flight 2: attach ...")
+  flight_screenshot_missing: 'Attach at least one screenshot to each flight added from a screenshot, or type the details.',
   prices_ask_owner: 'The deal owner still needs to finish the package prices.',
 };
 
@@ -474,7 +482,8 @@ export const ERROR_TEXT: Record<BookingErrorCode | 'upload_failed' | 'session', 
   billing_verified: 'Accounts has already verified these billing details, so they can’t be changed here. Ask Accounts to change them. Nothing on this step was saved.',
   version_superseded: 'This booking version has been replaced by a newer one. Reload to see the current version.',
   revision_not_allowed: 'This booking can only be fixed after Accounts returns it. If Accounts has since approved it, discard your changes or ask Accounts to return it.',
-  already_committed: 'A supplier has already confirmed a service on this booking, or a visa or passport is already finished. Changes after that are not supported yet. Talk to your manager, Purchase and Accounts.',
+  // Visa build (QB3): finished visa and passport work no longer blocks changes.
+  already_committed: 'A supplier has already confirmed a service on this booking, or the flights are already done. Changes after that are not supported yet. Talk to your manager, Purchase and Accounts.',
   classification_not_allowed: 'This change can’t be marked as a spelling or format fix or as internal only. Changes to dates, rooms, travellers, services or price need the customer to accept again.',
   revision_items_fixed: 'Services can’t be added or removed while fixing a returned booking. Change the existing services, or talk to your manager.',
   documents_not_checked: 'All required documents must be checked first. Nothing was submitted.',
@@ -497,6 +506,14 @@ export const ERROR_TEXT: Record<BookingErrorCode | 'upload_failed' | 'session', 
   // Booking form (Mercury A.8)
   priced_per_person: 'This booking uses per-person prices. Change the amounts in the price table; the total follows from them. Nothing was saved.',
   item_file_limit: 'A flight can have at most 5 screenshots. Remove one first. Nothing was uploaded.',
+  // Book now v2: "Refresh from Bitrix now" (generic fallbacks; the action sends its own message)
+  refresh_too_soon: 'This Deal was refreshed a moment ago. Try again shortly.',
+  refresh_switched_off: 'Reading trip facts from Bitrix is switched off, so this Deal cannot be refreshed now. Ask an admin.',
+  refresh_not_bitrix_deal: 'This Deal did not come from Bitrix, so there is nothing to refresh.',
+  bitrix_unavailable: 'Bitrix did not answer just now. Nothing was changed. Try again in a minute.',
+  bitrix_deal_not_found: 'Bitrix cannot find this Deal any more. Nothing was changed here.',
+  // Visa build (contract 6.1, frozen)
+  traveller_seq_reused: 'Someone changed the passengers meanwhile. Reload the page.',
 };
 
 export const EVIDENCE_KIND_LABEL: Record<EvidenceKind, string> = {
@@ -595,6 +612,8 @@ export interface HotelServiceFacts {
   /** Children sharing without a bed, 0–20. */
   childrenWithoutBed?: number | null;
   bedRemarks?: string | null;
+  /** Book now v2: requests "for whom"; the database writes `specialRequests` from them. */
+  requestItems?: RequestItem[] | null;
 }
 /** B1.2 hotel extras (Atlas 0200, DEC-33): limits and labels for the quotation and Book now hotel forms. */
 export const HOTEL_EXTRA_LIMITS = { extraBeds: { min: 0, max: 20 }, childrenWithoutBed: { min: 0, max: 20 }, bedRemarks: 300 } as const;
@@ -623,6 +642,10 @@ export interface TransferServiceFacts {
   quantity?: number | null;
   includedKms?: number | null;
   vendor?: string | null;
+  // Book now v2 (booking-form-contract.ts TransferFactKeysV2)
+  carKind?: CarKind | null;
+  /** service_items.id of the flight the car meets (format only). */
+  flightItemId?: string | null;
 }
 export interface ActivityServiceFacts {
   name: string;
@@ -649,6 +672,7 @@ export interface FlightSegment {
   arriveTime?: string | null;
 }
 export interface FlightServiceFacts {
+  /** Book now v2: empty for a flight added from a screenshot (entryMode 'screenshot'). */
   segments: FlightSegment[];
   passengers: number;
   preferredTime?: string | null;
@@ -660,6 +684,15 @@ export interface FlightServiceFacts {
   preferences?: string | null;
   /** Special assistance (≤ 500). */
   assistance?: string | null;
+  // Book now v2 (booking-form-contract.ts FlightFactKeysV2)
+  /** Absent = 'typed'. */
+  entryMode?: FlightEntryMode | null;
+  /** Note for the Flight team (≤ 200), screenshot flights only. */
+  screenshotNote?: string | null;
+  /** Requests "for whom"; the database writes `preferences` from them. */
+  requestItems?: RequestItem[] | null;
+  /** Created by "Add return flights". */
+  isReturn?: boolean | null;
 }
 /** B1.1: visa service (Visa & Passport desk). Required: country, purpose, travelDate, feePaidBy. */
 export interface VisaServiceFacts {
@@ -670,6 +703,15 @@ export interface VisaServiceFacts {
   applyBy?: string | null;
   feePaidBy: VisaFeePaidBy;
   notes?: string | null;
+  // Visa build (20261202000200, contract 5.5): all optional; absent or null = "Not decided yet".
+  /** E-visa or sticker visa. visaKind changes need fresh customer acceptance (material). */
+  visaKind?: VisaKind | null;
+  /** 'yes' when the passport must go to a set place (jurisdiction). */
+  jurisdiction?: VisaJurisdiction | null;
+  /** Required (1..120) when jurisdiction is 'yes'; absent or null otherwise. */
+  jurisdictionPlace?: string | null;
+  /** Document labels (not codes), 0..30, trimmed with single spaces, distinct ignoring case. */
+  documentsNeeded?: string[] | null;
 }
 /** B1.1: passport service (Visa & Passport desk). Exactly one participant (readiness). */
 export interface PassportServiceFacts {
@@ -706,11 +748,25 @@ export const SERVICE_FACT_KEYS: Record<ServiceType, readonly string[]> = {
     'mode', 'preferences', 'area', 'childAges', 'exclusions',
     // B1.2 (0200, DEC-33): counts and remarks only; never multiplied into money
     'extraBeds', 'childrenWithoutBed', 'bedRemarks',
+    // Book now v2
+    'requestItems',
   ],
-  transfer: ['route', 'date', 'vehicleType', 'passengers', 'pickupTime', 'notes', 'pickup', 'drop'],
+  transfer: [
+    'route', 'date', 'vehicleType', 'passengers', 'pickupTime', 'notes', 'pickup', 'drop',
+    // Booking form and Book now v2
+    'endDate', 'quantity', 'includedKms', 'vendor', 'carKind', 'flightItemId',
+  ],
   activity: ['name', 'city', 'date', 'participants', 'time', 'notes', 'inclusions'],
-  flight: ['segments', 'passengers', 'preferredTime', 'cabin', 'notes', 'tripType', 'preferences', 'assistance'],
-  visa: ['country', 'purpose', 'travelDate', 'applyBy', 'feePaidBy', 'notes'],
+  flight: [
+    'segments', 'passengers', 'preferredTime', 'cabin', 'notes', 'tripType', 'preferences', 'assistance',
+    // Book now v2
+    'entryMode', 'screenshotNote', 'requestItems', 'isReturn',
+  ],
+  visa: [
+    'country', 'purpose', 'travelDate', 'applyBy', 'feePaidBy', 'notes',
+    // Visa build (20261202000200)
+    'visaKind', 'jurisdiction', 'jurisdictionPlace', 'documentsNeeded',
+  ],
   passport: ['applicationType', 'officeCity', 'neededBy', 'notes'],
 };
 /** B1.1: keys allowed inside one flight segment. */
@@ -877,6 +933,8 @@ export type IntakeChecklistCode =
   | 'gst_reason_missing'
   | 'billing_contact_missing'
   | 'billing_reach_missing'
+  // Book now v2 (20261129000120): a flight added from a screenshot has no stored screenshot
+  | 'flight_screenshot_missing'
   | 'prices_ask_owner'
   // B1.1 revision drafts
   | 'revision_class_missing'
@@ -930,6 +988,7 @@ export const INTAKE_CHECKLIST_CODES = [
   'gst_reason_missing',
   'billing_contact_missing',
   'billing_reach_missing',
+  'flight_screenshot_missing',
   'prices_ask_owner',
   'revision_class_missing',
   'customer_acceptance_required',
@@ -1003,6 +1062,7 @@ export const CHECKLIST_TEXT: Record<IntakeChecklistCode, string> = {
   gst_reason_missing: ISSUE_TEXT.gst_reason_missing,
   billing_contact_missing: ISSUE_TEXT.billing_contact_missing,
   billing_reach_missing: ISSUE_TEXT.billing_reach_missing,
+  flight_screenshot_missing: ISSUE_TEXT.flight_screenshot_missing,
   prices_ask_owner: ISSUE_TEXT.prices_ask_owner,
   revision_class_missing: ISSUE_TEXT.revision_class_missing,
   customer_acceptance_required: ISSUE_TEXT.customer_acceptance_required,
@@ -1030,6 +1090,16 @@ export const SERVICE_NEXT_STEP_TEXT: Record<ServiceNextStep, string> = {
   done: 'Confirmed by supplier',
   waiting_for_desk_launch: 'Waiting for the Visa desk to start',
   visa_processing: 'With the Visa desk',
+};
+/**
+ * Visa build (contract 8): the Deal page "Next step" words of a visa or passport item, matching the
+ * desk's status words (never the hotel "supplier" steps). Read by serviceNextStepText for department 'visa'.
+ */
+export const VISA_NEXT_STEP_TEXT: Partial<Record<ServiceNextStep, string>> = {
+  take_task: 'Not taken by the Visa desk yet',
+  visa_processing: 'With the Visa desk',
+  supplier_confirmation: 'With the Visa desk',
+  done: 'Completed',
 };
 /** D-13 with the department named ("Waiting for Purchase"); {department} = Purchase / Flight / the Visa desk. */
 export const SERVICE_NEXT_STEP_DEPARTMENT_TEXT = 'Waiting for {department}';
@@ -1212,8 +1282,13 @@ export interface FlightTaskView extends FlightTaskSummary {
   changedFields?: string[];
   /** B1.1: trip scope of the accepted version (identity is shown only on international trips). */
   tripScope?: TripScope | null;
-  /** Booking form: the estimated fare of this flight (cost only). Assignee only; absent otherwise. */
+  /**
+   * Booking form: the estimated fare of this flight (cost only). Book now v2:
+   * fare per person; the total counts the participants by type. Assignee only; absent otherwise.
+   */
   estimate?: ServiceEstimateView;
+  /** Book now v2: typed total fare per person of all flights of the booking (cost only; null = none typed). Assignee only. */
+  fareTotals?: FlightFareTotals | null;
   /** Booking form: stored flight screenshots (download through /app/flight/files/{fileId}). Assignee only; absent otherwise. */
   files?: ServiceItemFileView[];
 }
@@ -1263,11 +1338,13 @@ export const INTAKE_DISABLED_TEXT = 'Service items are switched off for this CRM
 export const BITRIX_SOURCE_BADGE_TEXT = 'From Bitrix';
 export const CRM_SOURCE_BADGE_TEXT = 'Typed in the CRM';
 
-export const FLIGHT_TASK_STATUS_LABEL: Record<PurchaseTaskStatus, string> = {
-  // DA-271
-  not_started: 'Waiting to be taken',
-  in_progress: 'In progress · ticket not recorded in the CRM', // DA-280
-  supplier_confirmed: 'Confirmed by supplier', // DA-318 (amends DA-271, DA-280): what the CRM records is a supplier confirmation
+export const FLIGHT_TASK_STATUS_LABEL: Record<PurchaseTaskStatus, string> & { completed: string } = {
+  // Flight build (contract 7, frozen words; supersedes DA-271/DA-280/DA-318 for flights). Flight never
+  // uses supplier_confirmed; it keeps the done word so an old row never shows "Confirmed by supplier".
+  not_started: 'Waiting',
+  in_progress: 'In progress',
+  supplier_confirmed: 'Done · ticket issued',
+  completed: 'Done · ticket issued',
 };
 
 // ===========================================================================
@@ -1306,6 +1383,34 @@ export const VISA_FEE_PAID_BY_LABEL: Record<VisaFeePaidBy, string> = {
   company: 'Company pays (expense record for Accounts; no approval bypass)',
   not_decided: 'Not decided yet',
 };
+
+// Visa build (20261202000200, contract 5.5): visa kind, jurisdiction and documents needed.
+export type VisaKind = 'e_visa' | 'sticker';
+export const VISA_KINDS = ['e_visa', 'sticker'] as const satisfies readonly VisaKind[];
+export const VISA_KIND_LABEL: Record<VisaKind, string> = {
+  e_visa: 'E-visa',
+  sticker: 'Sticker visa',
+};
+export type VisaJurisdiction = 'yes' | 'no';
+export const VISA_JURISDICTIONS = ['yes', 'no'] as const satisfies readonly VisaJurisdiction[];
+export const VISA_JURISDICTION_LABEL: Record<VisaJurisdiction, string> = {
+  yes: 'Yes',
+  no: 'No',
+};
+/** Shown for an absent or null visaKind / jurisdiction. */
+export const VISA_NOT_DECIDED_TEXT = 'Not decided yet';
+/** Labels of the visa facts on every facts reader (contract 5.5). */
+export const VISA_FACT_LABEL = {
+  visaKind: 'E-visa or sticker visa',
+  jurisdiction: 'Jurisdiction passport',
+  jurisdictionPlace: 'Jurisdiction place',
+  documentsNeeded: 'Documents needed',
+} as const;
+export const VISA_FACT_LIMITS = {
+  jurisdictionPlace: 120,
+  documentLabel: 120,
+  documentsNeeded: 30,
+} as const;
 
 export type PassportApplicationType = 'fresh' | 'renewal' | 'tatkaal' | 'minor';
 export const PASSPORT_APPLICATION_TYPES = ['fresh', 'renewal', 'tatkaal', 'minor'] as const satisfies readonly PassportApplicationType[];
@@ -1767,6 +1872,8 @@ export const CHECKLIST_STEP: Record<BookChecklistCode, ChecklistTarget> = {
   gst_reason_missing: { step: 'travellers', section: 'customer', field: null },
   billing_contact_missing: { step: 'travellers', section: 'customer', field: null },
   billing_reach_missing: { step: 'travellers', section: 'customer', field: null },
+  // Book now v2
+  flight_screenshot_missing: { step: 'finish', section: 'services', field: null },
   // Step 3 · review and submit
   stage_not_confirmed: { step: 'finish', section: 'review', field: null },
   acceptance_missing: { step: 'finish', section: 'review', field: 'file' },
@@ -1796,6 +1903,8 @@ export const ITEM_SCOPED_CHECKLIST_CODES = [
   'missing_purchase_budget',
   // Booking form
   'service_dates_outside_trip',
+  // Book now v2
+  'flight_screenshot_missing',
 ] as const satisfies readonly BookChecklistCode[];
 
 /** One item on the form's checklist (merged from intake_checklist and the version's readiness). */
@@ -2028,6 +2137,12 @@ export interface BookNowView {
   idProofCanRemove: boolean;
   /** B1.2 (0100): identity-proof limits from booking_form_get; null on a database without 0100. */
   idProofLimits: IdProofLimits | null;
+  /**
+   * Visa build (20261202000200, QB1): the highest traveller number this Deal
+   * ever used (booking_form_get.travellerSeqHigh). New passengers are numbered
+   * above it. Absent on a database without it.
+   */
+  travellerSeqHigh?: number;
   stepStatus: Record<BookStep, BookStepStatus>;
   /** B1.2: the marker of each section (a step is the worst of its sections). */
   sectionStatus: Record<BookSection, BookStepStatus>;
@@ -2334,6 +2449,12 @@ export interface TaskIdProofFileView {
 /** "Traveller ID proofs" on a Purchase, Flight or Visa & Passport task (assignees and Managers; never money). */
 export interface TaskIdProofsView {
   taskId: string;
+  /**
+   * Accounts phase (20261203000100, contract 5.1): false when the task's
+   * current booking version is flight-only, so an empty list is expected
+   * ("not needed for flight-only bookings"). true otherwise and on an older database.
+   */
+  idProofRequired: boolean;
   travellers: TaskTravellerIdProofs[];
 }
 /** "Traveller ID proofs" of a whole Deal (Accounts deal screen and any other DEC-41 viewer; stored files only). */
@@ -2409,13 +2530,15 @@ export interface VisaDocumentView {
   status: VisaDocumentStatus;
 }
 
-export type DepartmentEvidenceKind = 'applicant_document' | 'fee_receipt' | 'authority_outcome' | 'direct_payment_proof' | 'other';
+/** Flight build (20261201000130): 'e_ticket' (flight tasks only; the database checks the department). */
+export type DepartmentEvidenceKind = 'applicant_document' | 'fee_receipt' | 'authority_outcome' | 'direct_payment_proof' | 'other' | 'e_ticket';
 export const DEPARTMENT_EVIDENCE_KINDS = [
   'applicant_document',
   'fee_receipt',
   'authority_outcome',
   'direct_payment_proof',
   'other',
+  'e_ticket',
 ] as const satisfies readonly DepartmentEvidenceKind[];
 export const DEPARTMENT_EVIDENCE_KIND_LABEL: Record<DepartmentEvidenceKind, string> = {
   applicant_document: 'Applicant document',
@@ -2423,6 +2546,7 @@ export const DEPARTMENT_EVIDENCE_KIND_LABEL: Record<DepartmentEvidenceKind, stri
   authority_outcome: 'Authority outcome document',
   direct_payment_proof: 'Direct payment proof',
   other: 'Other file',
+  e_ticket: 'E-ticket',
 };
 export const DEPARTMENT_EVIDENCE_BUCKET = 'department-evidence';
 
@@ -2504,8 +2628,9 @@ export interface VisaQueueView {
 }
 
 export const VISA_TASK_STATUS_LABEL: Record<DepartmentTaskStatus, string> = {
-  // DA-271 (supplier_confirmed is not used by the desk; its word is unchanged)
-  not_started: 'Waiting to be taken',
+  // DA-271 (supplier_confirmed is not used by the desk; its word is unchanged).
+  // Visa build (contract 8, frozen words): "Not taken" (was "Waiting to be taken").
+  not_started: 'Not taken',
   in_progress: 'In progress',
   supplier_confirmed: 'Confirmed',
   completed: 'Completed',

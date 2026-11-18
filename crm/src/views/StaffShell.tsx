@@ -1,12 +1,16 @@
 import { ChevronRight, ChevronsUpDown, LogOut } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { AccountAccessLink, NavLinks, type NavItem } from '@/components/NavLinks';
+import { PushSignOutForm } from '@/components/PushSignOutForm';
 import { buttonVariants } from '@/components/ui/button';
 import { cn, focusRing } from '@/components/ui/cn';
 import { MobileNav } from '@/components/ui/mobile-nav';
 import { Wordmark } from '@/components/ui/sidebar-nav';
 import { signOutAction, signOutEverywhereAction } from '@/modules/identity/server/actions';
 import { SETTINGS_PREFIX, settingsTabsFor } from '@/modules/settings/contracts';
+import { NoticeBell } from './notices/bell';
+import { NoticesProvider } from './notices/provider';
+import type { NoticesConfig } from './notices/types';
 import { UserMenuDismiss } from './user-menu-dismiss';
 
 /** One role the person holds, for the account panel (their own memberships only). */
@@ -61,10 +65,20 @@ export interface ShellViewer {
   canImport?: boolean;
   /** Voice-note batch: Accounts · Customers to check (Accounts role, not tied to the finance switch). Optional; defaults to hidden. */
   canCheckCustomers?: boolean;
+  /** Purchase build: holds the Purchase role somewhere: own supplier payment requests. Optional; defaults to hidden. */
+  canSeePurchasePayments?: boolean;
+  /** Purchase build: holds the Manager role somewhere: the branch Manager's Approvals page. Optional; defaults to hidden. */
+  canSeeApprovals?: boolean;
   /** B1: holds the Flight role somewhere: Flight task queue. Optional; defaults to hidden. */
   canSeeFlightTasks?: boolean;
-  /** B1.1: holds the Visa & Passport desk role (`visa`) somewhere. Managers follow visa work on the Deal page (freeze §3.4). */
+  /** Holds the Visa & Passport desk role (`visa`) or is a branch Manager (Visa build D2: read-only list). */
   canSeeVisaDesk?: boolean;
+  /** Accounts phase (contract 11.8): Accounts › Documents and money, Dues, Tally. Optional; defaults to hidden. */
+  canSeeAccountsDesk?: boolean;
+  /** Branch Manager without Purchase, Flight or Visa (AL7): Documents and money and Dues, view only. */
+  canSeeBranchMoney?: boolean;
+  /** Sales: Dues of their own Deals. */
+  canSeeOwnDues?: boolean;
 }
 
 /**
@@ -87,7 +101,12 @@ export function navItemsFor(viewer: ShellViewer): NavItem[] {
   }
   if (viewer.canSeePurchaseTasks) {
     items.push({ href: '/app/purchase', label: 'Purchase tasks', group: 'Work' }, { href: '/app/purchase/suppliers', label: 'Suppliers', group: 'Work' });
+    // Accounts phase 3 (contract 15 Nav, 14): rate contracts for Purchase and Managers (rate_contracts_list decides rows).
+    items.push({ href: '/app/purchase/rate-contracts', label: 'Rate contracts', group: 'Work' });
   }
+  // Purchase build: own payment requests (Purchase) and the branch Manager's approvals.
+  if (viewer.canSeePurchasePayments) items.push({ href: '/app/purchase/payments', label: 'Payment requests', group: 'Work' });
+  if (viewer.canSeeApprovals) items.push({ href: '/app/approvals', label: 'Approvals', group: 'Work' });
   if (viewer.canSeeFlightTasks) items.push({ href: '/app/flight', label: 'Flight tasks', group: 'Work' });
   if (viewer.canSeeVisaDesk) items.push({ href: '/app/visa', label: 'Visa and passport tasks', group: 'Work' });
   if (viewer.canUseAccounts) {
@@ -98,6 +117,11 @@ export function navItemsFor(viewer: ShellViewer): NavItem[] {
       // Voice-note batch (owner item 10): stored customers that Accounts checks (same rule as the page).
       ...(viewer.canCheckCustomers ? [{ href: '/app/accounts/customers', label: 'Customers to check', group: 'Accounts' as const }] : []),
       { href: '/app/accounts/claims', label: 'Reported payments', group: 'Accounts' },
+      // Purchase build: hotel commitments and supplier money (the pages and the database decide access).
+      { href: '/app/accounts/go-ahead', label: 'Hotel go-ahead', group: 'Accounts' },
+      { href: '/app/accounts/supplier-payments', label: 'Supplier payments', group: 'Accounts' },
+      { href: '/app/accounts/supplier-invoices', label: 'Supplier invoices', group: 'Accounts' },
+      { href: '/app/accounts/funding', label: 'Company funding', group: 'Accounts' },
       { href: '/app/accounts/expenses', label: 'Department costs', group: 'Accounts' },
       { href: '/app/accounts/cash', label: 'Branch cash', group: 'Accounts' },
       { href: '/app/accounts/destinations', label: 'Company accounts', group: 'Accounts' },
@@ -105,6 +129,35 @@ export function navItemsFor(viewer: ShellViewer): NavItem[] {
   } else if (viewer.canCheckCustomers) {
     // Finance switched off: customer checks do not depend on it (Echo-B N2).
     items.push({ href: '/app/accounts/customers', label: 'Customers to check', group: 'Accounts' });
+  }
+  // Accounts phase (contract 11.8): Accounts get Documents and money, Dues and Tally; a branch Manager
+  // (without Purchase, Flight or Visa) gets Documents and money and Dues, view only; Sales get Dues of
+  // their own Deals. The reads decide every row.
+  if (viewer.canSeeAccountsDesk) {
+    items.push(
+      { href: '/app/accounts/records', label: 'Documents and money', group: 'Accounts' },
+      { href: '/app/accounts/dues', label: 'Dues', group: 'Accounts' },
+      // Accounts phase 2 (contract 11 Nav): customer documents and refund payouts.
+      { href: '/app/accounts/documents', label: 'Customer documents', group: 'Accounts' },
+      { href: '/app/accounts/refunds', label: 'Refunds', group: 'Accounts' },
+      // Accounts phase 3 (contract 15 Nav): small balances to write off (small_balances_list decides rows).
+      { href: '/app/accounts/small-balances', label: 'Small balances', group: 'Accounts' },
+      { href: '/app/accounts/tally', label: 'Tally', group: 'Accounts' },
+      // Accounts phase 3: Accounts read rate contracts (supplier costs); Purchase and Managers have the Work link.
+      ...(viewer.canSeePurchaseTasks ? [] : [{ href: '/app/purchase/rate-contracts', label: 'Rate contracts', group: 'Accounts' as const }]),
+    );
+  } else if (viewer.canSeeBranchMoney) {
+    // Accounts phase 2: the Manager reads released customer documents of their branches; refunds to approve
+    // are on Approvals.
+    items.push(
+      { href: '/app/accounts/records', label: 'Documents and money', group: 'Accounts' },
+      { href: '/app/accounts/dues', label: 'Dues', group: 'Accounts' },
+      { href: '/app/accounts/documents', label: 'Customer documents', group: 'Accounts' },
+      // Accounts phase 3: the branch Manager approves, returns and undoes write-offs here.
+      { href: '/app/accounts/small-balances', label: 'Small balances', group: 'Accounts' },
+    );
+  } else if (viewer.canSeeOwnDues) {
+    items.push({ href: '/app/accounts/dues', label: 'Dues', group: 'Work' });
   }
   // Batch 4 (DA-250): one "Settings" item for anyone who can open at least one Settings tab.
   // Its address is the person's first tab; it stays current on every /app/admin/* page.
@@ -178,7 +231,7 @@ function AccountPanel({
       ) : null}
       <div className="flex flex-col gap-1 border-t border-line pt-2">
         <AccountAccessLink currentPath={currentPath} />
-        <form action={signOutAction} className="m-0">
+        <PushSignOutForm action={signOutAction} className="m-0">
           <button
             type="submit"
             className={cn(
@@ -190,7 +243,7 @@ function AccountPanel({
             <LogOut aria-hidden="true" className="size-4 shrink-0 text-quiet" />
             Sign out<span className="sr-only"> of this device</span>
           </button>
-        </form>
+        </PushSignOutForm>
         <details className="group/more m-0" open={signOutOptionsOpen}>
           <summary
             className={cn(
@@ -209,11 +262,11 @@ function AccountPanel({
             <p id={helpId} className="m-0 mb-3 text-sm text-copy">
               Signs you out on this and every other device. You will need your password and authenticator app to sign in again.
             </p>
-            <form action={signOutEverywhereAction} className="m-0">
+            <PushSignOutForm action={signOutEverywhereAction} className="m-0">
               <button type="submit" className={cn(buttonVariants({ variant: 'danger' }), 'w-full')} aria-describedby={helpId}>
                 Sign out everywhere
               </button>
-            </form>
+            </PushSignOutForm>
           </div>
         </details>
       </div>
@@ -236,19 +289,23 @@ export function StaffShell({
   children,
   currentPath,
   signOutOptionsOpen,
+  notices,
 }: {
   viewer: ShellViewer;
   children: ReactNode;
   currentPath?: string;
   /** Preview gallery only: render the account panel and the sign-out options expanded. */
   signOutOptionsOpen?: boolean;
+  /** Accounts phase (contract 9.4, 11.5): the notification bell on every page; null or absent = no bell. */
+  notices?: NoticesConfig | null;
 }) {
   const items = navItemsFor(viewer);
   const branchLine = viewer.primaryBranch ? `${viewer.primaryBranch} branch` : 'Holiday Chacha Pvt LTD';
   return (
+    <NoticesProvider config={notices ?? null}>
     <div className="staff-shell flex min-h-dvh bg-canvas">
       {/* The column carries the white background and border for the full page height; the menu inside stays in view while scrolling. */}
-      <div className="hidden w-64 shrink-0 border-r border-line bg-card lg:block">
+      <div className="hidden w-64 shrink-0 border-r border-line bg-card lg:block print:hidden">
         <div className="sticky top-0 flex h-dvh flex-col font-sans">
           <div className="flex items-center gap-2.5 px-4.5 pt-4.5 pb-3">
             <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-control bg-brand-strong text-sm font-bold text-white">
@@ -258,6 +315,9 @@ export function StaffShell({
               <Wordmark className="text-lg" />
               <span className="truncate text-xs text-quiet">{branchLine}</span>
             </span>
+          </div>
+          <div className="px-3 pb-2 empty:hidden">
+            <NoticeBell id="notice-bell-sidebar" withLabel />
           </div>
           <nav aria-label="Main" className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
             <NavLinks items={items} currentPath={currentPath} />
@@ -291,7 +351,7 @@ export function StaffShell({
         </div>
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-card px-3 font-sans sm:px-5 lg:hidden">
+        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-card px-3 font-sans sm:px-5 lg:hidden print:hidden">
           <MobileNav>
             <nav aria-label="Main">
               <NavLinks items={items} currentPath={currentPath} />
@@ -301,12 +361,16 @@ export function StaffShell({
             </section>
           </MobileNav>
           <Wordmark className="text-lg" />
+          <span className="ml-auto">
+            <NoticeBell id="notice-bell-top" />
+          </span>
         </header>
-        <main id="main" className="w-full min-w-0 max-w-[72rem] p-8 max-md:p-5" tabIndex={-1}>
+        <main id="main" className="w-full min-w-0 max-w-[72rem] p-8 max-md:p-5 print:max-w-none print:p-0" tabIndex={-1}>
           {children}
         </main>
       </div>
       <UserMenuDismiss menuId={USER_MENU_ID} />
     </div>
+    </NoticesProvider>
   );
 }

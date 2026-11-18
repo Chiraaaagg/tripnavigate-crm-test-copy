@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page, test } from '@playwright/test';
+import { waitForHydration } from './hydration';
 
 test.describe('unauthenticated routing', () => {
   test('protected staff pages redirect to sign-in without a session', async ({ page }) => {
@@ -175,8 +176,9 @@ const galleryStates = [
 
 /** Opens every collapsed <details> so axe also checks the forms inside them. */
 async function expandAllDetails(page: Page) {
-  // After hydration, so React does not report an attribute mismatch.
-  await page.waitForLoadState('networkidle');
+  // After hydration, so React does not report an attribute mismatch. Waits for React's own marks, not for
+  // `networkidle`, which a busy dev server (compiling other routes, HMR) can hold off past the test timeout.
+  await waitForHydration(page);
   await page.evaluate(() => {
     for (const d of Array.from(document.querySelectorAll('details'))) d.open = true;
   });

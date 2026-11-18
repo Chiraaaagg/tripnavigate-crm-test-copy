@@ -196,6 +196,8 @@ test.describe('Batch 3 referral draft journey (real local stack)', () => {
     test.setTimeout(900_000);
     mkdirSync(shotDir, { recursive: true });
     const tag = String(Date.now()).slice(-8);
+    // Accounts phase final run (lead, 10 Nov): the mobile is unique per run so the referral never matches an earlier
+    // run's customer on a stack that is not reset between runs.
     const csp = cspRecorder();
     const sourceDealId = 710_000_000 + Number(tag.slice(-6)) * 10;
     const start = istToday(30);
@@ -214,7 +216,7 @@ test.describe('Batch 3 referral draft journey (real local stack)', () => {
     });
 
     const versionId = await test.step('New quotation → Referral (no Bitrix record yet): name, mobile, title → the editor', async () =>
-      createReferralQuotation(sales, { name: `Synthetic Referral Customer ${tag}`, mobile: '98765 11102', title: `Kerala for the synthetic couple ${tag}` }),
+      createReferralQuotation(sales, { name: `Synthetic Referral Customer ${tag}`, mobile: `98765 ${tag.slice(-5)}`, title: `Kerala for the synthetic couple ${tag}` }),
     );
     const draft = await draftOf(versionId);
     await expect(sales.locator('main')).toContainText(`Referral draft ${draft.reference}`);

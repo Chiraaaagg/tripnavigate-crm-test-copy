@@ -47,13 +47,16 @@ export interface IdProofSlotProps {
   removeAction: B11Action;
   /** DEC-43: "Try again" on a Bitrix copy (retryIdProofCopyAction); absent = no button. */
   retryCopyAction?: B11Action;
+  /** Accounts phase 0 (contract 11.6): false on a flight-only booking: the proof is optional for everyone. */
+  required?: boolean;
 }
 
 const mb = (bytes: number) => `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
 
 export function TravellerIdProofSlot(p: IdProofSlotProps) {
   const who = p.name.trim() || `Traveller ${p.rowNo}`;
-  const adult = p.type === 'adult';
+  const required = p.required !== false;
+  const adult = p.type === 'adult' && required;
   const stored = p.proofs.filter((f) => f.status === 'stored');
   const left = idProofSlotsLeft(p.proofs, p.limits);
   const max = p.limits?.maxFilesPerTraveller ?? 4;
@@ -64,7 +67,7 @@ export function TravellerIdProofSlot(p: IdProofSlotProps) {
         <p id={`${idBase}-title`} className="m-0 font-semibold text-ink">
           ID proof (Aadhaar card or another ID) · {who}
         </p>
-        <span className="text-sm text-quiet">{adult ? 'Required for adults' : 'Optional for children'}</span>
+        <span className="text-sm text-quiet">{adult ? 'Required for adults' : required ? 'Optional for children' : 'Optional for flight-only bookings'}</span>
       </div>
       <div className="flex gap-2 text-sm text-quiet">
         <Lock aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-faint" />
@@ -86,7 +89,7 @@ export function TravellerIdProofSlot(p: IdProofSlotProps) {
         ) : (
           <p className="m-0 flex gap-2 text-sm text-copy">
             <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-warning" />
-            No ID proof attached for {who} (optional for a child).
+            {required ? `No ID proof attached for ${who} (optional for a child).` : `No ID proof attached for ${who} (not needed for flight-only bookings).`}
           </p>
         )
       ) : null}

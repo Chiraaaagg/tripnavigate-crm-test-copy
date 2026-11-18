@@ -45,3 +45,16 @@ Not here yet: the documents `server/` code that builds the views from Atlas `quo
 | `server/print-page.ts` | Data of `/print/itinerary/<job>`: switch, link, worker lease; 404 otherwise. |
 
 Routes: `/api/integrations/render/worker` (GET cron with `CRON_SECRET`, POST with `RENDER_WORKER_SECRET`) and `/print/itinerary/[jobId]`. Design, measurement, Vercel facts, setup steps and the approval draft: `docs/implementation/frontend-first-plan-2026-10-10/b1.2/online-pdf-maker.md`.
+
+## Accounts phase 2: customer documents (Track B, 11 November 2026; built, not released)
+
+One company GSTIN for every known branch (owner answer Q2, LD1): `company-identity.ts` prints the Jodhpur registration for Jodhpur, Delhi and Ahmedabad on every customer document (quotations, itineraries, Advance Invoices, Invoices, Credit Notes); an unknown branch still prints the placeholder. The SQL mirror is `authz.cdoc_company` (migration 20261204000200), kept equal by `tests/unit/acc2b-content.test.ts`.
+
+| File | What |
+|---|---|
+| `render/customer-templates.tsx` | `CustomerDocumentTemplate({content, id})`: the frozen cdoc-1 content (module `customer-documents`) in the `.tn-doc` CSS family. No "not a tax invoice" line; prints the linked Tally GST invoice number when the content has it; Deal ID when known, else the CRM reference. |
+| `render/customer-job-input.ts` | Claim / render-input / complete replies and their service-role wrappers; `customerJobContent` (shape, forbidden keys, safety scan). |
+| `render/worker-core.ts` | `processOneCustomerJob`: the second queue; every customer document is final (placeholders, unsafe words, layout issues or blocked requests fail without a PDF). |
+| `server/render-worker-deps.ts` | `createLocalCustomerWorkerDeps` for `crm/scripts/render-worker.mjs --queue customer`. |
+| `server/render-online.ts` | `runOnlineCustomerRenderJob` (print page `/print/customer-document/<job>`); the worker route runs an itinerary job first, then one customer document job when that queue is idle. Off unless `PDF_RENDER_ONLINE=on`. |
+| `server/customer-print-page.ts` | `loadCustomerPrintContent(jobId, token)`: data of the print page (page file by Track E; element id `CUSTOMER_PRINT_ELEMENT_ID`). |

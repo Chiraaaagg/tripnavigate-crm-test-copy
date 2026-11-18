@@ -1,7 +1,16 @@
 import * as z from 'zod/mini';
 import { readUuid, rupeesToPaise } from '@/modules/fulfilment/forms';
-import type { BeneficiaryInput, QuoteInput } from './commands';
-import type { PurchaseEvidenceKind, SupplierFields, SupplierServiceType } from './contracts';
+import type { BeneficiaryInput, CancellationChargeInput, QuoteInput, SupplierEmailInput } from './commands';
+import {
+  type CancellationDecision,
+  type GoAheadDecision,
+  type PurchaseEvidenceKind,
+  SUPPLIER_EMAIL_BODY_MAX,
+  SUPPLIER_EMAIL_MAX_CC,
+  SUPPLIER_EMAIL_SUBJECT_MAX,
+  type SupplierFields,
+  type SupplierServiceType,
+} from './contracts';
 
 /**
  * Pure parsing of Phase 4 form posts. Identity, entity membership and
@@ -30,6 +39,12 @@ export const PFIELD = {
   paymentTerms: 'paymentTerms',
   status: 'status',
   hotelName: 'hotelName',
+  /** Accounts phase 2 (13.4): the catalogue hotel picked for the quote (hotel tasks; optional). */
+  catalogueHotelId: 'catalogueHotelId',
+  /** Accounts phase 3 (E9): room type pick-list, meal plan code and the reason when the offer differs from the contract. */
+  roomTypeId: 'roomTypeId',
+  mealPlanCode: 'mealPlanCode',
+  contractDeviationReason: 'contractDeviationReason',
   roomType: 'roomType',
   mealPlan: 'mealPlan',
   quotedCostRupees: 'quotedCostRupees',
@@ -47,6 +62,23 @@ export const PFIELD = {
   versionNo: 'versionNo',
   expectedAssigneeId: 'expectedAssigneeId',
   toUserId: 'toUserId',
+  // Purchase build
+  perRoomNightRupees: 'perRoomNightRupees',
+  quoteNote: 'quoteNote',
+  to: 'to',
+  cc: 'cc',
+  subject: 'subject',
+  body: 'body',
+  goAheadRequestId: 'goAheadRequestId',
+  decision: 'decision',
+  reason: 'reason',
+  dealId: 'dealId',
+  cancellationId: 'cancellationId',
+  keepsRupees: 'keepsRupees',
+  refundRupees: 'refundRupees',
+  creditNoteEvidenceId: 'creditNoteEvidenceId',
+  expectedRevisionNo: 'expectedRevisionNo',
+  enabled: 'enabled',
 } as const;
 
 export const PURCHASE_EVIDENCE_KINDS = ['quote', 'supplier_confirmation', 'other'] as const satisfies readonly PurchaseEvidenceKind[];
@@ -147,8 +179,24 @@ export function parseQuoteForm(formData: FormData): Parsed<QuoteInput> {
   const quotedCostPaise = rupeesToPaise(raw(formData, PFIELD.quotedCostRupees));
   const holdUntil = isoDate(formData, PFIELD.holdUntil);
   const cancellationTerms = block(formData, PFIELD.cancellationTerms, 2000);
+  // Purchase build: optional rate per room per night and a short note.
+  const perRoomNightPaise = rupeesToPaise(raw(formData, PFIELD.perRoomNightRupees));
+  const note = block(formData, PFIELD.quoteNote, 300);
+  // Accounts phase 2: an empty picker sends nothing; anything else must be a hotel id.
+  const hotelRaw = raw(formData, PFIELD.catalogueHotelId).trim();
+  const catalogueHotelId = hotelRaw === '' ? null : readUuid(formData, PFIELD.catalogueHotelId);
+  if (hotelRaw !== '' && !catalogueHotelId) return bad;
+  // Accounts phase 3 (E9): optional pick-lists; an empty choice sends nothing.
+  const roomRaw = raw(formData, PFIELD.roomTypeId).trim();
+  const roomTypeId = roomRaw === '' ? null : readUuid(formData, PFIELD.roomTypeId);
+  if (roomRaw !== '' && !roomTypeId) return bad;
+  const mealRaw = raw(formData, PFIELD.mealPlanCode).trim();
+  if (mealRaw !== '' && !['EP', 'CP', 'MAP', 'AP', 'AI'].includes(mealRaw)) return bad;
+  const contractDeviationReason = line(formData, PFIELD.contractDeviationReason, 300);
+  if (contractDeviationReason === undefined) return bad;
   if (!supplierId || !hotelName || !quotedCostPaise || quotedCostPaise === '0') return bad;
-  if ([roomType, mealPlan, holdUntil, cancellationTerms].includes(undefined)) return bad;
+  if ([roomType, mealPlan, holdUntil, cancellationTerms, note].includes(undefined)) return bad;
+  if (perRoomNightPaise === undefined || perRoomNightPaise === '0') return bad;
   return {
     ok: true,
     value: {
@@ -159,6 +207,12 @@ export function parseQuoteForm(formData: FormData): Parsed<QuoteInput> {
       quotedCostPaise,
       holdUntil: holdUntil ?? null,
       cancellationTerms: cancellationTerms ?? null,
+      perRoomNightPaise: perRoomNightPaise ?? null,
+      note: note ?? null,
+      catalogueHotelId,
+      roomTypeId,
+      mealPlanCode: mealRaw === '' ? null : mealRaw,
+      contractDeviationReason: contractDeviationReason ?? null,
     },
   };
 }
@@ -201,4 +255,137 @@ export function readRowVersion(formData: FormData): number | null {
 /** A positive integer field (revision or cost version number); null when missing or malformed. */
 export function readPositiveInt(formData: FormData, name: string): number | null {
   return positiveInt(formData, name, 1) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Purchase build (20261130000100..0120)
+// ---------------------------------------------------------------------------
+
+const EMAIL_RE = /^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$/;
+
+function emailAddress(value: string): string | undefined {
+  const v = value.trim();
+  return v.length <= 254 && EMAIL_RE.test(v) ? v : undefined;
+}
+
+/** To, Cc (comma, semicolon or new line separated, at most 10), subject (one line) and message. */
+export function parseEmailFields(formData: FormData): Parsed<SupplierEmailInput> {
+  const to = emailAddress(raw(formData, PFIELD.to));
+  const ccRaw = raw(formData, PFIELD.cc)
+    .split(/[,;\n]/)
+    .map((v) => v.trim())
+    .filter((v) => v !== '');
+  const cc: string[] = [];
+  for (const c of ccRaw) {
+    const ok = emailAddress(c);
+    if (!ok) return bad;
+    if (!cc.some((x) => x.toLowerCase() === ok.toLowerCase()) && ok.toLowerCase() !== to?.toLowerCase()) cc.push(ok);
+  }
+  const subject = line(formData, PFIELD.subject, SUPPLIER_EMAIL_SUBJECT_MAX);
+  const body = block(formData, PFIELD.body, SUPPLIER_EMAIL_BODY_MAX);
+  if (!to || cc.length > SUPPLIER_EMAIL_MAX_CC || !subject || !body) return bad;
+  return { ok: true, value: { to, cc, subject, body } };
+}
+
+export function parseRateRequestForm(formData: FormData): Parsed<SupplierEmailInput & { taskId: string; supplierId: string; requestId: string }> {
+  const taskId = readUuid(formData, PFIELD.taskId);
+  const supplierId = readUuid(formData, PFIELD.supplierId);
+  const requestId = readRequestId(formData);
+  const mail = parseEmailFields(formData);
+  if (!taskId || !supplierId || !requestId || !mail.ok) return bad;
+  return { ok: true, value: { ...mail.value, taskId, supplierId, requestId } };
+}
+
+export function parseBookingRequestForm(
+  formData: FormData,
+): Parsed<SupplierEmailInput & { taskId: string; expectedCostVersionNo: number; requestId: string }> {
+  const taskId = readUuid(formData, PFIELD.taskId);
+  const requestId = readRequestId(formData);
+  const expectedCostVersionNo = positiveInt(formData, PFIELD.expectedVersionNo, 1);
+  const mail = parseEmailFields(formData);
+  if (!taskId || !requestId || expectedCostVersionNo === undefined || !mail.ok) return bad;
+  return { ok: true, value: { ...mail.value, taskId, expectedCostVersionNo, requestId } };
+}
+
+/** A decider's reason: 10 to 500 characters (line breaks allowed); required only to return. */
+function decisionReason(formData: FormData, required: boolean): string | null | undefined {
+  const reason = block(formData, PFIELD.reason, 500);
+  if (reason === undefined) return undefined;
+  if (reason === null) return required ? undefined : null;
+  return reason.length >= 10 ? reason : undefined;
+}
+
+function decision(formData: FormData): 'approve' | 'return' | null {
+  const value = raw(formData, PFIELD.decision);
+  return value === 'approve' || value === 'return' ? value : null;
+}
+
+export function parseGoAheadDecisionForm(formData: FormData): Parsed<{
+  goAheadRequestId: string;
+  decision: GoAheadDecision;
+  reason: string | null;
+  expectedRowVersion: number;
+  requestId: string;
+}> {
+  const goAheadRequestId = readUuid(formData, PFIELD.goAheadRequestId);
+  const d = decision(formData);
+  const expectedRowVersion = positiveInt(formData, PFIELD.rowVersion, 1);
+  const requestId = readRequestId(formData);
+  if (!goAheadRequestId || !d || expectedRowVersion === undefined || !requestId) return bad;
+  const reason = decisionReason(formData, d === 'return');
+  if (reason === undefined) return bad;
+  return { ok: true, value: { goAheadRequestId, decision: d, reason: d === 'return' ? reason : null, expectedRowVersion, requestId } };
+}
+
+export function parseCancellationOpenForm(formData: FormData): Parsed<{ dealId: string; reason: string; requestId: string }> {
+  const dealId = readUuid(formData, PFIELD.dealId);
+  const requestId = readRequestId(formData);
+  const reason = decisionReason(formData, true);
+  if (!dealId || !requestId || !reason) return bad;
+  return { ok: true, value: { dealId, reason, requestId } };
+}
+
+export function parseCancellationChargeForm(formData: FormData): Parsed<CancellationChargeInput> {
+  const taskId = readUuid(formData, PFIELD.taskId);
+  const requestId = readRequestId(formData);
+  const expectedRevision = positiveInt(formData, PFIELD.expectedRevisionNo, 0);
+  // Rupees; an empty field is not zero: both amounts are required (0 allowed).
+  const keepsPaise = rupeesToPaise(raw(formData, PFIELD.keepsRupees));
+  const refundPaise = rupeesToPaise(raw(formData, PFIELD.refundRupees));
+  const note = block(formData, PFIELD.note, 500);
+  const evidenceRaw = raw(formData, PFIELD.creditNoteEvidenceId).trim();
+  const creditNoteEvidenceId = evidenceRaw === '' ? null : readUuid(formData, PFIELD.creditNoteEvidenceId);
+  if (!taskId || !requestId || expectedRevision === undefined || !keepsPaise || !refundPaise || note === undefined) return bad;
+  if (evidenceRaw !== '' && !creditNoteEvidenceId) return bad;
+  return { ok: true, value: { taskId, keepsPaise, refundPaise, note, creditNoteEvidenceId, expectedRevision, requestId } };
+}
+
+export function parseCancellationSendForm(formData: FormData): Parsed<{ cancellationId: string; expectedRowVersion: number; requestId: string }> {
+  const cancellationId = readUuid(formData, PFIELD.cancellationId);
+  const expectedRowVersion = positiveInt(formData, PFIELD.rowVersion, 1);
+  const requestId = readRequestId(formData);
+  if (!cancellationId || expectedRowVersion === undefined || !requestId) return bad;
+  return { ok: true, value: { cancellationId, expectedRowVersion, requestId } };
+}
+
+export function parseCancellationDecisionForm(formData: FormData): Parsed<{
+  cancellationId: string;
+  decision: CancellationDecision;
+  reason: string | null;
+  expectedRowVersion: number;
+  requestId: string;
+}> {
+  const sent = parseCancellationSendForm(formData);
+  const d = decision(formData);
+  if (!sent.ok || !d) return bad;
+  const reason = decisionReason(formData, d === 'return');
+  if (reason === undefined) return bad;
+  return { ok: true, value: { ...sent.value, decision: d, reason: d === 'return' ? reason : null } };
+}
+
+export function parseEmailSwitchForm(formData: FormData): Parsed<{ enabled: boolean; reason: string }> {
+  const enabled = raw(formData, PFIELD.enabled);
+  const reason = decisionReason(formData, true);
+  if ((enabled !== 'true' && enabled !== 'false') || !reason) return bad;
+  return { ok: true, value: { enabled: enabled === 'true', reason } };
 }

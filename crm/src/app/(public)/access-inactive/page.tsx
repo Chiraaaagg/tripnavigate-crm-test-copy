@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { AuthCard } from '@/components/AuthCard';
+import { PushSignOutForm } from '@/components/PushSignOutForm';
 import { signOutAction } from '@/modules/identity/server/actions';
 
 export const metadata: Metadata = { title: 'No active access' };
@@ -19,11 +20,11 @@ export default async function AccessInactivePage({ searchParams }: { searchParam
       </div>
       <p>If you believe this is a mistake, contact your administrator. They can confirm your branch and role.</p>
       <div className="button-row">
-        <form action={signOutAction}>
+        <PushSignOutForm action={signOutAction}>
           <button type="submit" className="button">
             Sign out
           </button>
-        </form>
+        </PushSignOutForm>
         <Link href="/sign-in">Back to sign in</Link>
       </div>
     </AuthCard>

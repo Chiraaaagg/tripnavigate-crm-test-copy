@@ -1,6 +1,29 @@
+import type { PurchaseTaskDetailRecord } from '@/modules/fulfilment/commands';
 import { toPurchaseTaskView } from '@/modules/fulfilment/dto';
-import type { SupplierDetailRecord, SupplierRecord, WorkspaceRecord } from './commands';
-import type { PurchaseWorkspaceView, SupplierDetailView, SupplierSummary } from './contracts';
+import {
+  type AccountsGoAheadRecord,
+  type ChargeRecord,
+  type DealCancellationRecord,
+  type GoAheadRecord,
+  type ManagerCancellationRecord,
+  ProcurementCommandError,
+  type SupplierDetailRecord,
+  type SupplierRecord,
+  WorkspaceHotelTaskSchema,
+  type WorkspaceRecord,
+} from './commands';
+import type {
+  AccountsGoAheadRow,
+  CancellationChargeView,
+  DealCancellationSummary,
+  GoAheadView,
+  ManagerCancellationRow,
+  PurchaseQueueFlags,
+  PurchaseWorkspaceView,
+  SupplierDetailView,
+  SupplierSummary,
+  GoAheadState,
+} from './contracts';
 
 /**
  * Explicit whitelists. The workspace record already excludes selling price,
@@ -48,9 +71,63 @@ export function toSupplierDetail(record: SupplierDetailRecord): SupplierDetailVi
   };
 }
 
-export function toWorkspaceView(record: WorkspaceRecord, suppliers: SupplierRecord[]): PurchaseWorkspaceView {
+const NO_GO_AHEAD: GoAheadView = {
+  state: 'not_needed',
+  requestId: null,
+  costVersionNo: null,
+  requestedAt: null,
+  requestedByName: null,
+  decidedAt: null,
+  decidedByName: null,
+  returnReason: null,
+};
+
+function toGoAheadView(record: GoAheadRecord | null): GoAheadView {
+  if (!record) return NO_GO_AHEAD;
   return {
-    task: toPurchaseTaskView(record.task),
+    state: record.state,
+    requestId: record.requestId,
+    costVersionNo: record.costVersionNo,
+    requestedAt: record.requestedAt,
+    requestedByName: record.requestedByName,
+    decidedAt: record.decidedAt,
+    decidedByName: record.decidedByName,
+    returnReason: record.returnReason,
+  };
+}
+
+function toChargeView(c: ChargeRecord): CancellationChargeView {
+  return {
+    taskId: c.taskId,
+    revisionNo: c.revisionNo,
+    supplierId: c.supplierId,
+    supplierName: c.supplierName,
+    committedCostPaise: c.committedCostPaise,
+    supplierKeepsPaise: c.supplierKeepsPaise,
+    supplierRefundPaise: c.supplierRefundPaise,
+    note: c.note,
+    creditNoteEvidenceId: c.creditNoteEvidenceId,
+    enteredAt: c.enteredAt,
+    enteredByName: c.enteredByName,
+  };
+}
+
+/**
+ * The view's task comes from purchase_task_get (every service type) when
+ * given; otherwise from the workspace's own Phase 4 hotel task shape.
+ */
+export function toWorkspaceView(record: WorkspaceRecord, suppliers: SupplierRecord[], taskRecord?: PurchaseTaskDetailRecord): PurchaseWorkspaceView {
+  let taskView;
+  if (taskRecord) {
+    taskView = toPurchaseTaskView(taskRecord);
+  } else {
+    const parsed = WorkspaceHotelTaskSchema.safeParse(record.task);
+    if (!parsed.success) throw new ProcurementCommandError('purchase_workspace', null, null);
+    taskView = toPurchaseTaskView(parsed.data);
+  }
+  const serviceType = taskView.serviceType;
+  return {
+    task: taskView,
     canWork: record.canWork,
     canRelease: record.canRelease,
     canReassign: record.canReassign,
@@ -76,6 +153,8 @@ export function toWorkspaceView(record: WorkspaceRecord, suppliers: SupplierReco
       status: q.status,
       createdAt: q.createdAt,
       createdByName: q.createdByName,
+      perRoomNightPaise: q.perRoomNightPaise,
+      note: q.note,
     })),
     costVersions: record.costVersions.map((c) => ({
       versionNo: c.versionNo,
@@ -99,13 +178,136 @@ export function toWorkspaceView(record: WorkspaceRecord, suppliers: SupplierReco
       status: e.status,
       createdAt: e.createdAt,
       uploadedByName: e.uploadedByName,
+      reconfirmationId: e.reconfirmationId,
     })),
     supplierChoices: record.canWork
       ? suppliers
-          .filter((s) => s.status === 'active' && s.serviceTypes.includes('hotel'))
-          .map((s) => ({ supplierId: s.supplierId, name: s.name, verificationStatus: s.verificationStatus }))
+          .filter((s) => s.status === 'active' && (s.serviceTypes as string[]).includes(serviceType))
+          .map((s) => ({ supplierId: s.supplierId, name: s.name, verificationStatus: s.verificationStatus, email: s.contactEmail }))
       : [],
+    goAhead: toGoAheadView(record.goAhead),
+    emails: record.emails.map((e) => ({
+      emailId: e.emailId,
+      kind: e.kind,
+      supplierId: e.supplierId,
+      supplierName: e.supplierName,
+      toEmail: e.toEmail,
+      ccEmails: [...e.ccEmails],
+      subject: e.subject,
+      body: e.body,
+      status: e.status,
+      costVersionNo: e.costVersionNo,
+      sentAt: e.sentAt,
+      sentByName: e.sentByName,
+      failed: e.failed,
+    })),
+    cancellation: record.cancellation
+      ? {
+          // Track H (11.3): a service removal has no trip cancellation (null id; canSend is false).
+          cancellationId: record.cancellation.cancellationId ?? null,
+          changeRequestId: record.cancellation.changeRequestId,
+          status: record.cancellation.status,
+          reason: record.cancellation.reason,
+          openedAt: record.cancellation.openedAt,
+          openedByName: record.cancellation.openedByName,
+          rowVersion: record.cancellation.rowVersion,
+          returnReason: record.cancellation.returnReason,
+          myCharge: record.cancellation.myCharge ? toChargeView(record.cancellation.myCharge) : null,
+          canEnter: record.cancellation.canEnter,
+          canSend: record.cancellation.canSend,
+          chargesMissing: record.cancellation.chargesMissing,
+        }
+      : null,
+    emailSendingEnabled: record.emailSendingEnabled,
+    // Accounts phase 2 (13.4).
+    catalogueHotelId: record.catalogueHotelId,
+    catalogueHotelName: record.catalogueHotelName,
+    hotelSuppliers: record.hotelSuppliers.map((h) => ({ supplierId: h.supplierId, name: h.name, kind: h.kind, verification: h.verification,
+      bankState: h.bankState })),
   };
+}
+
+export function toAccountsGoAheadRow(r: AccountsGoAheadRecord): AccountsGoAheadRow {
+  return {
+    requestId: r.requestId,
+    status: r.status,
+    current: r.current,
+    dealId: r.dealId,
+    dealReference: r.dealReference,
+    branchName: r.branchName,
+    taskId: r.taskId,
+    itemTitle: r.itemTitle,
+    checkIn: r.checkIn,
+    checkOut: r.checkOut,
+    supplierName: r.supplierName,
+    amountPaise: r.amountPaise,
+    costVersionNo: r.costVersionNo,
+    requestedAt: r.requestedAt,
+    requestedByName: r.requestedByName,
+    decidedAt: r.decidedAt,
+    decidedByName: r.decidedByName,
+    returnReason: r.returnReason,
+    rowVersion: r.rowVersion,
+    bookingReviewStatus: r.bookingReviewStatus,
+    canDecide: r.canDecide,
+    contractState: r.contractState,
+    contractTotalPaise: r.contractTotalPaise,
+    contractDeviationReason: r.contractDeviationReason,
+  };
+}
+
+export function toManagerCancellationRow(r: ManagerCancellationRecord): ManagerCancellationRow {
+  return {
+    cancellationId: r.cancellationId,
+    dealId: r.dealId,
+    dealReference: r.dealReference,
+    branchName: r.branchName,
+    status: r.status,
+    reason: r.reason,
+    openedAt: r.openedAt,
+    openedByName: r.openedByName,
+    sentAt: r.sentAt,
+    sentByName: r.sentByName,
+    decidedAt: r.decidedAt,
+    decidedByName: r.decidedByName,
+    returnReason: r.returnReason,
+    rowVersion: r.rowVersion,
+    charges: r.charges.map((c) => ({ ...toChargeView(c), itemTitle: c.itemTitle })),
+    totalKeepsPaise: r.totalKeepsPaise,
+    totalRefundPaise: r.totalRefundPaise,
+    canDecide: r.canDecide,
+  };
+}
+
+export function toDealCancellationSummary(r: DealCancellationRecord): DealCancellationSummary {
+  return {
+    canOpen: r.canOpen,
+    cancellation: r.cancellation
+      ? {
+          cancellationId: r.cancellation.cancellationId,
+          status: r.cancellation.status,
+          reason: r.cancellation.reason,
+          openedAt: r.cancellation.openedAt,
+          openedByName: r.cancellation.openedByName,
+          decidedAt: r.cancellation.decidedAt,
+        }
+      : null,
+  };
+}
+
+export function toQueueFlags(rows: Array<{ taskId: string; goAheadState: GoAheadState; tripCancelled: boolean }>): Record<string, PurchaseQueueFlags> {
+  const out: Record<string, PurchaseQueueFlags> = {};
+  for (const r of rows) out[r.taskId] = { goAheadState: r.goAheadState, tripCancelled: r.tripCancelled };
+  return out;
+}
+
+/** Agreed final rate for "Send booking request": the latest cost version when it is still proposed (null otherwise). */
+export function bookingRequestVersionNo(view: Pick<PurchaseWorkspaceView, 'costVersions'>): number | null {
+  const latest = view.costVersions.reduce<PurchaseWorkspaceView['costVersions'][number] | null>(
+    (best, c) => (!best || c.versionNo > best.versionNo ? c : best),
+    null,
+  );
+  return latest && latest.stage === 'proposed' ? latest.versionNo : null;
 }
 
 /** Latest cost version number (0 when none): the optimistic-lock value the forms post back. */

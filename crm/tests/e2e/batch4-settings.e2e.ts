@@ -39,8 +39,9 @@ const STATES = [
 accessibilitySuite('Batch 4 Settings: accessibility', STATES);
 cspSuite('Batch 4 Settings: production style policy', STATES);
 
-// Voice-note batch: Imports (the preview owner holds the import right too).
-const TABS = ['People and access', 'Company and branches', 'Money rules', 'Bitrix connection', 'Imports', 'Features', 'System health'];
+// Voice-note batch: Imports (the preview owner holds the import right too). Accounts phase 1 (contract 7.1 T6/T7):
+// "Accounts" follows "Money rules" for the same people (the preview owner holds the Money rules right).
+const TABS = ['People and access', 'Company and branches', 'Money rules', 'Accounts', 'Bitrix connection', 'Imports', 'Features', 'System health'];
 
 test.describe('Settings frame (DA-250 to DA-252)', () => {
   test('one Settings menu item, current on every Settings tab; the tab bar names the open tab in words', async ({ page }) => {
@@ -86,7 +87,8 @@ test.describe('Settings frame (DA-250 to DA-252)', () => {
       await page.keyboard.press('Tab');
       await expect(tabs.nth(i)).toBeFocused();
     }
-    await expect(tabs.nth(4)).toHaveAttribute('href', '/app/admin/imports');
+    await expect(tabs.nth(3)).toHaveAttribute('href', '/app/admin/accounts');
+    await expect(tabs.nth(TABS.indexOf('Imports'))).toHaveAttribute('href', '/app/admin/imports');
     await expect(tabs.nth(TABS.length - 1)).toHaveAttribute('href', '/app/admin/bookings');
   });
 });

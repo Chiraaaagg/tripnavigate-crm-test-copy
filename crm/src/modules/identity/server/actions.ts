@@ -15,6 +15,7 @@ import {
   safeNextPath,
 } from '../session-policy';
 import { requireSignedIn } from './session';
+import { removeAllPushDevicesOnSignOut, removePushDeviceOnSignOut } from '@/modules/notices/server/push-signout';
 
 const GENERIC_SIGN_IN_ERROR =
   'Email or password is incorrect, or this account is not active. Contact your administrator if you need help.';
@@ -62,6 +63,8 @@ export async function signOutAction(formData: FormData): Promise<void> {
     return;
   }
   const supabase = await createSupabaseServerClient();
+  // Accounts phase 3 (8.3 D2, risk R10): remove this browser's alert device first. Never throws.
+  await removePushDeviceOnSignOut(supabase, formData);
   // A provider error can leave this browser's session in place, so the page
   // must not claim a sign-out that did not happen.
   let failed = false;
@@ -81,9 +84,12 @@ export async function signOutAction(formData: FormData): Promise<void> {
  * database step fails (it requires a fresh aal2 session) nothing is claimed
  * and the user stays signed in.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- signature fixed by contracts.ts (form action)
-export async function signOutEverywhereAction(_formData: FormData): Promise<void> {
+export async function signOutEverywhereAction(formData: FormData): Promise<void> {
   const { supabase } = await requireSignedIn();
+  // Accounts phase 3 (8.3 D2, risk R10; Addendum O3): signing out everywhere removes every alert
+  // device of this person, not only this browser's. Both calls never throw.
+  await removePushDeviceOnSignOut(supabase, formData);
+  await removeAllPushDevicesOnSignOut(supabase);
   const { error } = await supabase.rpc('revoke_my_sessions');
   if (error) {
     throw new Error('Could not sign you out of other devices. Please retry.');
