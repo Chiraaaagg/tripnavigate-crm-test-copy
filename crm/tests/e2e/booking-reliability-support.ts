@@ -288,7 +288,7 @@ export class Recorder {
     page.on('console', (m) => {
       if (m.type() === 'error' || m.type() === 'warning') this.problem(`console-${m.type()}`, m.text().slice(0, 600), page.url());
     });
-    page.on('pageerror', (e) => this.problem('pageerror', `${e.name}: ${e.message}`.slice(0, 600), page.url()));
+    page.on('pageerror', (e) => this.problem('pageerror', `${e.name}: ${e.message} | stack: ${(e.stack ?? '').split('\n').slice(0, 12).join(' / ')}`.slice(0, 1500), page.url()));
   }
 
   problem(kind: string, text: string, url: string | null, screenshot: string | null = null) {
@@ -625,6 +625,11 @@ export async function newSalesContext(browser: Browser, rec: Recorder, label: st
 const REFUSAL = /named passenger is missing|Reload the page to see everyone|Someone changed the passengers/i;
 
 /** Texts of alerts and field errors in main (for refusals). */
+/** Values of the passenger name boxes, in screen order. */
+export async function rowValues(page: Page): Promise<string[]> {
+  return page.locator('main [name="travellerName"]').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value)).catch(() => [] as string[]);
+}
+
 export async function mainAlerts(page: Page): Promise<string[]> {
   const texts = await page.locator('main [role="alert"], main [role="status"], main [id$="-error"]').allTextContents().catch(() => [] as string[]);
   return texts.map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 20);

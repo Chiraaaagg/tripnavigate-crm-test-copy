@@ -21,6 +21,7 @@ import {
   Recorder,
   refusalOnScreen,
   reloadAfterRefusal,
+  rowValues,
   requestedFile,
   restoreSwitch,
   saveMessageSettings,
@@ -102,6 +103,7 @@ test.describe('Booking reliability investigation: journey @investigation', () =>
       '03b if a passengers refusal shows: what Reload does, then type back what is missing',
       async () => {
         const refusal = await refusalOnScreen(page);
+        rec.facts.rowsAfterStep03 = await rowValues(page);
         rec.facts.refusalAfterStep03 = { refusal, pill: await pillState(page, 'pill-passengers'), footer: await footerText(page), alerts: await mainAlerts(page) };
         if (refusal.length === 0 && (await pillState(page, 'pill-passengers')) !== 'fix') return;
         await reloadAfterRefusal(rec, page, deal.id, [names[0]!, '', names[2]!, names[3]!]);
@@ -156,7 +158,7 @@ test.describe('Booking reliability investigation: journey @investigation', () =>
       if (!rec.facts.messageCardShown) throw new Error('Messages to the customer card not on step 1');
       const same = card.getByLabel('WhatsApp number is the same as mobile');
       if (await same.isChecked()) await same.uncheck();
-      await card.getByLabel('WhatsApp number').fill(WHATSAPP);
+      await card.getByLabel('WhatsApp number', { exact: true }).fill(WHATSAPP);
       await saveMessageSettings(rec, page, 'first save');
       await saveMessageSettings(rec, page, 'second save, no change');
       await card.getByLabel('WhatsApp number is the same as mobile').check();
@@ -323,6 +325,43 @@ test.describe('Booking reliability investigation: journey @investigation', () =>
       rec.facts.readyAfterIdle = ((await page.locator('#bf-ready').textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').slice(0, 300);
     });
 
+    await rec.run(
+      page,
+      '18b finish what readiness still asks, as staff would (ages, ID proofs)',
+      async () => {
+        const ready = page.locator('#bf-ready');
+        const before = ((await ready.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ');
+        rec.facts.readinessBeforeFix = before.slice(0, 600);
+        await gotoStep(rec, page, /Customer & passengers/, /\/book\/travellers/, 'readiness fix: step 3 → step 1');
+        rec.facts.rowsBeforeFix = await rowValues(page);
+        const drawer = page.getByRole('dialog', { name: 'Passenger details' });
+        const types = await main.locator('ol[aria-label="Passengers"] > li').evaluateAll((els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ')));
+        const fixed: string[] = [];
+        if (/age of every child and infant/i.test(before)) {
+          for (const [i, text] of types.entries()) {
+            const age = /Infant/.test(text) ? '0' : /Child/.test(text) ? '8' : null;
+            if (age === null) continue;
+            await main.getByRole('button', { name: `Details for passenger ${i + 1}` }).click();
+            await expect(drawer).toBeVisible({ timeout: 30_000 });
+            await drawer.getByLabel('Age at travel').fill(age);
+            await rec.timed(`Save passenger ${i + 1} with age ${age} → drawer closes`, () => drawer.getByRole('button', { name: 'Save passenger' }).click(), () => expect(drawer).toBeHidden({ timeout: 30_000 }));
+            fixed.push(`age ${age} for passenger ${i + 1}`);
+          }
+        }
+        const rows = await rowValues(page);
+        for (const [i, text] of types.entries()) {
+          if (!/ID proof needed/.test(text) || !rows[i]) continue;
+          await attachProof(rec, page, rows[i]!, `fix${i + 1}`, false);
+          fixed.push(`ID proof again for passenger ${i + 1}`);
+        }
+        rec.facts.readinessFixes = fixed;
+        await gotoStep(rec, page, /Price & Bill To/, /\/book\/finish/, 'readiness fix: step 1 → step 3');
+        rec.facts.readinessAfterFix = ((await ready.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').slice(0, 600);
+      },
+      { always: true },
+    );
+    rec.resume();
+
     let submitted = false;
     await rec.run(page, '19 submit once', async () => {
       await main.getByRole('button', { name: 'Review and submit' }).click();
@@ -378,6 +417,7 @@ test.describe('Booking reliability investigation: journey @investigation', () =>
       await footerSettled(page);
       await sleep(2_000);
       const mine = rec.requests.slice(from).filter((r) => r.startedAtMs >= t);
+      rec.facts.rowsAfterTypingRow3Only = await rowValues(page);
       rec.facts.requestsPerSinglePassengerAutosave = {
         serverActionPosts: mine.filter((r) => r.kind === 'server-action').length,
         rscRefreshGets: mine.filter((r) => r.kind === 'rsc').length,
