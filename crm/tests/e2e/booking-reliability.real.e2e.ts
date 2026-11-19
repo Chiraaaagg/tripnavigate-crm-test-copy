@@ -104,6 +104,7 @@ test.describe('Booking reliability investigation: journey @investigation', () =>
       async () => {
         const refusal = await refusalOnScreen(page);
         rec.facts.rowsAfterStep03 = await rowValues(page);
+        rec.facts.serverActionsInStep03 = rec.requests.filter((r) => r.kind === 'server-action').slice(-6).map((r) => ({ path: r.path, actionId: r.actionId, status: r.status, ms: r.ms, failure: r.failure, body: r.body }));
         rec.facts.refusalAfterStep03 = { refusal, pill: await pillState(page, 'pill-passengers'), footer: await footerText(page), alerts: await mainAlerts(page) };
         if (refusal.length === 0 && (await pillState(page, 'pill-passengers')) !== 'fix') return;
         await reloadAfterRefusal(rec, page, deal.id, [names[0]!, '', names[2]!, names[3]!]);
@@ -387,6 +388,11 @@ test.describe('Booking reliability investigation: journey @investigation', () =>
 
     await rec.run(page, '20 verify persisted booking, tasks, Accounts queue; reload', async () => {
       rec.facts.dbAfterSubmit = await dbSnapshot(deal.id);
+      rec.facts.tasksByService = await db(async (c) => (await c.query(
+        `select i.service_type as service, count(t.*)::int as tasks from public.service_items i
+         left join public.fulfilment_tasks t on t.deal_id = i.deal_id and t.service_item_id = i.id
+         where i.deal_id = $1 group by i.service_type order by 1`, [deal.id])).rows).catch((e: unknown) => String(e).slice(0, 200));
+      rec.facts.taskRows = await db(async (c) => (await c.query('select * from public.fulfilment_tasks where deal_id = $1', [deal.id])).rows.map((r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).filter(([k]) => /type|team|department|status|service|kind/.test(k))))).catch((e: unknown) => String(e).slice(0, 200));
       await rec.timed('reload the booking overview', () => page.reload(), () => expect(main).toContainText(/Submitted|Booking/, { timeout: 30_000 }));
       rec.facts.overviewAfterReload = ((await main.textContent()) ?? '').replace(/\s+/g, ' ').slice(0, 600);
       rec.facts.submittedVisibleAfterReload = (await main.getByText(/Submitted/).count()) > 0;

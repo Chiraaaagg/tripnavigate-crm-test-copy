@@ -53,6 +53,7 @@ export const syntheticPdf = (label: string) => Buffer.from(`%PDF-1.4\n% ${label}
 export const IDLE_MS = Number(process.env.BOOKING_INVESTIGATION_IDLE_MS ?? 360_000);
 
 let switchWasOn: boolean | null = null;
+let realBookingWasOn: boolean | null = null;
 
 /** Puts service_items_enabled back as it was before the first fixture load. */
 export async function restoreSwitch(file: string) {
@@ -60,6 +61,7 @@ export async function restoreSwitch(file: string) {
   await db(async (client) => {
     await client.query(`select set_config('tripnavigate.change_reason', $1, false)`, [`${file}: restore the switch after the run`]);
     await client.query('update public.workflow_settings set service_items_enabled = $1 where id', [switchWasOn]);
+    if (realBookingWasOn !== null) await client.query('update public.booking_settings set real_booking_enabled = $1 where id', [realBookingWasOn]);
   });
 }
 
@@ -97,6 +99,14 @@ export async function loadFixture(testInfo: TestInfo) {
     await client.query(
       `select set_config('tripnavigate.change_reason', 'booking-reliability.real.e2e.ts: switch on for the investigation run', false);
        update public.workflow_settings set service_items_enabled = true where id`,
+    );
+    // Production has this gate ON (lead, read-only check, 19 Nov 2026); the CI fixture starts it off
+    // (booking_synthetic.sql). Opened for the run as b12-quote-to-booking.real.e2e.ts does; restored afterwards.
+    const { rows: r } = await client.query<{ on: boolean }>('select real_booking_enabled as "on" from public.booking_settings where id');
+    if (realBookingWasOn === null) realBookingWasOn = r[0]!.on;
+    await client.query(
+      `select set_config('tripnavigate.change_reason', 'booking-reliability: local real-Deal booking gate on for the run (production has it on)', false);
+       update public.booking_settings set real_booking_enabled = true where id`,
     );
   });
 }
@@ -175,6 +185,8 @@ interface RequestRow {
   ms: number | null;
   failure: string | null;
   startedAtMs: number;
+  /** Server actions only: the end of the answer (synthetic data), to see refusal codes. */
+  body: string | null;
 }
 interface ProblemRow {
   test: string;
@@ -262,6 +274,14 @@ export class Recorder {
         status = null;
       }
       const u = new URL(r.url());
+      let body: string | null = null;
+      if (kindOf(r) === 'server-action' && !failure) {
+        body = await Promise.race([
+          r.response().then((res) => res?.text() ?? null).catch(() => null),
+          sleep(3_000).then(() => null),
+        ]);
+        body = body ? body.replace(/\s+/g, ' ').slice(-400) : null;
+      }
       const row: RequestRow = {
         test: this.name,
         step: this.current,
@@ -274,6 +294,7 @@ export class Recorder {
         ms: Math.round(performance.now() - this.t0 - s),
         failure,
         startedAtMs: s,
+        body,
       };
       this.requests.push(row);
       if (failure || (status !== null && status >= 400)) {
@@ -655,6 +676,7 @@ export async function reloadAfterRefusal(rec: Recorder, page: Page, dealId: stri
   const typedAfter = await rows.evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value)).catch(() => [] as string[]);
   const dbAfter = (await dbSnapshot(dealId)).travellers;
   rec.facts[`reloadAfterRefusal:${rec.step}`] = {
+    recentServerActions: rec.requests.filter((r) => r.kind === 'server-action').slice(-6).map((r) => ({ path: r.path, actionId: r.actionId, status: r.status, ms: r.ms, failure: r.failure, body: r.body })),
     usedReloadButton: reloadButtons > 0,
     typedBefore,
     dbBefore,
