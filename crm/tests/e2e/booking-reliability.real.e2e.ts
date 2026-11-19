@@ -580,11 +580,13 @@ async function newSalesContext(browser: Browser, rec: Recorder, label: string): 
 // Tests
 // ---------------------------------------------------------------------------
 
+// Keep a trace of every test (not only failures): this file records, it does not judge. File level (Playwright refuses these inside a group).
+test.use({ trace: 'on', screenshot: 'on', video: 'off' });
+
 test.describe('Booking reliability investigation @investigation', () => {
   test.skip(!requested, 'Investigation only: runs when targeted.yml names this file (JOURNEY_FILES) or BOOKING_INVESTIGATION=1.');
   test.skip(requested && !configured, 'Real local Supabase stack not configured.');
   test.describe.configure({ mode: 'serial' });
-  test.use({ trace: 'on', screenshot: 'on', video: 'off' });
 
   test.afterAll(async () => {
     if (!requested || !configured || switchWasOn === null) return;
