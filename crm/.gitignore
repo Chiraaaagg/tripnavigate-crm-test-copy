@@ -1,0 +1,27 @@
+node_modules/
+.next/
+out/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+next-env.d.ts
+.env
+.env.*
+!.env.example
+.vercel/
+supabase/.branches
+supabase/.temp
+.DS_Store
+.vscode/
+
+# Supabase Studio saves ad-hoc SQL snippets here. Never commit them: they can
+# hold credentials or bypass invitation/MFA (audit AUDIT-016). Reviewed SQL
+# belongs in supabase/migrations or scripts/.
+/supabase/snippets/
+
+# Local API keys and private keys are never committed.
+.pexels-key
+*.pem
+*.p12
+*.key
