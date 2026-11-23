@@ -110,7 +110,7 @@ test.describe('B1-6: requests per Book now save (fix batch 1) @br', () => {
     await gotoStep(rec, page, /Trip & services/, /\/book\/stay/, 'step 1 → step 2');
     await main.getByRole('group', { name: 'Choose services' }).getByRole('button', { name: /Hotels/ }).click();
     await footerSettled(page).catch(() => undefined);
-    const hotel = await measure('hotel drawer save', () => addHotel(page, 'Synthetic Count Hotel', '7000'));
+    const hotel = await measure('hotel drawer save', () => addHotel(page, 'Synthetic Count Hotel', '7000', { chooseHotels: false }));
     expect.soft(hotel.serverActionPosts, 'hotel save: action POSTs').toBe(1);
     expect.soft(hotel.pageGets, 'hotel save: page GETs').toBe(0);
     expect.soft(hotel.prefetchGets, 'hotel save: menu prefetches (no revalidatePath on a draft save)').toBe(0);

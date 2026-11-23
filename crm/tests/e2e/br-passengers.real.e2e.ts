@@ -35,6 +35,8 @@ import {
  *
  *   1. Rapid typing: names typed in three rows while a save is held 3 s,
  *      20 repetitions: the refusal never shows; every name stored once (a).
+ *   1b. The same with the answer held 3 s (or lost) AFTER the server stored
+ *      the save: the BR-02 window (lead, 23 Nov).
  *   2. Slot stability: row 3 typed alone stays in row 3; row 1 next gives two
  *      separate passengers, no joined name (b).
  *   3. Lost answer: the server stored the passenger but the browser lost the
@@ -55,6 +57,7 @@ import {
 const FILE = 'br-passengers.real.e2e.ts';
 const requested = requestedBrFile(FILE);
 const REPS = Number(process.env.BR_REPEAT ?? 20);
+const REPS_A2 = Number(process.env.BR_REPEAT_A2 ?? 10);
 const WORDS = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel', 'India', 'Juliet', 'Kilo', 'Lima', 'Mike', 'November', 'Oscar', 'Papa', 'Quebec', 'Romeo', 'Sierra', 'Tango', 'Uniform', 'Victor', 'Whiskey', 'Xray', 'Yankee', 'Zulu'];
 
 test.use({ trace: 'retain-on-failure', screenshot: 'on', video: 'off', actionTimeout: 20_000, navigationTimeout: 45_000 });
@@ -127,6 +130,92 @@ test.describe('B1-4 and B1-9: passengers card (fix batch 1) @br', () => {
     expect(outcomes.filter((o) => !o.ok), 'repetitions with a refusal, a "needs a fix" pill or a name not stored exactly once').toEqual([]);
     expect(outcomes, 'every repetition ran').toHaveLength(REPS);
   });
+
+  /**
+   * BR-02 reproduction attempt (lead, 23 Nov): the server STORES the passengers
+   * save at once, but its answer reaches the browser only 3 s later (mode
+   * 'held'), or never (mode 'dropped'), while the employee types the next rows.
+   * Mode 'held' also holds the re-render GETs of the booking route for 3 s, so
+   * the screen learns the stored passenger numbers as late as possible. Same
+   * fixed-behaviour assertions as test a; the test a above stays as the guard.
+   */
+  for (const mode of ['held', 'dropped'] as const) {
+    test(`B1-4 a2 (${mode} answer): the server stored the save, the answer is ${mode}; next rows typed meanwhile, ${REPS_A2} repetitions: no refusal, each name stored once @br`, async ({ browser }, testInfo) => {
+      test.setTimeout(25 * 60_000);
+      const rec = new Recorder(`br-pax-rapid-${mode}`, testInfo);
+      await loadFixture(testInfo);
+      const { context, page } = await newSalesContext(browser, rec, 'sales');
+      const main = page.locator('main');
+      let armed = false;
+      let caught = 0;
+      let holdGets = false;
+      await page.route('**/*', async (route) => {
+        const r = route.request();
+        const isAction = r.method() === 'POST' && Boolean(r.headers()['next-action']);
+        if (isAction && armed) {
+          armed = false;
+          // The server receives and completes the save now; the browser gets the answer late, or never.
+          const res = await route.fetch().catch(() => null);
+          caught += 1;
+          if (mode === 'dropped' || !res) return route.abort('failed').catch(() => undefined);
+          holdGets = true;
+          await sleep(3_000);
+          await route.fulfill({ response: res }).catch(() => undefined);
+          setTimeout(() => {
+            holdGets = false;
+          }, 3_000);
+          return;
+        }
+        const h = r.headers();
+        if (holdGets && r.method() === 'GET' && (h['rsc'] === '1' || r.url().includes('_rsc=')) && !h['next-router-prefetch'] && /\/book/.test(new URL(r.url()).pathname)) await sleep(3_000);
+        await route.continue().catch(() => undefined);
+      });
+      const outcomes: Array<{ rep: number; ok: boolean; refusals: string[]; pillFix: boolean; stored: string[]; typed: string[]; alerts: string[] }> = [];
+      for (let rep = 1; rep <= REPS_A2; rep += 1) {
+        const word = WORDS[(rep - 1) % WORDS.length]!;
+        const typed = [`Synthetic Held ${word} One`, `Synthetic Held ${word} Two`, `Synthetic Held ${word} Three`];
+        const deal = await newDeal(tag(), `Synthetic ${mode} answer ${word}`);
+        armed = false;
+        holdGets = false;
+        await startBooking(rec, page, deal.id);
+        await fillCustomer(rec, page, { adults: '3', children: '0', infants: '0' });
+        await footerSettled(page);
+        await sleep(1_000);
+        const before = caught;
+        armed = true;
+        await pax(page, 1).pressSequentially(typed[0]!, { delay: 15 });
+        await until(async () => caught > before, 10_000, 'passenger 1 save stored by the server');
+        await until(async () => (await storedNames(deal.id)).includes(typed[0]!), 10_000, 'passenger 1 in the database');
+        // Answer still held (or lost): the employee types on.
+        await pax(page, 2).pressSequentially(typed[1]!, { delay: 15 });
+        await pax(page, 3).pressSequentially(typed[2]!, { delay: 15 });
+        const refusals = new Set<string>();
+        let pillFix = false;
+        const end = Date.now() + 40_000;
+        for (;;) {
+          for (const r of await refusalOnScreen(page)) refusals.add(r);
+          if ((await pillState(page, 'pill-passengers')) === 'fix') pillFix = true;
+          const stored = await storedNames(deal.id);
+          if ((stored.length >= 3 && /All changes saved/.test(await footerText(page))) || Date.now() > end) break;
+          await sleep(250);
+        }
+        await sleep(1_500);
+        for (const r of await refusalOnScreen(page)) refusals.add(r);
+        const stored = await storedNames(deal.id);
+        const ok = refusals.size === 0 && !pillFix && stored.length === 3 && typed.every((n) => stored.filter((x) => x === n).length === 1);
+        const alerts = (await main.locator('[role="alert"], [role="status"], [id$="-error"]').allTextContents().catch(() => [] as string[])).map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 8);
+        outcomes.push({ rep, ok, refusals: [...refusals], pillFix, stored, typed, alerts });
+        rec.facts.outcomes = outcomes;
+        if (!ok) await rec.shot(page, `${mode}-rep-${rep}-failed`);
+        if (outcomes.filter((o) => !o.ok).length >= 3) break;
+      }
+      await page.unroute('**/*');
+      await rec.save({ reps: REPS_A2, mode });
+      await context.close();
+      expect(outcomes.filter((o) => !o.ok), `repetitions with a refusal, a "needs a fix" pill or a name not stored exactly once (${mode} answer)`).toEqual([]);
+      expect(outcomes).toHaveLength(REPS_A2);
+    });
+  }
 
   test('B1-4 b: a name typed in row 3 stays in row 3; row 1 next gives two separate passengers @br', async ({ browser }, testInfo) => {
     test.setTimeout(5 * 60_000);
@@ -203,7 +292,7 @@ test.describe('B1-4 and B1-9: passengers card (fix batch 1) @br', () => {
     expect(stored.filter((n) => n === one), 'passenger 1 stored once').toHaveLength(1);
     expect(stored.filter((n) => n === two), 'passenger 2 stored once').toHaveLength(1);
     expect(stored).toHaveLength(2);
-    expect(await count("select count(*)::text as n from public.traveller_id_proofs where deal_id = $1 and status = 'stored'", [deal.id]), 'the ID proof stored').toBe(1);
+    expect(await count("select count(*)::text as n from public.traveller_id_proofs where deal_id = $1 and status = 'stored'", [deal.id]), 'the ID proof stored').toBeGreaterThanOrEqual(1);
     await page.unroute('**/*');
     await rec.save();
     await context.close();
@@ -274,9 +363,10 @@ test.describe('B1-4 and B1-9: passengers card (fix batch 1) @br', () => {
     await nameRow(rec, page, 1, original, deal.id, 1);
     await footerSettled(page);
     await attachProof(rec, page, original, 'rename', false);
-    await until(async () => (await proofs()) === 1, 30_000, 'one stored ID proof');
+    await until(async () => (await proofs()) >= 1, 30_000, 'stored ID proof files');
     await footerSettled(page);
     await sleep(1_500);
+    const proofFiles = await proofs(); // one row per uploaded file (front and back)
 
     const confirm = page.getByRole('dialog').filter({ hasText: W.renameRemovesIdProofs });
     const postsBefore = seen.filter((r) => r.kind === 'server-action').length;
@@ -290,7 +380,7 @@ test.describe('B1-4 and B1-9: passengers card (fix batch 1) @br', () => {
     await sleep(3_000);
     expect(seen.filter((r) => r.kind === 'server-action').length - postsBefore, '"Keep the old name" sends nothing').toBe(0);
     expect(await storedNames(deal.id)).toEqual([original]);
-    expect(await proofs(), 'the proof is kept').toBe(1);
+    expect(await proofs(), 'the proof is kept').toBe(proofFiles);
 
     await pax(page, 1).press('End');
     await pax(page, 1).pressSequentially(' Renamed', { delay: 15 });

@@ -858,14 +858,14 @@ export async function storedDestination(dealId: string): Promise<string | null> 
   return db(async (c) => (await c.query<{ d: string | null }>("select trip_destination as d from public.booking_versions where deal_id = $1 and status = 'draft'", [dealId])).rows[0]?.d ?? null);
 }
 
-/** Step 1 → step 2, choose Hotels, add one hotel and save it (dialog closes). */
-export async function addHotel(page: Page, hotel: string, rateRupees: string) {
+/** Step 1 → step 2, choose Hotels (unless already chosen), add one hotel and save it (dialog closes). */
+export async function addHotel(page: Page, hotel: string, rateRupees: string, opts: { chooseHotels?: boolean } = {}) {
   const main = page.locator('main');
   if (!/\/book\/stay/.test(page.url())) {
     await main.getByRole('button', { name: 'Go to step 2' }).click();
     await expect(page).toHaveURL(/\/book\/stay/, { timeout: 30_000 });
   }
-  await main.getByRole('group', { name: 'Choose services' }).getByRole('button', { name: /Hotels/ }).click();
+  if (opts.chooseHotels !== false) await main.getByRole('group', { name: 'Choose services' }).getByRole('button', { name: /Hotels/ }).click();
   await main.getByRole('button', { name: 'Add hotel', exact: true }).click();
   const d = page.getByRole('dialog', { name: 'Add hotel stay' });
   await d.getByLabel('City').fill('Jodhpur');
