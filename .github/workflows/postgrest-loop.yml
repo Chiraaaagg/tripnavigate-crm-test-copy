@@ -1,0 +1,147 @@
+# Gate G0 of the booking reliability build contract (item B1-1).
+#
+# Starts the local Supabase stack with the migrations of this commit, then a
+# SECOND PostgREST container pinned to the live version (default v14.18) on
+# the same Docker network and database, and runs
+# tests/supabase/br-postgrest-loop.real.test.ts against both. It answers:
+# does a 40001 refusal make PostgREST re-run the call after the client has
+# gone, and is a PT409 refusal executed once with code, message and hint
+# intact? Synthetic data only, no repository secrets, never deploys.
+#
+# Started by hand (workflow_dispatch) or by a push to a claude/booking-fix-gate-g0*
+# branch of the test copy (a workflow that is not on the default branch cannot
+# be dispatched before it has run once).
+name: PostgREST loop gate (G0)
+
+on:
+  workflow_dispatch:
+    inputs:
+      postgrest_tag:
+        description: 'postgrest/postgrest image tag to pin (live runs 14.18)'
+        required: false
+        default: 'v14.18'
+  push:
+    branches: ['claude/booking-fix-gate-g0*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgrest-loop-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: crm
+
+env:
+  SUPABASE_CLI_VERSION: 2.119.0
+  PINNED_TAG: ${{ inputs.postgrest_tag || 'v14.18' }}
+
+jobs:
+  g0:
+    name: G0 PostgREST retry behaviour (default stack and pinned PostgREST)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      REQUIRE_REAL_STACK: '1'
+      APP_ENV: local
+      LOCAL_FIXTURE_PASSWORD: ci-Synthetic-Only-Password-1
+      MAILPIT_URL: http://127.0.0.1:54324
+      # Required by the real-stack helper; no app is served in this job.
+      APP_BASE_URL: http://127.0.0.1:3000
+      G0_PINNED_REST_URL: http://127.0.0.1:3999
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5)
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crm/package-lock.json
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3 (= v1)
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - run: npm ci
+      - run: supabase --version
+      - name: Start the local Supabase stack
+        run: bash scripts/ci/supabase-start.sh
+      - name: Export local stack connection values
+        run: |
+          supabase status -o env \
+            --override-name api.url=SUPABASE_URL \
+            --override-name auth.anon_key=SUPABASE_PUBLISHABLE_KEY \
+            --override-name auth.service_role_key=SUPABASE_SECRET_KEY \
+            --override-name db.url=TEST_DATABASE_URL \
+            | grep -E '^(SUPABASE_URL|SUPABASE_PUBLISHABLE_KEY|SUPABASE_SECRET_KEY|TEST_DATABASE_URL)=' \
+            | sed 's/"//g' > "$RUNNER_TEMP/stack.env"
+          cat "$RUNNER_TEMP/stack.env" >> "$GITHUB_ENV"
+          . "$RUNNER_TEMP/stack.env"
+          echo "::add-mask::$SUPABASE_SECRET_KEY"
+          rm "$RUNNER_TEMP/stack.env"
+      - run: supabase db reset
+      - name: Seed synthetic fixtures
+        run: DATABASE_URL="$TEST_DATABASE_URL" node scripts/seed-local.mjs
+      - name: Start PostgREST ${{ env.PINNED_TAG }} next to the default one
+        run: |
+          set -euo pipefail
+          rest="$(docker ps --format '{{.Names}}' | grep -E '^supabase_rest_' | head -1)"
+          if [ -z "$rest" ]; then echo "::error title=G0::default PostgREST container not found"; docker ps; exit 1; fi
+          default_image="$(docker inspect -f '{{.Config.Image}}' "$rest")"
+          network="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' "$rest" | head -1)"
+          echo "G0_DEFAULT_IMAGE=$default_image" >> "$GITHUB_ENV"
+          echo "G0_PINNED_TAG=$PINNED_TAG" >> "$GITHUB_ENV"
+          echo "Default stack PostgREST image: $default_image (network $network)"
+          # Same configuration as the stack's own PostgREST (database, roles, JWT keys), never printed.
+          docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$rest" | grep -E '^PGRST_' | grep -vE '^PGRST_(SERVER_PORT|ADMIN_SERVER_PORT)=' > "$RUNNER_TEMP/rest.env"
+          echo "PostgREST settings copied: $(cut -d= -f1 "$RUNNER_TEMP/rest.env" | tr '\n' ' ')"
+          docker pull "postgrest/postgrest:$PINNED_TAG"
+          docker run -d --name br_g0_rest --network "$network" --env-file "$RUNNER_TEMP/rest.env" \
+            -e PGRST_SERVER_PORT=3000 -p 127.0.0.1:3999:3000 "postgrest/postgrest:$PINNED_TAG"
+          rm "$RUNNER_TEMP/rest.env"
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null "$G0_PINNED_REST_URL/"; then echo "Pinned PostgREST ready"; exit 0; fi
+            sleep 2
+          done
+          echo "::error title=G0::pinned PostgREST did not start"
+          docker logs br_g0_rest | tail -50
+          exit 1
+      - name: G0 measurements
+        env:
+          G0_OUT: test-results/g0/postgrest-loop.json
+        run: >
+          npx vitest run --project supabase tests/supabase/br-postgrest-loop.real.test.ts
+          --reporter=default --reporter=json --outputFile.json=test-results/g0/vitest.json
+      - name: Database and PostgREST log counts
+        if: always()
+        run: |
+          mkdir -p test-results/g0
+          db="$(docker ps --format '{{.Names}}' | grep -E '^supabase_db_' | head -1)"
+          rest="$(docker ps --format '{{.Names}}' | grep -E '^supabase_rest_' | head -1)"
+          {
+            echo "version_changed lines in the database log: $(docker logs "$db" 2>&1 | grep -c 'version_changed' || true)"
+            echo "br_g0_ lines in the database log: $(docker logs "$db" 2>&1 | grep -c 'br_g0_' || true)"
+          } | tee test-results/g0/log-counts.txt
+          docker logs "$db" 2>&1 | grep -E 'version_changed|br_g0_|PT409|TN409' | tail -n 400 > test-results/g0/db-log-excerpt.txt || true
+          docker logs br_g0_rest 2>&1 | tail -n 200 > test-results/g0/pinned-postgrest.log || true
+          docker logs "$rest" 2>&1 | tail -n 200 > test-results/g0/default-postgrest.log || true
+          if [ -f test-results/g0/postgrest-loop.json ]; then
+            {
+              echo '### G0 PostgREST loop gate'
+              echo
+              echo '```json'
+              cat test-results/g0/postgrest-loop.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload G0 results
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (= v6)
+        with:
+          name: g0-postgrest-loop
+          path: crm/test-results/g0/
+          retention-days: 7
+          if-no-files-found: warn
+      - if: always()
+        run: |
+          docker rm -f br_g0_rest || true
+          supabase stop --no-backup
