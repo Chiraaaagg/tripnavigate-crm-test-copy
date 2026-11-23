@@ -1,0 +1,12 @@
+supplierRef,hotelRef,city,validFrom,validTo,seasonFrom,seasonTo,roomType,mealPlan,rate,weekendRate,extraAdult,childWithBed,childWithoutBed,blackoutDates,cancellationTerms
+SYN Unknown Supplier,SYN-ACC3-H-001,Synthetic City,2026-12-01,2027-11-30,2026-12-01,2027-03-31,Garden Room,CP,4100,,,,,,Synthetic terms: free cancellation up to 7 days before check-in; 50% after.
+SYN Acc3 Stays,SYN-ACC3-H-404,Synthetic City,2026-12-01,2027-11-30,2026-12-01,2027-03-31,Garden Room,CP,4100,,,,,,Synthetic terms: free cancellation up to 7 days before check-in; 50% after.
+SYN Acc3 Stays,SYN-ACC3-H-001,Synthetic City,2027-12-01,2027-01-01,2027-01-01,2027-02-01,Garden Room,CP,4100,,,,,,Synthetic terms: free cancellation up to 7 days before check-in; 50% after.
+SYN Acc3 Stays,SYN-ACC3-H-001,Synthetic City,2026-12-01,2027-11-30,2026-11-01,2027-03-31,Garden Room,CP,4100,,,,,,Synthetic terms: free cancellation up to 7 days before check-in; 50% after.
+SYN Acc3 Stays,SYN-ACC3-H-001,Synthetic City,2026-12-01,2027-11-30,2026-12-01,2027-03-31,Garden Room,XX,4100,,,,,,Synthetic terms: free cancellation up to 7 days before check-in; 50% after.
+SYN Acc3 Stays,SYN-ACC3-H-001,Synthetic City,2026-12-01,2027-11-30,2026-12-01,2027-03-31,Garden Room,CP,-5,,,,,,Synthetic terms: free cancellation up to 7 days before check-in; 50% after.
+SYN Acc3 Stays,SYN-ACC3-H-001,Synthetic City,2026-12-01,2027-11-30,2026-12-01,2027-01-31,Lake View Room,CP,4100,,,,,,Synthetic terms: free cancellation up to 7 days before check-in; 50% after.
+SYN Acc3 Stays,SYN-ACC3-H-001,Synthetic City,2026-12-01,2027-11-30,2027-01-15,2027-03-31,Lake View Room,CP,4100,,,,,,Synthetic terms: free cancellation up to 7 days before check-in; 50% after.
+SYN Acc3 Stays,SYN-ACC3-H-001,Synthetic City,2026-12-01,2027-11-30,2026-12-01,2027-03-31,Pool Room,CP,4100,,,,,,Synthetic terms: free cancellation up to 7 days before check-in; 50% after.
+SYN Acc3 Stays,SYN-ACC3-H-001,Synthetic City,2026-12-01,2027-11-30,2026-12-01,2027-03-31,Pool Room,CP,4100,,,,,,Synthetic terms: free cancellation up to 7 days before check-in; 50% after.
+SYN Acc3 Stays,SYN-ACC3-H-001,Synthetic City,2026-12-01,2027-11-30,2026-12-01,2027-03-31,Garden Room,CP,=4000+100,,,,,,Synthetic terms: free cancellation up to 7 days before check-in; 50% after.
