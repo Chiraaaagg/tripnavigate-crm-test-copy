@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { CHECKLIST_SQL, DEAL, FLIGHT_FACTS, OWNER, SHA, TRAVELLERS, rid } from './b1-support';
 import { FILE_BEGIN_SQL, FILE_FINISH_SQL, FILE_REMOVE_SQL, SERVICE_SQL, formHelpers } from './booking-form-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Book now v2, extra flight checks (Agent D): "Add return flights" with no
@@ -52,12 +53,12 @@ describe('Add return flights: refusals and retries', () => {
     await asOwner(db, async () => {
       const r = await h.readyForm();
       const f = await h.saveService(OWNER, r.versionId, r.rowVersion, { type: 'flight', facts: ONWARD, participants: [1, 2] });
-      await refused(OWNER, RETURNS_SQL, [r.versionId, f.rowVersion - 1, rid()], '40001', 'version_changed');
+      await refused(OWNER, RETURNS_SQL, [r.versionId, f.rowVersion - 1, rid()], CONFLICT_STATE, 'version_changed');
       const req = rid();
       const added = await one<Returns>(OWNER, RETURNS_SQL, [r.versionId, f.rowVersion, req]);
       expect(added.outcome).toBe('added');
       expect(await flightCount()).toBe(2);
-      await refused(OWNER, RETURNS_SQL, [r.versionId, added.rowVersion, req], '40001', 'request_conflict');
+      await refused(OWNER, RETURNS_SQL, [r.versionId, added.rowVersion, req], CONFLICT_STATE, 'request_conflict');
       // Two quick presses with fresh ids: the second one sees the return flight and adds nothing.
       expect(await one<Returns>(OWNER, RETURNS_SQL, [r.versionId, added.rowVersion, rid()])).toMatchObject({ outcome: 'already_added', itemIds: [] });
       expect(await flightCount()).toBe(2);

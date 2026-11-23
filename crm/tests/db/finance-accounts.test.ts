@@ -8,6 +8,7 @@ import {
 } from '@/modules/finance/dto';
 import { type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACC, ACC2, ANON, DEAL, DEAL2, PURCHASE, SALES, SUPER, daysAgo, financeHelpers, rid, sha, today } from './finance-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Phase 5A Accounts workspace (phase-5a-contract.md sections 4-8, 10-12):
@@ -192,7 +193,7 @@ describe('billing details and booking review', () => {
     await asOwner(db, async () => {
       const saved = await h.one<{ outcome: string; rowVersion: number }>(ACC, SAVE, [DEAL, 0, JSON.stringify(BILLING), rid()]);
       expect(saved).toMatchObject({ outcome: 'created', status: 'draft', rowVersion: 1 });
-      await h.refused(ACC, SAVE, [DEAL, 0, JSON.stringify(BILLING), rid()], '40001', 'version_changed');
+      await h.refused(ACC, SAVE, [DEAL, 0, JSON.stringify(BILLING), rid()], CONFLICT_STATE, 'version_changed');
       await h.refused(ACC, SAVE, [DEAL, 1, JSON.stringify({ ...BILLING, gstin: '27ABCDE1234F1Z5' }), rid()], '22023', 'invalid_input');
       await h.refused(ACC, SAVE, [DEAL, 1, JSON.stringify({ ...BILLING, stateCode: '39' }), rid()], '22023', 'invalid_input');
       await h.refused(ACC, SAVE, [DEAL, 1, JSON.stringify({ ...BILLING, postalCode: '042001' }), rid()], '22023', 'invalid_input');
@@ -218,7 +219,7 @@ describe('billing details and booking review', () => {
       await h.one(ACC, VERIFY_BILLING, [DEAL, 1, rid()]);
       await h.addSalesAssignment(DEAL, ACC2.userId!);
       await h.refused(ACC2, APPROVE, [version, 0, rid()], '42501', 'not_self_approval');
-      await h.refused(ACC, APPROVE, [version, 3, rid()], '40001', 'version_changed');
+      await h.refused(ACC, APPROVE, [version, 3, rid()], CONFLICT_STATE, 'version_changed');
       expect(await h.one(ACC, APPROVE, [version, 0, rid()])).toMatchObject({ status: 'approved', rowVersion: 1 });
       await h.refused(ACC, APPROVE, [version, 1, rid()], '55000', 'wrong_state');
       const detail = AccountsDealDetailSchema.parse(await h.one(ACC, 'select public.accounts_deal_detail($1) as r', [DEAL]));

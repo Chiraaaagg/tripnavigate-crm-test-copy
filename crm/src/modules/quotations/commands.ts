@@ -39,6 +39,7 @@ import {
   UNIT_KINDS,
 } from './contracts';
 import type { QuotationDetailsFields, QuotationLineInput, QuotationPlanRow } from './forms';
+import { stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers for the quotation commands and reads (Atlas
@@ -77,7 +78,7 @@ export class QuotationCommandError extends Error {
 export function mapQuotationError(error: RpcError): QuotationErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(QUOTATION_ERROR_STATES, token) && QUOTATION_ERROR_STATES[token as QuotationErrorCode] === state) return token as QuotationErrorCode;
+  if (Object.hasOwn(QUOTATION_ERROR_STATES, token) && stateMatches(QUOTATION_ERROR_STATES[token as QuotationErrorCode], state)) return token as QuotationErrorCode;
   if (SESSION_STATES.has(state)) return 'session';
   if (state === '42501') return 'not_authorized';
   if (state === 'P0002') return 'not_found';

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACCOUNTS, ANON, MANAGER, OTHER_ENTITY, OWNER, PURCHASE, SUPER } from './b1-support';
 import { REASON, SQL, vnHelpers } from './vn-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Voice-note batch, migration 20261128000120: the hotel catalogue. Type-ahead
@@ -46,7 +47,7 @@ describe('hotel catalogue', () => {
       const b = await save({ verification: 'checked' }, a.id, 1);
       expect(b).toMatchObject({ outcome: 'updated', rowVersion: 2 });
       expect(await save({ verification: 'checked' }, a.id, 2)).toMatchObject({ outcome: 'unchanged' });
-      await refused(SUPER, SQL.hotelSave, [entity, a.id, 1, JSON.stringify({ area: 'Old city' }), REASON], '40001', 'version_changed');
+      await refused(SUPER, SQL.hotelSave, [entity, a.id, 1, JSON.stringify({ area: 'Old city' }), REASON], CONFLICT_STATE, 'version_changed');
       const audit = await h.auditRows('hotel.catalogue_saved');
       expect(audit.map((x) => x.details.changedFields)).toEqual([
         ['name', 'city', 'area', 'address', 'starCategory', 'sourceRef', 'status', 'verification'], ['verification']]);

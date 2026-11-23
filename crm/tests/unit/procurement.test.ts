@@ -99,8 +99,8 @@ const WORKSPACE = {
 
 describe('error mapping (contract §7)', () => {
   it('maps every token only with its own SQLSTATE and fails closed otherwise', () => {
-    for (const [token, state] of Object.entries(PROCUREMENT_ERROR_STATES)) {
-      expect(mapProcurementError({ code: state, message: token })).toBe(token);
+    for (const [token, allowed] of Object.entries(PROCUREMENT_ERROR_STATES)) {
+      for (const state of typeof allowed === 'string' ? [allowed] : allowed) expect(mapProcurementError({ code: state, message: token })).toBe(token);
       expect(PROCUREMENT_ERROR_TEXT[token as keyof typeof PROCUREMENT_ERROR_TEXT]).toBeTruthy();
     }
     expect(mapProcurementError({ code: '55000', message: 'over_budget' })).toBe('over_budget');

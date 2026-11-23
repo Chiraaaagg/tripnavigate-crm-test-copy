@@ -11,6 +11,7 @@ import {
 } from '@/modules/flight/server/money-actions';
 import { FM_FIELD } from '@/modules/flight/money-contracts';
 import { createSupplierAction } from '@/modules/suppliers/server/actions';
+import { requireStaff } from '@/modules/identity/server/session';
 
 /*
  * Thin adapters between the Flight screens' forms and the server actions
@@ -19,6 +20,11 @@ import { createSupplierAction } from '@/modules/suppliers/server/actions';
  * fields: every rule stays in the server actions and the database. The
  * workspace actions of Track A read the screens' fields directly and are
  * passed through by the route unchanged.
+ *
+ * Every adapter gates with requireStaff() first, before the posted payload
+ * is parsed (security review go-live 1, P3-1): the proxy no longer stops
+ * signed-out action calls, so nothing may run ahead of the gate. The inner
+ * action gates again; requireStaff() is cached per request.
  */
 
 type Result = { ok: true; data?: unknown; message: string } | { ok: false; code: string; message: string; fields?: string[] };
@@ -56,17 +62,20 @@ function fareSet(p: Record<string, unknown>): Record<string, unknown> {
 }
 
 export async function flightFarePreviewUi(_prev: unknown, formData: FormData): Promise<Result> {
+  await requireStaff();
   const dealId = formData.get('dealId');
   return previewFlightFaresAction(typeof dealId === 'string' ? dealId : '', fareSet(payloadOf(formData)));
 }
 
 export async function flightRequestFareApprovalUi(_prev: unknown, formData: FormData): Promise<Result> {
+  await requireStaff();
   const fd = copy(formData, [FM_FIELD.dealId, FM_FIELD.requestId]);
   fd.set(FM_FIELD.fareFields, JSON.stringify(fareSet(payloadOf(formData))));
   return requestFlightFareApprovalAction(null, fd);
 }
 
 export async function flightConfirmTicketsUi(_prev: unknown, formData: FormData): Promise<Result> {
+  await requireStaff();
   const fd = copy(formData, [FM_FIELD.dealId, FM_FIELD.requestId]);
   const p = payloadOf(formData);
   fd.set(FM_FIELD.fareFields, JSON.stringify({ ...p, fareApprovalId: (p.fareApprovalId as string | null | undefined) ?? null }));
@@ -74,6 +83,7 @@ export async function flightConfirmTicketsUi(_prev: unknown, formData: FormData)
 }
 
 export async function flightDirectPaymentUi(_prev: unknown, formData: FormData): Promise<Result> {
+  await requireStaff();
   const fd = copy(formData, [FM_FIELD.batchId, FM_FIELD.dealId, FM_FIELD.requestId]);
   const rv = formData.get(FM_FIELD.expectedRowVersion);
   // A first payment has no row version yet (the screens post 0 then).
@@ -87,6 +97,7 @@ export async function flightDirectPaymentUi(_prev: unknown, formData: FormData):
 }
 
 export async function flightPaymentRequestUi(_prev: unknown, formData: FormData): Promise<Result> {
+  await requireStaff();
   const fd = copy(formData, [FM_FIELD.batchId, FM_FIELD.paymentId, FM_FIELD.dealId, FM_FIELD.requestId]);
   const p = payloadOf(formData);
   for (const k of [FM_FIELD.dueDate, FM_FIELD.note, FM_FIELD.proformaEvidenceId] as const) {
@@ -97,6 +108,7 @@ export async function flightPaymentRequestUi(_prev: unknown, formData: FormData)
 }
 
 export async function flightCreateSupplierUi(_prev: unknown, formData: FormData): Promise<Result> {
+  await requireStaff();
   // Accounts phase 2 (contract 5.5 A3): a flight supplier is created through Track A's supplier action, which
   // routes a flight-only supplier to flight_supplier_create with the new kind, GSTIN, PAN and state fields.
   const fd = copy(formData, [FM_FIELD.requestId]);
@@ -112,6 +124,7 @@ export async function flightCreateSupplierUi(_prev: unknown, formData: FormData)
 
 /** E-tickets go to the Flight e-ticket action; direct-payment proofs to the department evidence action. */
 export async function flightUploadFileUi(_prev: unknown, formData: FormData): Promise<Result> {
+  await requireStaff();
   const kind = formData.get('kind');
   if (kind === 'e_ticket') return uploadFlightETicketAction(null, formData);
   if (kind === 'direct_payment_proof') return uploadDepartmentEvidenceAction(null as never, formData);

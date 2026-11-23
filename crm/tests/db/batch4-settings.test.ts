@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, FIXTURE_USERS as U, type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACCOUNTS, ANON, DEAL, HOTEL, MANAGER, OWNER, PURCHASE, PURCHASE_CLAIM_SQL, SUPER } from './b1-support';
 import { COST_SAVE_SQL, COST_SUBMIT_SQL, DESK, EXPENSE_RETURN_SQL, SETTING_SQL_B11, SWITCH_REASON, VISA, VISA_CLAIM_SQL, VISA_GET_SQL, b11Helpers, rid } from './b11-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Direction A Batch 4 (migration 20261125000100): Settings backend.
@@ -363,19 +364,19 @@ describe('sync settings: preview and apply', () => {
       const old = await preview(SUPER, [7], ['C7:NEW'], CUTOFF, true);
       await owner(`update public.integration_sync_previews set created_at = now() - interval '20 minutes',
                    expires_at = now() - interval '10 minutes' where id = $1`, [old.previewId]);
-      await refused(SUPER, APPLY_SQL, [old.previewId, REASON], '40001', 'preview_stale');
+      await refused(SUPER, APPLY_SQL, [old.previewId, REASON], CONFLICT_STATE, 'preview_stale');
 
       // Settings changed since the preview (here: automatic updates switched by another path).
       const p2 = await preview(SUPER, [7], ['C7:NEW'], CUTOFF, true);
       await owner('update public.integration_sync_schedule set enabled = not enabled where id');
-      await refused(SUPER, APPLY_SQL, [p2.previewId, REASON], '40001', 'preview_stale');
+      await refused(SUPER, APPLY_SQL, [p2.previewId, REASON], CONFLICT_STATE, 'preview_stale');
       await owner('update public.integration_sync_schedule set enabled = not enabled where id');
 
       // Counts changed: a new Deal arrives in the stage being unticked.
       const p3 = await preview(SUPER, [7], ['C7:NEW'], CUTOFF, true);
       expect(p3.hide.total).toBe(0);
       const newcomer = await h.insertRealDeal('C7:PREPARATION', 7, 990201);
-      await refused(SUPER, APPLY_SQL, [p3.previewId, REASON], '40001', 'preview_stale');
+      await refused(SUPER, APPLY_SQL, [p3.previewId, REASON], CONFLICT_STATE, 'preview_stale');
       expect(await dealState(newcomer)).toMatchObject({ hidden: false });
       expect((await owner<{ s: string[] }>('select eligible_stage_ids as s from public.integration_intake_config'))[0]!.s).toEqual(STAGES);
 
@@ -396,7 +397,7 @@ describe('sync settings: preview and apply', () => {
       // x leaves the unticked stage, y enters it: same counts, different Deals.
       await owner(`update public.deals set source_stage_id = 'C7:NEW' where id = $1`, [x]);
       await owner(`update public.deals set source_stage_id = 'C7:PREPARATION' where id = $1`, [y]);
-      await refused(SUPER, APPLY_SQL, [p.previewId, REASON], '40001', 'preview_stale');
+      await refused(SUPER, APPLY_SQL, [p.previewId, REASON], CONFLICT_STATE, 'preview_stale');
       expect(await dealState(x)).toMatchObject({ hidden: false });
       expect(await dealState(y)).toMatchObject({ hidden: false });
       const again = await preview(SUPER, [7], ['C7:NEW'], CUTOFF, true);

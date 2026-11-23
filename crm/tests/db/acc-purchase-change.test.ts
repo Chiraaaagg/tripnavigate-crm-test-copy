@@ -4,6 +4,7 @@ import {
   ACC, DEAL, FLIGHT, HOTEL, HOTEL_ITEM, MANAGER, OWNER, PURCHASE, SELLING, SQL, TRANSFER_ITEM, TRAVELLERS, TRIP, accHelpers, allKeys, containsToken,
   rid,
 } from './acc-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase contract 6.3.4 (purchase_task_basis), 7.6 (P1 ack), 8.5
@@ -107,7 +108,7 @@ describe('7.6 P1 purchase_booking_change_ack', () => {
   it('stale expected basis -> version_changed; ack moves the basis, marks the notice done and audits; again -> existing', async () => {
     await asOwner(db, async () => {
       const { b, task, v2 } = await changed();
-      await refused(PURCHASE, SQL.changeAck, [task, v2, rid()], 'version_changed', '40001');
+      await refused(PURCHASE, SQL.changeAck, [task, v2, rid()], 'version_changed', CONFLICT_STATE);
       await refused(MANAGER, SQL.changeAck, [task, b.versionId, rid()], 'not_authorized', '42501');
       await refused(ACC, SQL.changeAck, [task, b.versionId, rid()], 'not_authorized', '42501');
       const done = await one<{ outcome: string }>(PURCHASE, SQL.changeAck, [task, b.versionId, rid()]);

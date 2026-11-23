@@ -1,6 +1,7 @@
 'use client';
 
 import { CalendarDays, ChevronRight, CircleAlert, FileText, Info, Pencil, Plus, Trash2 } from 'lucide-react';
+import { isSessionEnded, SignInNewTabLink } from '../b11/session-link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -23,7 +24,7 @@ import { QuotationSourceNote } from '../b11/quotation-source';
 import { useSectionForm } from '../b11/draft-sync';
 import { newRequestId, normaliseResult, type UiResult } from '../b11/form-kit';
 import type { BookNowView } from '../b11/shapes';
-import { reasonRole, refusalReason, SaveRecovery, useAutosave, useCardLatest, useSaveQueue } from './autosave-queue';
+import { reasonRole, SAVED_ALREADY, refusalReason, SaveRecovery, useAutosave, useCardLatest, useSaveQueue } from './autosave-queue';
 import { HiddenDraftInputs, editableOf } from './form-helpers';
 import { useFormToast } from './form-toast';
 import { SectionBody, SectionCard } from './parts';
@@ -70,9 +71,14 @@ export function planIssues(rows: readonly PlanRow[]): string[] {
   return out;
 }
 
+/** The stored plan as the card shows it (also the "latest view" a read-first "Try again" compares with). */
+export function planRowsOf(view: Pick<BookNowView, 'plan'>): PlanRow[] {
+  return (view.plan ?? []).map((p) => ({ label: p.label, amount: paiseToRupeesText(p.amountPaise), due: p.dueDate }));
+}
+
 export function PlanCard({ view, action, totalPaise }: { view: BookNowView; action: BookingFormActions['savePlan']; totalPaise: string | null }) {
   const editable = editableOf(view) && view.canEditCommercials;
-  const loaded: PlanRow[] = (view.plan ?? []).map((p) => ({ label: p.label, amount: paiseToRupeesText(p.amountPaise), due: p.dueDate }));
+  const loaded: PlanRow[] = planRowsOf(view);
   const f = useSectionForm({ id: 'plan', section: 'payment', label: 'Payment plan', order: 80, action, initial: { rows: loaded }, versionBound: true, rowVersion: view.version?.rowVersion ?? 0, saveable: false, tracksDirty: true });
   const rows = f.values.rows;
   const setRows = (fn: (x: PlanRow[]) => PlanRow[]) => f.setValues((s) => ({ rows: fn(s.rows) }));
@@ -93,6 +99,8 @@ export function PlanCard({ view, action, totalPaise }: { view: BookNowView; acti
     hasStored: loaded.length > 0,
     check: () => planIssues(f.values.rows),
     send: () => (formRef.current ? f.post(new FormData(formRef.current)) : Promise.resolve({ ok: false, code: 'unexpected', message: '' } as UiResult)),
+    // Re-review N3: the plan save has no request id (no replay), so "Try again" reads first.
+    retry: async () => ((await f.readLatestFirst()) ? SAVED_ALREADY : (formRef.current ? f.post(new FormData(formRef.current)) : Promise.resolve({ ok: false, code: 'unexpected', message: '' } as UiResult))),
   });
   const latest = useCardLatest(f, save);
   const sum = rows.reduce((s, r) => {
@@ -161,7 +169,7 @@ export function PlanCard({ view, action, totalPaise }: { view: BookNowView; acti
               <span>{save.reason}</span>
             </p>
           ) : null}
-          {editable ? <SaveRecovery save={save} describedBy="why-plan" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="mt-2" /> : null}
+          {editable ? <SaveRecovery save={save} describedBy="why-plan" focusId="plan-heading" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="mt-2" /> : null}
         </SectionBody>
       </form>
     </SectionCard>
@@ -271,6 +279,7 @@ export function OkCard({ view, actions }: { view: BookNowView; actions: BookingF
                 {problem}
               </p>
             ) : null}
+            {problem && isSessionEnded({ message: problem }) ? <SignInNewTabLink /> : null}
           </>
         )}
       </SectionBody>

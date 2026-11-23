@@ -23,6 +23,7 @@ import {
   type SupplierRefundsDuePage,
 } from './contracts';
 import { DealRefundsSchema, RefundListSchema, SupplierRefundsDueSchema, toDealRefunds, toRefundList, toSupplierRefundsDue } from './dto';
+import { isConflictSqlState, stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers for the refund commands and reads (migrations
@@ -52,11 +53,11 @@ export class RefundCommandError extends Error {
 export function mapRefundError(error: RpcError): RefundErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(REFUND_ERROR_STATES, token) && REFUND_ERROR_STATES[token as RefundErrorCode] === state) {
+  if (Object.hasOwn(REFUND_ERROR_STATES, token) && stateMatches(REFUND_ERROR_STATES[token as RefundErrorCode], state)) {
     return token as RefundErrorCode;
   }
-  // The Visa desk replay turns a request conflict into duplicate_request (40001).
-  if (token === 'duplicate_request' && state === '40001') return 'request_conflict';
+  // The Visa desk replay turns a request conflict into duplicate_request (40001 or PT409).
+  if (token === 'duplicate_request' && isConflictSqlState(state)) return 'request_conflict';
   if (SESSION_STATES.has(state)) return 'session';
   if (state === '42501') return 'not_authorized';
   if (state === 'P0002') return 'not_found';

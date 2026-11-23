@@ -8,6 +8,7 @@
  * crm/supabase/migrations/20261205000200 (table), 0220 (commands, reads),
  * 0230 (dues effect). Money is whole paise as decimal strings; no floats.
  */
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 export type Paise = string;
 
@@ -68,7 +69,7 @@ export type WriteOffErrorCode =
   | 'not_configured';
 
 /** Each token and the only SQLSTATE it may arrive with. */
-export const WRITE_OFF_ERROR_STATES: Readonly<Record<WriteOffErrorCode, string>> = Object.freeze({
+export const WRITE_OFF_ERROR_STATES: Readonly<Record<WriteOffErrorCode, string | readonly string[]>> = Object.freeze({
   write_off_off: '55000',
   write_off_over_limit: '22023',
   write_off_not_balance: '22023',
@@ -76,8 +77,8 @@ export const WRITE_OFF_ERROR_STATES: Readonly<Record<WriteOffErrorCode, string>>
   not_ready: '55000',
   not_self_approval: '42501',
   wrong_state: '55000',
-  version_changed: '40001',
-  request_conflict: '40001',
+  version_changed: CONFLICT_STATES,
+  request_conflict: CONFLICT_STATES,
   invalid_input: '22023',
   not_authorized: '42501',
   not_found: 'P0002',

@@ -22,6 +22,7 @@ import {
   TicketCorrectResultSchema,
   TravellerNameFillResultSchema,
 } from './dto';
+import { isConflictSqlState, stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers for the Flight workspace commands and reads (migrations
@@ -54,11 +55,11 @@ export class FlightCommandError extends Error {
 export function mapFlightError(error: RpcError): FlightErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(FLIGHT_ERROR_STATES, token) && FLIGHT_ERROR_STATES[token as FlightErrorCode] === state) {
+  if (Object.hasOwn(FLIGHT_ERROR_STATES, token) && stateMatches(FLIGHT_ERROR_STATES[token as FlightErrorCode], state)) {
     return token as FlightErrorCode;
   }
   // finance_replay's request_conflict when it escapes a wrapper.
-  if (token === 'request_conflict' && state === '40001') return 'duplicate_request';
+  if (token === 'request_conflict' && isConflictSqlState(state)) return 'duplicate_request';
   if (SESSION_STATES.has(state)) return 'session';
   if (state === '42501') return 'not_authorized';
   if (state === 'P0002') return 'not_found';

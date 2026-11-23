@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type TestDb, asOwner, createTestDb, expectDbError, resetActor, setActor } from '../helpers/db';
 import { ACCOUNTS, FLIGHT, HOTEL, MANAGER, OWNER, PURCHASE, SALES_B } from './b1-support';
 import { COMMERCIALS_SQL, PLAN_SQL, b11Helpers } from './b11-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * B1.1a selling price and payment plan (migration 20261119000100): list
@@ -44,7 +45,7 @@ describe('booking_commercials_save', () => {
       ] as Array<[string | null, string | null, string | null, RegExp]>) {
         await refusedWithHint(OWNER, COMMERCIALS_SQL, [d.versionId, plain.rowVersion, list, discount, total], hint);
       }
-      await refused(OWNER, COMMERCIALS_SQL, [d.versionId, plain.rowVersion - 1, null, null, '1'], '40001', 'version_changed');
+      await refused(OWNER, COMMERCIALS_SQL, [d.versionId, plain.rowVersion - 1, null, null, '1'], CONFLICT_STATE, 'version_changed');
       // No amount in the audit.
       const audit = await owner('select details from public.audit_events where action = $1 and target_id = $2', ['booking.commercials_saved', d.versionId]);
       expect(audit).toHaveLength(3);

@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, FIXTURE_USERS as U, SYNTHETIC_INTAKE_CONFIG, assertLoopbackDatabaseUrl, claimsFor } from '../helpers/db';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Batch 2 (20261122000100) two-session proofs on REAL Postgres only
@@ -176,7 +177,7 @@ describe.skipIf(!enabled)('Batch 2 automatic fill: two sessions (real Postgres)'
         await a.query('commit');
         const loser = await loserP;
         await b.query('rollback');
-        expect(loser).toMatchObject({ code: '40001', message: 'version_changed' });
+        expect(loser).toMatchObject({ code: CONFLICT_STATE, message: 'version_changed' });
         const marks = await q<{ field_code: string; state: string }>(admin,
           'select field_code, state from public.prefill_marks where target_id = $1 order by field_code', [opened.versionId]);
         const hist = await q<{ field_code: string }>(admin,

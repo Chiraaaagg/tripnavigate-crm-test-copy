@@ -21,6 +21,7 @@ import {
   ticketFor,
   typedFlight,
 } from './flight-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Track B author's smoke test for the flight money migrations
@@ -197,7 +198,7 @@ describe('flight money: package Deal', () => {
       const saved = await one<{ rowVersion: number }>(FLIGHT, 'select public.flight_supplier_update($1, $2, $3::jsonb) as r',
         [supplierId, mine.rowVersion, JSON.stringify(upd)]);
       await refused(FLIGHT, 'select public.flight_supplier_update($1, $2, $3::jsonb) as r', [supplierId, mine.rowVersion,
-        JSON.stringify(upd)], 'version_changed', '40001');
+        JSON.stringify(upd)], 'version_changed', CONFLICT_STATE);
       const [after] = await owner<{ service_types: string[]; verification_status: string }>(
         'select service_types, verification_status from public.suppliers where id = $1', [supplierId]);
       expect(after).toEqual({ service_types: ['flight'], verification_status: 'unverified' });

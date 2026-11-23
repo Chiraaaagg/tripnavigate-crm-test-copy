@@ -181,9 +181,13 @@ export function startNoticeLive(options: NoticeLiveOptions): NoticeLiveHandle {
   const fallBack = () => {
     if (stopped || state.mode === 'polling') return;
     timers.clearTimeout(connectTimer);
-    unsubscribe?.();
+    // Removing the channel reports a status (CLOSED) synchronously, which calls
+    // onStatus -> fallBack again. Detach and switch to polling first, so that
+    // re-entrant call returns at the guard above instead of recursing (BR-25).
+    const unsubscribeChannel = unsubscribe;
     unsubscribe = null;
     emit({ mode: 'polling' });
+    unsubscribeChannel?.();
     schedule('full');
   };
 

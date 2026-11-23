@@ -34,8 +34,8 @@ const applicant = (over: Record<string, unknown> = {}) =>
 
 describe('refusal tokens', () => {
   it('every token maps only with its SQLSTATE and has frozen wording', () => {
-    for (const [token, state] of Object.entries(VISA_ERROR_STATES)) {
-      expect(mapVisaError({ code: state, message: token })).toBe(token);
+    for (const [token, allowed] of Object.entries(VISA_ERROR_STATES)) {
+      for (const state of typeof allowed === 'string' ? [allowed] : allowed) expect(mapVisaError({ code: state, message: token })).toBe(token);
       expect(VISA_ERROR_TEXT[token as keyof typeof VISA_ERROR_TEXT]).toBeTruthy();
     }
     expect(mapVisaError({ code: '55000', message: 'duplicate_reference' })).toBeNull();

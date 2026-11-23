@@ -25,6 +25,7 @@ import {
   type RenderKind,
   type SourceMime,
 } from './contracts';
+import { stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers for Atlas's itinerary commands and reads (migration
@@ -57,7 +58,7 @@ export class ItineraryCommandError extends Error {
 export function mapItineraryError(error: RpcError): MappedCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(ITINERARY_ERROR_STATES, token) && ITINERARY_ERROR_STATES[token as MappedCode] === state) return token as MappedCode;
+  if (Object.hasOwn(ITINERARY_ERROR_STATES, token) && stateMatches(ITINERARY_ERROR_STATES[token as MappedCode], state)) return token as MappedCode;
   if (SESSION_STATES.has(state)) return 'session';
   if (state === '42501') return 'not_authorized';
   if (state === 'P0002') return 'not_found';

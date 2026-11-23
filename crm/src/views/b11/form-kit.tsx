@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { isSessionEnded, SignInNewTabLink } from './session-link';
 import { useActionState, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useHandFormStatus } from '@/components/hand-form';
 import { Button } from '@/components/ui/button';
@@ -194,6 +195,12 @@ export function ResultBox({
               <li key={code}>{ISSUE_TEXT[code as BookingIssueCode] ?? code}</li>
             ))}
           </ul>
+        ) : null}
+        {/* B1-8 (W8): an ended session keeps this page; sign in again in a new tab. */}
+        {isSessionEnded(result) ? (
+          <p className="m-0 mt-1.5">
+            <SignInNewTabLink />
+          </p>
         ) : null}
         {conflictText && reloadHref ? (
           <p className="m-0 mt-1.5">

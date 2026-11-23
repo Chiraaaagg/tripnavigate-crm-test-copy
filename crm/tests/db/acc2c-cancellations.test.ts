@@ -3,6 +3,7 @@ import { FIXTURE_USERS as U, type TestDb, asOwner, createTestDb } from '../helpe
 import { FLIGHT, FLIGHT_ITEM, PURCHASE, VISA_DESK, VISA_ITEM } from './acc-support';
 import { line as visaLine, visaHelpers } from './visa-e-support';
 import { ACC, ACC_J2, CSQL, DEAL, FLIGHT_J, MANAGER, MANAGER_F, OWNER, REASON, acc2cHelpers, rid, today } from './acc2c-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase 2 contract 7.3 C7-C11 (Addendum L1), 7.4, LD11-LD14, owner
@@ -51,7 +52,7 @@ describe('Flight charges (C9, 7.4, LD13)', () => {
       await c.refusedHint(FLIGHT, CSQL.flightCharge, [batch.batchId, JSON.stringify({ airlineChargePaise: 'x', refundExpectedPaise: '1' }), 0, rid()],
         'invalid_input', /airlineChargePaise/);
       await c.refused(FLIGHT, CSQL.flightCharge, [batch.batchId, JSON.stringify({ airlineChargePaise: '100000', refundExpectedPaise: '500000' }), 1, rid()],
-        'version_changed', '40001');
+        'version_changed', CONFLICT_STATE);
       const set = await one<{ revisionNo: number; status: string }>(FLIGHT, CSQL.flightCharge, [batch.batchId,
         JSON.stringify({ airlineChargePaise: '100000', refundExpectedPaise: '500000', note: 'Synthetic airline rule' }), 0, rid()]);
       expect(set).toMatchObject({ revisionNo: 1, status: 'charges_entered' });
@@ -208,7 +209,7 @@ describe('Visa (C10, C11, LD12) and LD14', () => {
         await c.refusedHint(VISA_DESK, CSQL.visaFee, [fee.id, String(BigInt(fee.amount_paise) + 1n), null, 0, rid()], 'invalid_input', /refundExpectedPaise/);
         const set = await one<{ revisionNo: number }>(VISA_DESK, CSQL.visaFee, [fee.id, '1000', 'Synthetic: embassy refunds part', 0, rid()]);
         expect(set.revisionNo).toBe(1);
-        await c.refused(VISA_DESK, CSQL.visaFee, [fee.id, '1000', null, 0, rid()], 'version_changed', '40001');
+        await c.refused(VISA_DESK, CSQL.visaFee, [fee.id, '1000', null, 0, rid()], 'version_changed', CONFLICT_STATE);
       }
       const [cur] = await owner<{ row_version: number }>('select row_version from public.visa_applications where id = $1', [app.id]);
       await c.refusedHint(VISA_DESK, CSQL.visaChoice, [app.id, cur!.row_version, 'withdraw', 'short', rid()], 'invalid_input', /reason/);

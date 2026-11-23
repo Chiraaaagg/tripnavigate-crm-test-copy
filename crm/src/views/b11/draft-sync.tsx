@@ -6,7 +6,9 @@ import { BOOK_RELIABILITY_TEXT, type BookingActionResult, type BookSection } fro
 import type { QuotationSection } from '@/modules/quotations/contracts';
 import { guard } from '../booking-forms';
 import { advanceBase } from './book-fields';
-import { normaliseResult, requestIdFor } from './result';
+import { latestStep, normaliseResult, readFirstRetryStep, requestIdFor, typedMatchesLatest } from './result';
+
+export { latestStep };
 import { newRequestId, useUnsavedGuard, type UiResult } from './form-kit';
 import type { B11Action } from './shapes';
 
@@ -191,7 +193,8 @@ export function browserOffline(): boolean {
 }
 
 /** "Load the latest and keep my entries" (B1-5): waiting for the view, re-based, or the same part changed. */
-export type LatestOutcome = null | 'waiting' | 'rebased' | 'changed';
+export type LatestOutcome = null | 'waiting' | 'rebased' | 'changed' | 'saved';
+
 
 function rowVersionOf(result: UiResult): number | null {
   if (!result.ok) return null;
@@ -229,6 +232,12 @@ export interface SectionFormOptions<T> {
   merge?: (current: T, incoming: T) => T;
   /** Whether two values hold the same saved content (default: equal JSON); used by loadLatest. */
   same?: (a: T, b: T) => boolean;
+  /**
+   * For a form whose values do not hold the saved part (a service drawer): whether the
+   * latest view still holds what the form was opened on, worked out on this render from
+   * this render's view. When given, loadLatest decides with it instead of `same`.
+   */
+  latestSame?: boolean;
 }
 
 /**
@@ -284,10 +293,8 @@ export function useSectionForm<T>(o: SectionFormOptions<T>) {
   /** What the last submission posted (the values at the moment it was sent). */
   const submittedRef = useRef<T | null>(null);
   const onSuccessRef = useRef(o.onSuccess);
-  const sameRef = useRef(o.same);
   useEffect(() => {
     onSuccessRef.current = o.onSuccess;
-    sameRef.current = o.same;
   });
 
   // The server sent new values (a refresh after any save): a clean form shows them.
@@ -460,29 +467,67 @@ export function useSectionForm<T>(o: SectionFormOptions<T>) {
   // "Load the latest and keep my entries" (B1-5): refresh, then compare what the form was opened
   // on with the same part in the latest view. Equal: re-base (nothing is sent). Different: say so.
   const [refreshing, startRefresh] = useTransition();
-  const latestSame = useRef<(() => boolean) | null>(null);
-  const loadLatest = useCallback(
-    (sameAsOpened?: () => boolean) => {
-      latestSame.current = sameAsOpened ?? null;
-      setLatest('waiting');
-      startRefresh(() => router.refresh());
+  const loadLatest = useCallback(() => {
+    setLatest('waiting');
+    startRefresh(() => router.refresh());
+  }, [router]);
+  // Every input of the decision comes from this render (the view that just arrived), never
+  // from a ref an effect fills in later (independent review P1-2): a colleague's change that
+  // arrives after the press is always compared, so it can never be re-based over.
+  const [checking, setChecking] = useState(false);
+  const sameAsOpened = latest !== 'waiting' ? false : (o.latestSame ?? (o.same ? o.same(JSON.parse(baseline) as T, o.initial) : baseline === incoming));
+  // Re-review N3: the typed values are already what the latest view holds (a lost save that was
+  // stored). Not for a drawer, whose values are not the saved part (it passes latestSame).
+  const typedEqualsLatest = (latest === 'waiting' || checking) && o.versionBound && o.latestSame === undefined ? typedMatchesLatest(values, o.initial, o.same) : false;
+  const step = latestStep({ waiting: latest === 'waiting', refreshing, versionBound: o.versionBound, viewRowVersion: o.rowVersion, base, sameAsOpened, typedEqualsLatest });
+
+  /**
+   * The latest view already holds what is typed: the card is saved. The base
+   * follows that view and the baseline becomes the typed values; nothing is sent.
+   */
+  const acceptLatest = useCallback(
+    (latestRowVersion: number) => {
+      if (latestRowVersion > baseRef.current) setBase(latestRowVersion);
+      setBaseline(json(valuesRef.current));
+      prevRef.current = null;
+      setState(null);
+      setRefusedValues(null);
+      sync.setLastResult(o.id, null);
     },
+    [o.id, setBase, sync],
+  );
+
+  useEffect(() => {
+    if (step === 'idle' || step === 'wait') return;
+    if (step === 'rebase') rebase(o.rowVersion);
+    if (step === 'saved') acceptLatest(o.rowVersion);
+    // 'stop': the refresh ended without a newer view (it failed, or nothing changed yet).
+    const next: LatestOutcome = step === 'rebase' ? 'rebased' : step === 'changed' ? 'changed' : step === 'saved' ? 'saved' : null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reacts once to the view the router refresh brought
+    setLatest(next);
+  }, [step, o.rowVersion, rebase, acceptLatest]);
+
+  // Re-review N3: "Try again" on a card the database cannot replay reads the latest view first.
+  const checkResolve = useRef<((saved: boolean) => void) | null>(null);
+  const readLatestFirst = useCallback(
+    () =>
+      new Promise<boolean>((resolve) => {
+        checkResolve.current = resolve;
+        setChecking(true);
+        startRefresh(() => router.refresh());
+      }),
     [router],
   );
+  const retryStep = checking ? readFirstRetryStep({ refreshing, typedEqualsLatest }) : 'idle';
   useEffect(() => {
-    if (latest !== 'waiting') return;
-    if (o.versionBound && o.rowVersion > baseRef.current) {
-      const custom = latestSame.current;
-      const opened = JSON.parse(baseline) as T;
-      const equal = custom ? custom() : sameRef.current ? sameRef.current(opened, o.initial) : json(opened) === incoming;
-      if (equal) {
-        rebase(o.rowVersion);
-        setLatest('rebased');
-      } else setLatest('changed');
-      // The refresh ended without a newer view (it failed, or nothing changed yet): stop waiting.
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reacts once to the end of the router refresh
-    } else if (!refreshing) setLatest(null);
-  }, [latest, o.versionBound, o.rowVersion, o.initial, baseline, incoming, refreshing, rebase]);
+    if (retryStep === 'idle' || retryStep === 'wait') return;
+    if (retryStep === 'saved') acceptLatest(o.rowVersion);
+    const resolve = checkResolve.current;
+    checkResolve.current = null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reacts once to the end of the router refresh
+    setChecking(false);
+    resolve?.(retryStep === 'saved');
+  }, [retryStep, o.rowVersion, acceptLatest]);
 
   const focusResult = useCallback(() => {
     const box = resultEl.current?.querySelector<HTMLElement>('[role="alert"], [tabindex="-1"]') ?? resultEl.current;
@@ -518,6 +563,11 @@ export function useSectionForm<T>(o: SectionFormOptions<T>) {
     loadLatest,
     /** Outcome of the last "Load the latest and keep my entries" (null when none or after the next save). */
     latest,
+    /**
+     * Re-review N3: refresh, then true when the latest view already holds the typed values
+     * (the card is then saved and nothing is sent), false when they still need sending.
+     */
+    readLatestFirst,
   };
 }
 

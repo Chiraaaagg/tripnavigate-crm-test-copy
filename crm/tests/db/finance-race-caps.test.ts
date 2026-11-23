@@ -12,6 +12,7 @@ import {
   resetActor,
   setActor,
 } from '../helpers/db';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Phase 5A concurrency-sensitive rules on PGlite
@@ -389,9 +390,9 @@ describe('retry identity and policy versions', () => {
       await setPolicy({ cashPayerDayCapPaise: '1000', cashTripCapPaise: '1000', receiptMaxPaise: '1000' });
       const again = await record(ACC, D.del001, fields, request);
       expect(again).toEqual({ ...first, outcome: 'existing' });
-      await refusedRecord(ACC, D.del001, { ...fields, amountPaise: '400001' }, '40001', 'request_conflict', request);
-      await refusedRecord(ACC2, D.del001, fields, '40001', 'request_conflict', request);
-      await refused(ACC, 'select public.receipt_verify($1, $2)', [first.id, request], '40001', 'request_conflict');
+      await refusedRecord(ACC, D.del001, { ...fields, amountPaise: '400001' }, CONFLICT_STATE, 'request_conflict', request);
+      await refusedRecord(ACC2, D.del001, fields, CONFLICT_STATE, 'request_conflict', request);
+      await refused(ACC, 'select public.receipt_verify($1, $2)', [first.id, request], CONFLICT_STATE, 'request_conflict');
       expect(await db.query('select id from public.customer_receipts where request_id = $1', [request])).toHaveLength(1);
     });
   });

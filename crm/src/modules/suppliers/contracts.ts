@@ -10,6 +10,7 @@
  * Type and constant file only (no zod, no server import): client components
  * may import it.
  */
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 export const SUPPLIER_KINDS = ['direct', 'channel'] as const;
 export type SupplierKind = (typeof SUPPLIER_KINDS)[number];
@@ -230,11 +231,11 @@ export type SupplierErrorCode =
   | 'supplier_exists'
   | 'link_not_allowed';
 
-export const SUPPLIER_ERROR_STATES: Record<SupplierErrorCode, string> = {
+export const SUPPLIER_ERROR_STATES: Record<SupplierErrorCode, string | readonly string[]> = {
   not_authorized: '42501',
   not_found: 'P0002',
-  version_changed: '40001',
-  request_conflict: '40001',
+  version_changed: CONFLICT_STATES,
+  request_conflict: CONFLICT_STATES,
   invalid_input: '22023',
   environment_unset: '55000',
   supplier_exists: '23505',

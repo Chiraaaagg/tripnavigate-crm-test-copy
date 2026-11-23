@@ -5,6 +5,7 @@ import { ACC2_FIXTURE_USERS as U2, type Actor, FIXTURE_USERS as U, type TestDb, 
 import {
   ACC, ACC2, DEAL, FLIGHT, HOTEL_ITEM, MANAGER, MANAGER_AMD, OWNER, PURCHASE, REASON, SUPER, type Booked, type Item, accHelpers, rid, sha, today,
 } from './acc-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts Phase 2 (contract accounts-phase2-2026-11-11/contract.md, frozen
@@ -198,7 +199,7 @@ export const NEW_CSV = ['Service', 'Tally debit ledger', 'Tally credit ledger', 
 export const PHASE2_CSV = [...PHASE1_CSV.slice(0, 12), ...NEW_CSV, ...PHASE1_CSV.slice(12)];
 /** Section 9 new refusal tokens and codes. */
 export const NEW_TOKENS: Record<string, string> = {
-  documents_off: '55000', billing_not_verified: '55000', document_stale: '40001', receipt_not_verified: '55000', has_credit_notes: '55000',
+  documents_off: '55000', billing_not_verified: '55000', document_stale: CONFLICT_STATE, receipt_not_verified: '55000', has_credit_notes: '55000',
   refunds_off: '55000', refund_open_exists: '23505', refund_exceeds_money: '22023', evidence_missing: '55000', over_expected: '22023',
 };
 /** Document number (6.1). */

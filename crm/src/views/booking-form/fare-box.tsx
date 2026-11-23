@@ -136,7 +136,7 @@ export function FareBox({
           Not saved: {save.reason}
         </p>
       ) : null}
-      {editable && action ? <SaveRecovery save={save} describedBy="why-fares" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="basis-full" /> : null}
+      {editable && action ? <SaveRecovery save={save} describedBy="why-fares" focusId="bf-fare-title" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="basis-full" /> : null}
     </form>
   );
 }

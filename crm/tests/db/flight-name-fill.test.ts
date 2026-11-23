@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FIXTURE_USERS as U, type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { DEAL, FLIGHT, MANAGER, OWNER, PURCHASE, SALES_B, SQL, flightHelpers, rid, sectorInput } from './flight-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Flight build, contract Addendum 2 (owner decision R3, 5 November 2026): the
@@ -87,7 +88,7 @@ describe('deal_traveller_name_fill (R3)', () => {
       // Idempotent: the same request again is the stored result; the same id with other details is refused.
       expect(await one(OWNER, FILL_SQL, [DEAL, b.versionId, slot.seq, `  ${NAME} `, 'adult', req])).toMatchObject({ seq: slot.seq });
       expect(await owner(`select count(*)::int as n from public.audit_events where action = 'booking.traveller_name_filled'`)).toEqual([{ n: 1 }]);
-      await refused(OWNER, FILL_SQL, [DEAL, b.versionId, slot.seq, 'Synthetic Other Name', 'adult', req], 'duplicate_request', '40001');
+      await refused(OWNER, FILL_SQL, [DEAL, b.versionId, slot.seq, 'Synthetic Other Name', 'adult', req], 'duplicate_request', CONFLICT_STATE);
       // A set name is never changed this way.
       await refused(OWNER, FILL_SQL, [DEAL, b.versionId, slot.seq, 'Synthetic Other Name', 'adult', rid()], 'name_already_set', '55000');
     });

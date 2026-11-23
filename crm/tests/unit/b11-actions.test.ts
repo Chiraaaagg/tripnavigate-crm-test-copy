@@ -121,8 +121,8 @@ describe('refusal token maps', () => {
   });
 
   it('new finance tokens map only with their SQLSTATE; claims tokens have wording', () => {
-    for (const [token, state] of Object.entries(FINANCE_ERROR_STATES)) {
-      expect(mapFinanceError({ code: state, message: token })).toBe(token);
+    for (const [token, allowed] of Object.entries(FINANCE_ERROR_STATES)) {
+      for (const state of typeof allowed === 'string' ? [allowed] : allowed) expect(mapFinanceError({ code: state, message: token })).toBe(token);
     }
     expect(mapFinanceError({ code: '55000', message: 'duplicate_claim' })).toBeNull();
     expect(FINANCE_ERROR_TEXT.claim_over_total).toMatch(/selling total/);

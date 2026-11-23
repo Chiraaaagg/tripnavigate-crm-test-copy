@@ -5,6 +5,7 @@ import { isRealStackRequired } from '@/lib/config';
 import type { FinanceCommandResult } from '@/modules/finance/contracts';
 import { FIXTURE_EMAILS, FIXTURE_USERS as U, assertDatabaseUrlNotOperational, istBusinessDate } from '../helpers/db';
 import { createRealStack, resolveRealStackEnv, type SignedIn } from '../helpers/real-stack';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Phase 5A permission and concurrency proof against the REAL local Supabase
@@ -455,9 +456,9 @@ describe.skipIf(!enabled)('Phase 5A finance through PostgREST: denials and concu
       p_fields: { ...fields, amountPaise: '1001' },
       p_request_id: requestId,
     });
-    expect(changed.error).toMatchObject({ code: '40001', message: 'request_conflict' });
+    expect(changed.error).toMatchObject({ code: CONFLICT_STATE, message: 'request_conflict' });
     const otherActor = await accB.client.rpc('receipt_record', { p_deal_id: deal, p_fields: fields, p_request_id: requestId });
-    expect(otherActor.error).toMatchObject({ code: '40001', message: 'request_conflict' });
+    expect(otherActor.error).toMatchObject({ code: CONFLICT_STATE, message: 'request_conflict' });
   });
 
   it('self-verification and deal-owner verification are refused through the Data API', async () => {

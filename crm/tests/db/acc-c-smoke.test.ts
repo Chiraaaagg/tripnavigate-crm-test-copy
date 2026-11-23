@@ -4,6 +4,7 @@ import { BUDGETS, HOTEL, MANAGER, OWNER, PURCHASE, PURCHASE_CLAIM_SQL, SAVE_ITEM
 import { b11Helpers, rid } from './b11-support';
 import { ACC, ACC2, DEAL, SUPER, financeHelpers } from './finance-support';
 import { visaHelpers, OWNER as VISA_OWNER } from './visa-e-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase, track C smoke checks (migrations 20261203000400..0430;
@@ -146,7 +147,7 @@ describe('review return, revision and the Purchase signal (kinds 3, 4; 7.6, 8.5)
       expect(await one(OWNER, HOME)).toBeNull();
 
       // OK, seen: stale basis refused; the right one moves the basis and closes the notice.
-      await refused(PURCHASE, ACK, [taskIds[0], opened.versionId, rid()], '40001', 'version_changed');
+      await refused(PURCHASE, ACK, [taskIds[0], opened.versionId, rid()], CONFLICT_STATE, 'version_changed');
       await refused(MANAGER, ACK, [taskIds[0], versionId, rid()], '42501', 'not_authorized');
       const req = rid();
       expect(await one(PURCHASE, ACK, [taskIds[0], versionId, req])).toMatchObject({ outcome: 'updated', basisVersionId: opened.versionId, rowVersion: 2 });

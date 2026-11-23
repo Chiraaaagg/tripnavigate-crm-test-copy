@@ -4,6 +4,7 @@ import {
   ACC, DEAL, DEAL2, FLIGHT, FLIGHT_2, LEG_DEL_GOI, LEG_JDH_DEL, MANAGER, OWNER, PURCHASE, SALES_B, SQL, VISA, changeSector, flightHelpers, rid,
   typedFlight,
 } from './flight-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Flight build, contract D5 and sections 4, 6.1 A6-A9; test plan 12.1
@@ -86,7 +87,7 @@ describe('package Deal: the Sales owner decides', () => {
         await refused(actor, SQL.changeDecide, [c.changeId, 'approve', null, (await changeRow(c.changeId)).row_version, rid()],
           actor === FLIGHT ? '(not_authorized|not_self_approval)' : 'not_authorized');
       }
-      await refused(OWNER, SQL.changeDecide, [c.changeId, 'approve', null, 99, rid()], 'version_changed', '40001');
+      await refused(OWNER, SQL.changeDecide, [c.changeId, 'approve', null, 99, rid()], 'version_changed', CONFLICT_STATE);
       await refusedHint(OWNER, SQL.changeDecide, [c.changeId, 'maybe', null, (await changeRow(c.changeId)).row_version, rid()], 'invalid_input');
 
       await decide(OWNER, c.changeId, 'approve');

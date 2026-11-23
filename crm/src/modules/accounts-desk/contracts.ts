@@ -10,6 +10,7 @@
  */
 
 import type { DuesWriteOff } from '@/modules/write-offs/dto';
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 export type Paise = string;
 
@@ -702,10 +703,10 @@ export type AccountsDeskErrorCode =
   // Accounts phase 3 (track C, section 13)
   | 'tally_xml_off';
 
-export const ACCOUNTS_DESK_ERROR_STATES: Record<AccountsDeskErrorCode, string> = {
+export const ACCOUNTS_DESK_ERROR_STATES: Record<AccountsDeskErrorCode, string | readonly string[]> = {
   not_authorized: '42501',
   not_found: 'P0002',
-  version_changed: '40001',
+  version_changed: CONFLICT_STATES,
   invalid_input: '22023',
   tally_not_ready: '55000',
   already_matched: '55000',
@@ -718,8 +719,8 @@ export const ACCOUNTS_DESK_ERROR_STATES: Record<AccountsDeskErrorCode, string> =
   link_not_allowed: '55000',
   already_recorded: '55000',
   wrong_state: '55000',
-  request_conflict: '40001',
-  duplicate_request: '40001',
+  request_conflict: CONFLICT_STATES,
+  duplicate_request: CONFLICT_STATES,
   environment_unset: '55000',
   not_configured: '55000',
   tally_xml_off: '55000',

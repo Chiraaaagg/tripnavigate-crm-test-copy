@@ -19,6 +19,7 @@ import {
   rid,
 } from './b1-support';
 import { DESK, b11Helpers } from './b11-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * B1.2 Phase E (migration 20261120000200_b12_quotations): quotation header,
@@ -222,7 +223,7 @@ describe('Deal quotation: create, edit, ready, sent, accept, convert', () => {
       const requestId = rid();
       const first = await one<Created>(OWNER, SQL.create, ['deal', DEAL, 'Synthetic replay', requestId]);
       expect(await one<Created>(OWNER, SQL.create, ['deal', DEAL, 'Synthetic replay', requestId])).toMatchObject({ quotationId: first.quotationId, created: false });
-      await refused(OWNER, SQL.create, ['deal', DEAL, 'Other title', requestId], '40001', 'request_conflict');
+      await refused(OWNER, SQL.create, ['deal', DEAL, 'Other title', requestId], CONFLICT_STATE, 'request_conflict');
 
       const draft = await get(OWNER, q.versionId);
       expect(draft!.version).toMatchObject({ status: 'draft', validUntil: expect.any(String) });
@@ -282,7 +283,7 @@ describe('Deal quotation: create, edit, ready, sent, accept, convert', () => {
       await expectHint(OWNER, SQL.save, [q.versionId, q.rowVersion, JSON.stringify({ adults: -1, colour: 'x', scope: 'space', content: { price: 1 } })],
         '22023', 'invalid_input', /adults/);
       await refused(OWNER, SQL.save, [q.versionId, q.rowVersion, JSON.stringify({ validUntil: '2020-01-01' })], '22023', 'valid_until_past');
-      await refused(OWNER, SQL.save, [q.versionId, q.rowVersion + 5, JSON.stringify({ adults: 2 })], '40001', 'version_changed');
+      await refused(OWNER, SQL.save, [q.versionId, q.rowVersion + 5, JSON.stringify({ adults: 2 })], CONFLICT_STATE, 'version_changed');
       await expectHint(OWNER, SQL.save, [q.versionId, q.rowVersion, JSON.stringify({ start: '2026-12-10', end: '2026-12-01' })], '22023', 'invalid_input', /end/);
       await expectHint(OWNER, SQL.itemAdd, [q.versionId, q.rowVersion, 'hotel', null, JSON.stringify({ ...HOTEL, extraBeds: 30 })], '22023', 'invalid_input', /extraBeds/);
       await expectHint(OWNER, SQL.itemAdd, [q.versionId, q.rowVersion, 'hotel', 'upgrade', JSON.stringify(HOTEL)], '22023', 'invalid_input', /tierKey/);
@@ -349,7 +350,7 @@ describe('acceptance (DEC-35)', () => {
       const pending = await one<{ evidenceId: string }>(OWNER, SQL.evBegin, [s.versionId, 'acceptance_message', 'a.pdf', 'application/pdf', 10, SHA]);
       await refused(OWNER, SQL.accept, [s.versionId, s.hash, pending.evidenceId, 'quoted', rid()], '55000', 'acceptance_proof_required');
       const ev = await storeAcceptance(OWNER, s.versionId);
-      await refused(OWNER, SQL.accept, [s.versionId, 'a'.repeat(64), ev, 'quoted', rid()], '40001', 'version_changed');
+      await refused(OWNER, SQL.accept, [s.versionId, 'a'.repeat(64), ev, 'quoted', rid()], CONFLICT_STATE, 'version_changed');
       await expectHint(OWNER, SQL.accept, [s.versionId, s.hash, ev, 'upgrade', rid()], '22023', 'invalid_input', /tierKey/);
       const requestId = rid();
       const ok = await one<{ status: string }>(OWNER, SQL.accept, [s.versionId, s.hash, ev, 'quoted', requestId]);
@@ -445,7 +446,7 @@ describe('conversion refusals and readiness of the converted draft', () => {
       await refused(OWNER, SQL.convert, [s.versionId, s.hash, rid()], '55000', 'wrong_state');
       const ev = await storeAcceptance(OWNER, s.versionId);
       await one(OWNER, SQL.accept, [s.versionId, s.hash, ev, 'quoted', rid()]);
-      await refused(OWNER, SQL.convert, [s.versionId, 'b'.repeat(64), rid()], '40001', 'version_changed');
+      await refused(OWNER, SQL.convert, [s.versionId, 'b'.repeat(64), rid()], CONFLICT_STATE, 'version_changed');
       const opened = await h.openDraft(OWNER, DEAL);
       await h.saveTrip(OWNER, opened.versionId, opened.rowVersion);
       await refused(OWNER, SQL.convert, [s.versionId, s.hash, rid()], '55000', 'draft_not_empty');
@@ -512,7 +513,7 @@ describe('review E2 rules', () => {
       await db.exec('alter table public.quotation_versions disable trigger quotation_versions_a_guard');
       await owner('update public.quotation_versions set adults = 9 where id = $1', [s.versionId]);
       await db.exec('alter table public.quotation_versions enable trigger quotation_versions_a_guard');
-      await refused(OWNER, SQL.accept, [s.versionId, s.hash, ev, 'quoted', rid()], '40001', 'version_changed');
+      await refused(OWNER, SQL.accept, [s.versionId, s.hash, ev, 'quoted', rid()], CONFLICT_STATE, 'version_changed');
     });
   });
 

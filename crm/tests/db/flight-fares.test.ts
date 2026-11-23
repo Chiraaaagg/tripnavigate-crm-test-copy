@@ -4,6 +4,7 @@ import {
   ACC, DEAL, DEAL2, FLIGHT, FLIGHT_2, type FareIn, LEG_DEL_GOI, LEG_JDH_DEL, MANAGER, MANAGER_AMD, OWNER, PURCHASE, SALES_B, SQL, confirmFields, fare,
   flightHelpers, rid, ticketFor, typedFlight,
 } from './flight-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Flight build, contract D3, D4 and sections 4 (budget), 5.2 (batches, fares,
@@ -158,7 +159,7 @@ describe('over budget: Manager approval for the exact fare set', () => {
         await refused(actor, SQL.fareApprovalDecide, [a.id, 'approve', null, a.row_version, rid()], '(not_authorized|not_self_approval)');
       }
       await refusedHint(MANAGER, SQL.fareApprovalDecide, [a.id, 'return', 'short', a.row_version, rid()], 'invalid_input');
-      await refused(MANAGER, SQL.fareApprovalDecide, [a.id, 'approve', null, a.row_version + 5, rid()], 'version_changed', '40001');
+      await refused(MANAGER, SQL.fareApprovalDecide, [a.id, 'approve', null, a.row_version + 5, rid()], 'version_changed', CONFLICT_STATE);
       await one(MANAGER, SQL.fareApprovalDecide, [a.id, 'approve', null, a.row_version, rid()]);
       const approved = (await approvalRow(DEAL))!;
       expect(approved).toMatchObject({ status: 'approved', decided_by: U.managerDelhi });

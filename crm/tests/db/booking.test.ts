@@ -18,6 +18,7 @@ import {
   resetActor,
   setActor,
 } from '../helpers/db';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Phase 3 booking -> Purchase task: database contract
@@ -402,14 +403,14 @@ describe('drafts', () => {
       await one(OWNER, 'select public.booking_remove_evidence($1) as r', [second.evidenceId]);
       expect((await readiness(OWNER, versionId)).contentHash).toBe(withOne);
       // Confirming against the pre-evidence hash is refused.
-      await refused(OWNER, CONFIRM_SQL, [versionId, saved.contentHash], '40001', 'version_changed');
+      await refused(OWNER, CONFIRM_SQL, [versionId, saved.contentHash], CONFLICT_STATE, 'version_changed');
     });
   });
 
   it('refuses stale row versions, unknown/missing keys and invalid values', async () => {
     await asOwner(db, async () => {
       const { versionId } = await openDraft(OWNER);
-      await refused(OWNER, SAVE_SQL, [versionId, 7, JSON.stringify(FACTS), SELLING, true], '40001', 'version_changed');
+      await refused(OWNER, SAVE_SQL, [versionId, 7, JSON.stringify(FACTS), SELLING, true], CONFLICT_STATE, 'version_changed');
       const bad: unknown[] = [
         { ...FACTS, price: 1 },
         Object.fromEntries(Object.entries(FACTS).filter(([k]) => k !== 'city')),
@@ -699,8 +700,8 @@ describe('P3-02 hash changed after review', () => {
       await addSalesAssignee();
       // Someone else edits after the confirmer reviewed `hash`.
       await saveDraft(ASSIGNEE, versionId, 2, { ...FACTS, rooms: 3 });
-      await refused(OWNER, CONFIRM_SQL, [versionId, hash], '40001', 'version_changed');
-      await refused(OWNER, CONFIRM_SQL, [versionId, null], '40001', 'version_changed');
+      await refused(OWNER, CONFIRM_SQL, [versionId, hash], CONFLICT_STATE, 'version_changed');
+      await refused(OWNER, CONFIRM_SQL, [versionId, null], CONFLICT_STATE, 'version_changed');
       expect(await countTasks(versionId)).toBe(0);
       expect(await db.query(`select status from public.booking_versions where id = $1`, [versionId])).toEqual([{ status: 'draft' }]);
     });
@@ -1168,7 +1169,7 @@ describe('P3-13 Purchase claim', () => {
          select $1, b.legal_entity_id, b.id, 'purchase', 'active' from public.branches b where b.code = 'JDH'`,
         [U.visaJodhpur],
       );
-      await refused({ userId: U.visaJodhpur }, 'select public.purchase_task_claim($1) as r', [taskId], '40001', 'task_conflict');
+      await refused({ userId: U.visaJodhpur }, 'select public.purchase_task_claim($1) as r', [taskId], CONFLICT_STATE, 'task_conflict');
       const detail = await one<{ assigneeName: string; assignedToYou: boolean; canClaim: boolean; status: string }>(
         { userId: U.visaJodhpur },
         'select public.purchase_task_get($1) as r',

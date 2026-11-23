@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { HOTEL_ITEM, PAST_HOTEL_ITEM, PAST_TRIP, SELLING, dayFrom } from './acc-support';
 import { ACC, ACC_J2, DEAL, MANAGER, MANAGER_J2, OWNER, PURCHASE, REASON, SQL3, SUPER, U, acc3Helpers, rid, text } from './acc3-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase 3, Track T — Track B write-off (contract 6.6, 13, 14,
@@ -127,8 +128,8 @@ describe('6.6 write-off lifecycle', () => {
       // Approval: Approver only, amount bound, not by the proposer.
       await refused(OWNER, SQL3.woDecide, [p.writeOffId, 'approve', '30000', null, (await row(p.writeOffId)).row_version, rid()], 'not_authorized', '42501');
       await refused(MANAGER, SQL3.woDecide, [p.writeOffId, 'approve', '29999', null, (await row(p.writeOffId)).row_version, rid()],
-        'version_changed', '40001');
-      await refused(MANAGER, SQL3.woDecide, [p.writeOffId, 'approve', '30000', null, 999, rid()], 'version_changed', '40001');
+        'version_changed', CONFLICT_STATE);
+      await refused(MANAGER, SQL3.woDecide, [p.writeOffId, 'approve', '30000', null, 999, rid()], 'version_changed', CONFLICT_STATE);
       const ok = await decide(p.writeOffId, 'approve');
       expect(ok.status).toBe('approved');
       const d = await dues();

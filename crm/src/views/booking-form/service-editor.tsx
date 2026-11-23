@@ -11,13 +11,13 @@ import { VISA_DOCUMENT_CATALOGUE } from '@/modules/visa/contracts';
 import type { BookingFormServiceItemView } from '@/modules/fulfilment/booking-form-contract';
 import { isIsoDate } from '@/modules/fulfilment/booking-form-model';
 import { BOOK_RELIABILITY_TEXT, ERROR_TEXT, type BookTravellerView, type ServiceType } from '@/modules/fulfilment/contracts';
-import { ROUTES } from '@/modules/identity/session-policy';
+import { ROUTES } from '@/modules/identity/contracts';
 import { AreaField, SelectField, TextField } from '../b11/controls';
 import { useSectionForm, type LatestOutcome } from '../b11/draft-sync';
 import { newRequestId, type UiResult } from '../b11/form-kit';
 import { requestIdFor } from '../b11/result';
 import type { B11Action, BookNowView } from '../b11/shapes';
-import { refusalReason, useSaveQueue } from './autosave-queue';
+import { refusalReason, useKeepFocus, useSaveQueue } from './autosave-queue';
 import { changeModeEditable, useChangeMode } from './change-mode-context';
 import { useFormToast } from './form-toast';
 import { CarEditor } from './car-editor';
@@ -120,6 +120,9 @@ export function EditorShell({
     return () => cancelAnimationFrame(t);
   }, []);
   const recovery = useContext(DrawerRecoveryCtx);
+  const latestNote = recovery?.latest === 'rebased' ? BOOK_RELIABILITY_TEXT.latestLoadedKeepEntries : recovery?.latest === 'changed' ? BOOK_RELIABILITY_TEXT.sameItemChanged : null;
+  // When the button goes away (re-based, or the same item changed), focus moves to that line.
+  const keepFocus = useKeepFocus('svc-latest');
   // B1-5: after a re-base the refusal is cleared and the drawer says to press Save.
   const rebased = recovery?.latest === 'rebased';
   const shownProblem = rebased && problem === ERROR_TEXT.version_changed ? null : problem;
@@ -173,15 +176,14 @@ export function EditorShell({
                 </a>
               ) : null}
               {editable && recovery && shownProblem === ERROR_TEXT.version_changed && recovery.latest !== 'changed' ? (
-                <Button size="sm" className="self-start" loading={recovery.latest === 'waiting'} aria-describedby="svc-problem" onClick={recovery.onLoadLatest}>
+                <Button size="sm" className="self-start" data-recovery="load-latest" loading={recovery.latest === 'waiting'} aria-describedby="svc-problem" onClick={keepFocus(recovery.onLoadLatest)}>
                   {BOOK_RELIABILITY_TEXT.loadLatestKeepEntries}
                 </Button>
               ) : null}
-              {recovery?.latest === 'rebased' || recovery?.latest === 'changed' ? (
-                <p role="status" className="m-0 text-sm text-copy">
-                  {recovery.latest === 'rebased' ? BOOK_RELIABILITY_TEXT.latestLoadedKeepEntries : BOOK_RELIABILITY_TEXT.sameItemChanged}
-                </p>
-              ) : null}
+              {/* Always in the drawer (empty until needed), so W9b and W9c are announced; focus lands here. */}
+              <p id="svc-latest" role="status" tabIndex={-1} className={latestNote ? 'm-0 text-sm text-copy outline-none' : 'sr-only'}>
+                {latestNote ?? ''}
+              </p>
             </div>
           </DrawerBody>
           <DrawerFooter className="sticky bottom-0 bg-card" data-drawer-footer="">
@@ -460,7 +462,19 @@ export function ServiceEditorDrawer(p: ServiceEditorProps) {
   // Stable for the drawer's life (a new item bound after its first save keeps the same form).
   const [formId] = useState(() => (p.item ? `svc-${p.item.itemId}` : `svc-new-${p.type}`));
   const [formLabel] = useState(() => (p.item ? `${SERVICE_KIND_LABEL[p.type]} ${p.item.itemNo}` : `New ${SERVICE_KIND_LABEL[p.type].toLowerCase()}`));
+  // B1-5: what the drawer was opened on (taken again after one of its own saves lands). The
+  // "same item?" answer is worked out on every render from this render's item, and the
+  // section form decides with it in the same commit (independent review P1-2). A new item
+  // has nothing to overwrite: it re-bases (the database decides on Save).
+  const [openedOn, setOpenedOn] = useState(p.item);
+  const retake = useRef(false);
+  useEffect(() => {
+    if (!retake.current) return;
+    retake.current = false;
+    setOpenedOn(p.item);
+  }, [p.item]);
   const f = useSectionForm<unknown>({
+    latestSame: sameServiceItem(openedOn, p.item),
     id: formId,
     section: 'services',
     label: formLabel,
@@ -473,24 +487,11 @@ export function ServiceEditorDrawer(p: ServiceEditorProps) {
     tracksDirty: false,
   });
   const { setValues, post } = f;
-  // B1-5: what the drawer was opened on (taken again after one of its own saves lands).
-  const [openedOn, setOpenedOn] = useState(p.item);
-  const retake = useRef(false);
-  useEffect(() => {
-    if (!retake.current) return;
-    retake.current = false;
-    setOpenedOn(p.item);
-  }, [p.item]);
-  const compare = useRef({ openedOn, latest: p.item });
-  useEffect(() => {
-    compare.current = { openedOn, latest: p.item };
-  });
   const loadLatest = f.loadLatest;
   const recovery: DrawerRecovery = {
     code: f.state && !f.state.ok ? f.state.code : null,
     latest: f.latest,
-    // A new item has nothing to overwrite: it re-bases (the database decides on Save).
-    onLoadLatest: () => loadLatest(() => sameServiceItem(compare.current.openedOn, compare.current.latest)),
+    onLoadLatest: () => loadLatest(),
   };
   const env: EditorEnv = {
     view: p.view,

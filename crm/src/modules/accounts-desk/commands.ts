@@ -26,6 +26,7 @@ import {
   type TallyMappingView,
   type TallyRecordKind,
 } from './contracts';
+import { stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers for the Accounts desk reads and commands (migrations
@@ -55,7 +56,7 @@ export class AccountsDeskCommandError extends Error {
 export function mapAccountsDeskError(error: RpcError): AccountsDeskErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(ACCOUNTS_DESK_ERROR_STATES, token) && ACCOUNTS_DESK_ERROR_STATES[token as AccountsDeskErrorCode] === state) {
+  if (Object.hasOwn(ACCOUNTS_DESK_ERROR_STATES, token) && stateMatches(ACCOUNTS_DESK_ERROR_STATES[token as AccountsDeskErrorCode], state)) {
     return token as AccountsDeskErrorCode;
   }
   if (SESSION_STATES.has(state)) return 'session';

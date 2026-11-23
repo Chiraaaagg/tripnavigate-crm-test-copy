@@ -17,6 +17,7 @@ import type {
   SupplierFields,
   SupplierServiceType,
 } from './contracts';
+import { CONFLICT_STATES, stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers for the Phase 4 commands and reads
@@ -27,11 +28,11 @@ import type {
  * never surfaced: errors map by SQLSTATE + exact token (contract §7).
  */
 
-export const PROCUREMENT_ERROR_STATES: Record<ProcurementErrorCode, string> = {
+export const PROCUREMENT_ERROR_STATES: Record<ProcurementErrorCode, string | readonly string[]> = {
   not_authorized: '42501',
   not_found: 'P0002',
-  version_changed: '40001',
-  task_conflict: '40001',
+  version_changed: CONFLICT_STATES,
+  task_conflict: CONFLICT_STATES,
   not_ready: '55000',
   over_budget: '55000',
   procurement_disabled: '55000',
@@ -74,7 +75,7 @@ export class ProcurementCommandError extends Error {
 export function mapProcurementError(error: RpcError): ProcurementErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(PROCUREMENT_ERROR_STATES, token) && PROCUREMENT_ERROR_STATES[token as ProcurementErrorCode] === state) {
+  if (Object.hasOwn(PROCUREMENT_ERROR_STATES, token) && stateMatches(PROCUREMENT_ERROR_STATES[token as ProcurementErrorCode], state)) {
     return token as ProcurementErrorCode;
   }
   if (SESSION_STATES.has(state)) return 'session';

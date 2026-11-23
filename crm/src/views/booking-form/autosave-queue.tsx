@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { cn, focusRing } from '@/components/ui/cn';
 import type { SaveState } from '@/components/ui/save-status';
 import { BOOK_RELIABILITY_TEXT, ERROR_TEXT, UNKNOWN_OUTCOME_TEXT } from '@/modules/fulfilment/contracts';
-import { ROUTES } from '@/modules/identity/session-policy';
+import { ROUTES } from '@/modules/identity/contracts';
 import type { LatestOutcome } from '../b11/draft-sync';
 import { errorText, refusedFields, type FieldRef, type UiResult } from '../b11/form-kit';
 
@@ -152,7 +152,9 @@ export function cardStateOf(r: SendOutcome, refs: readonly FieldRef[] = []): Car
   if (r.code === 'session') return { state: 'fix', reason: ERROR_TEXT.session, signIn: true, retry: true, paused: true };
   if (r.code === 'unexpected') {
     if ('offline' in r && r.offline) return { state: 'fix', reason: BOOK_RELIABILITY_TEXT.offlineNotSaved, retry: true, paused: true };
-    return { state: 'fix', reason: UNKNOWN_OUTCOME_TEXT, paused: true };
+    // B1-4 (e), review P2-1: "Try again" re-sends the same values with the same request id,
+    // which the database replays when the lost save was stored (the passengers card reads first).
+    return { state: 'fix', reason: UNKNOWN_OUTCOME_TEXT, retry: true, paused: true };
   }
   if (r.code === 'version_changed') return { state: 'fix', reason: ERROR_TEXT.version_changed, conflict: true };
   return { state: 'fix', reason: refusalReason(r, refs) };
@@ -328,6 +330,18 @@ export function useAutosave<T>({
 }
 
 /**
+ * Card wording for B1-5 (lead decision, 23 November 2026; the owner checks all
+ * wording before go-live). Cards have no Save or Cancel button, so they do not
+ * use the drawer texts W9b and W9c.
+ */
+export const CARD_LATEST_TEXT = {
+  /** W9b on a card. */
+  rebased: 'The latest version is loaded and your changes are kept. Press Try again to save them.',
+  /** W9c on a card. */
+  changed: 'Someone changed this part after you opened it. Reload the page to see the latest; your typed changes here will be lost.',
+} as const;
+
+/**
  * Booking reliability B1-5 for a card: "Load the latest and keep my entries"
  * under a conflict. When the latest view arrives the section form re-bases
  * (same content) or reports that the same card changed; the card then reads
@@ -339,22 +353,62 @@ export function useCardLatest(f: { latest: LatestOutcome; loadLatest: () => void
   useEffect(() => {
     if (f.latest === seen.current) return;
     seen.current = f.latest;
-    if (f.latest === 'rebased') settle({ state: 'fix', reason: BOOK_RELIABILITY_TEXT.latestLoadedKeepEntries, retry: true, paused: true });
-    else if (f.latest === 'changed') settle({ state: 'fix', reason: ERROR_TEXT.version_changed, note: BOOK_RELIABILITY_TEXT.sameItemChanged, paused: true });
+    if (f.latest === 'rebased') settle({ state: 'fix', reason: CARD_LATEST_TEXT.rebased, retry: true, paused: true });
+    else if (f.latest === 'changed') settle({ state: 'fix', reason: ERROR_TEXT.version_changed, note: CARD_LATEST_TEXT.changed, paused: true });
+    // Re-review N3: the latest view already holds what is typed (the employee's own lost save).
+    else if (f.latest === 'saved') settle({ state: 'saved', reason: null });
   }, [f.latest, settle]);
   return { latest: f.latest, onLoadLatest: f.loadLatest };
 }
 
 /**
+ * Rule 12 (review P2-4): after "Try again" or "Load the latest" the pressed
+ * button may disappear. When the focused element is gone, focus moves to
+ * `targetId` (the card heading or the reason line) instead of the page body.
+ */
+export function useKeepFocus(targetId: string | undefined) {
+  const pending = useRef(false);
+  useEffect(() => {
+    if (!pending.current) return;
+    const active = document.activeElement;
+    const lost = !active || active === document.body || !document.contains(active);
+    if (!lost) {
+      // Still on the pressed button (it is loading), or the person moved on: nothing to do yet.
+      if (!(active instanceof HTMLElement) || !active.dataset.recovery) pending.current = false;
+      return;
+    }
+    pending.current = false;
+    const el = targetId ? document.getElementById(targetId) : null;
+    if (!el) return;
+    if (!el.matches('a[href], button, input, select, textarea, [tabindex]')) el.tabIndex = -1;
+    el.focus({ preventScroll: true });
+  });
+  return (run: () => void) => () => {
+    pending.current = true;
+    run();
+  };
+}
+
+/**
+ * Re-review N3: what "Try again" answers on a card whose save the database
+ * cannot replay in full (customer & trip, payment plan) when the latest view
+ * already holds the typed values: the card is saved and nothing is sent.
+ */
+export const SAVED_ALREADY: SendOutcome = { ok: true, data: undefined, message: '', card: { state: 'saved', reason: null } } as SendOutcome;
+
+/**
  * The controls under a card's save reason (V4, V5, V6): "Sign in (opens in a
  * new tab)", "Load the latest and keep my entries", "Try again", and one
- * status line. Existing components only; nothing renders for a plain refusal.
+ * status line. Existing components only; nothing visible for a plain refusal.
+ * The status line is always in the page (empty and visually hidden when there
+ * is nothing to say), so screen readers announce the text when it arrives.
  */
 export function SaveRecovery({
   save,
   describedBy,
   latest = null,
   onLoadLatest,
+  focusId,
   className,
 }: {
   save: CardSaveState & { retryNow: () => void };
@@ -362,40 +416,40 @@ export function SaveRecovery({
   describedBy?: string;
   latest?: LatestOutcome;
   onLoadLatest?: () => void;
+  /** Where focus goes when the pressed button disappears (the card heading; default: the reason line). */
+  focusId?: string;
   className?: string;
 }) {
   const fix = save.state === 'fix';
   const signIn = fix && save.signIn;
   const loadLatest = fix && save.conflict && onLoadLatest;
   const retry = fix && save.retry;
-  if (!signIn && !loadLatest && !retry && !save.note) return null;
+  const keep = useKeepFocus(focusId ?? describedBy);
   return (
-    <div className={cn('flex flex-col gap-2', className)}>
+    <>
       {signIn || loadLatest || retry ? (
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className={cn('flex flex-wrap items-center gap-2.5', className)}>
           {signIn ? (
             <a href={ROUTES.signIn} target="_blank" rel="noopener noreferrer" className={cn('inline-flex min-h-9 items-center rounded-chip text-sm font-semibold text-brand-strong underline underline-offset-4', focusRing)}>
               {BOOK_RELIABILITY_TEXT.signInNewTab}
             </a>
           ) : null}
           {loadLatest ? (
-            <Button size="sm" loading={latest === 'waiting'} aria-describedby={describedBy} onClick={onLoadLatest}>
+            <Button size="sm" data-recovery="load-latest" loading={latest === 'waiting'} aria-describedby={describedBy} onClick={keep(loadLatest)}>
               {BOOK_RELIABILITY_TEXT.loadLatestKeepEntries}
             </Button>
           ) : null}
           {retry ? (
-            <Button size="sm" aria-describedby={describedBy} onClick={save.retryNow}>
+            <Button size="sm" data-recovery="try-again" aria-describedby={describedBy} onClick={keep(save.retryNow)}>
               {BOOK_RELIABILITY_TEXT.tryAgain}
             </Button>
           ) : null}
         </div>
       ) : null}
-      {save.note ? (
-        <p role="status" className="m-0 text-sm text-copy">
-          {save.note}
-        </p>
-      ) : null}
-    </div>
+      <p role="status" className={save.note ? cn('m-0 text-sm text-copy', className) : 'sr-only'}>
+        {save.note ?? ''}
+      </p>
+    </>
   );
 }
 

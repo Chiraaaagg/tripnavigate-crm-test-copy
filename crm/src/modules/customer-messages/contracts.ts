@@ -8,6 +8,7 @@
  * crm/supabase/migrations/20261205000110..0140. The nine messages only; no bill
  * is ever sent to a customer.
  */
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 export const MESSAGE_TYPES = [
   'booking_confirmed',
@@ -124,7 +125,7 @@ export const SEND_ERROR_TEXT: Readonly<Record<SendErrorCode, string>> = Object.f
 export const MESSAGE_ERROR_STATES = {
   not_authorized: '42501',
   invalid_input: '22023',
-  version_changed: '40001',
+  version_changed: CONFLICT_STATES,
   not_ready: '55000',
   wrong_state: '55000',
   template_not_approved: '55000',

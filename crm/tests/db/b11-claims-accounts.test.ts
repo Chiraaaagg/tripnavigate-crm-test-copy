@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FIXTURE_USERS as U, type TestDb, asOwner, createTestDb, expectDbError, resetActor, setActor } from '../helpers/db';
 import { CLAIMS_SUITE_LOCK, FROM_CLAIM, LINK, NOT_RECEIVED, claimHelpers } from './b11-claims-support';
 import { ACC, ACC2, DEAL, DEAL2, SALES, insertApprovedDestination, rid } from './finance-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * B1.1b advance claims, Accounts side (appendix B sections 2.3-2.5):
@@ -73,7 +74,7 @@ describe('receipt_record_from_claim', () => {
       expect((await h.owner('select 1 from public.customer_receipts')).length).toBe(1);
       const next = await h.record(ACC, DEAL, await h.cashFields({ amountPaise: '1000' }));
       expect(next.receiptNo).toMatch(/-000002$/);
-      await h.refused(ACC, FROM_CLAIM, [claim.id, json({ ...fields, note: 'changed' }), requestId], '40001', 'request_conflict');
+      await h.refused(ACC, FROM_CLAIM, [claim.id, json({ ...fields, note: 'changed' }), requestId], CONFLICT_STATE, 'request_conflict');
       // A new request on a linked claim is refused.
       await h.refused(ACC, FROM_CLAIM, [claim.id, json(fields), rid()], '55000', 'wrong_state');
     });

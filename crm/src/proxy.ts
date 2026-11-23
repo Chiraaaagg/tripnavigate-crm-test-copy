@@ -16,8 +16,9 @@ import { ROUTES } from '@/modules/identity/session-policy';
  * 1. Sets a per-request nonce-based Content Security Policy (request header,
  *    so Next.js applies the nonce while rendering, and response header).
  * 2. Refreshes the Supabase session cookie.
- * 3. OPTIMISTIC redirect for /app without a verified session (pages only:
- *    a server action POST goes on to the action, whose gate decides).
+ * 3. OPTIMISTIC redirect for /app without a verified session (except a
+ *    server action POST on a Book now address, which goes on to the action,
+ *    whose gate decides).
  *
  * It is not the authorization boundary: every page and server action calls
  * requireStaff(), and the database decides session validity (aal2, barrier,
@@ -85,16 +86,27 @@ export async function proxy(request: NextRequest) {
   };
 
   if (request.nextUrl.pathname.startsWith('/app') && !data?.claims) {
-    // Booking reliability B1-8 (trace T-e): a server action POST is not redirected here. The
-    // redirect answered the action's fetch with a page, so the form could only say "could not
-    // confirm" and never "signed out". The action's own gate (requireStaff or staffForAction)
-    // decides, exactly as it already does for an action posted to any path outside /app.
-    if (isServerActionPost(request)) return finish(response);
+    // Booking reliability B1-8 (trace T-e): on the Book now addresses only, a server action POST
+    // is not redirected here. The redirect answered the action's fetch with a page, so the form
+    // could only say "could not confirm" and never "signed out". There the proxy no longer stops
+    // signed-out action calls: the action's own first-line gate (staffForAction, which answers
+    // `session` and keeps the page, or requireStaff) is the only barrier, before any parsing,
+    // read or write; tests/unit/br-actions-gate-first.test.ts enforces that gate on every
+    // exported action. Every other /app address keeps the redirect (review go-live 1, P1-1):
+    // its actions still use requireStaff(), whose redirect would leave the page and lose typing.
+    if (isServerActionPost(request) && isBookNowPath(request.nextUrl.pathname)) return finish(response);
     if (hadSessionCookie) return redirectTo(ROUTES.sessionExpired);
     const next = encodeURIComponent(request.nextUrl.pathname);
     return redirectTo(`${ROUTES.signIn}?next=${next}`);
   }
   return finish(response);
+}
+
+/** The Book now overview and its step addresses: /app/deals/<id>/book and /app/deals/<id>/book/<step>. */
+const BOOK_NOW_PATH = /^\/app\/deals\/[^/]+\/book(?:\/[^/]+)?\/?$/;
+
+function isBookNowPath(pathname: string): boolean {
+  return BOOK_NOW_PATH.test(pathname);
 }
 
 /** A Next.js server action call: POST with the Next-Action header. Nothing else is passed through. */

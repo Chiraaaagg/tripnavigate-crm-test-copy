@@ -36,9 +36,11 @@ const FIELDS: ReceiptFields = {
 
 describe('mapFinanceError', () => {
   it('maps every contract token only with its own SQLSTATE', () => {
-    for (const [token, state] of Object.entries(FINANCE_ERROR_STATES) as Array<[FinanceErrorCode, string]>) {
-      expect(mapFinanceError({ code: state, message: token })).toBe(token);
-      expect(mapFinanceError({ code: state === '55000' ? '22023' : '55000', message: token })).toBeNull();
+    for (const [token, allowed] of Object.entries(FINANCE_ERROR_STATES) as Array<[FinanceErrorCode, string | readonly string[]]>) {
+      for (const state of typeof allowed === 'string' ? [allowed] : allowed) {
+        expect(mapFinanceError({ code: state, message: token })).toBe(token);
+        expect(mapFinanceError({ code: state === '55000' ? '22023' : '55000', message: token })).toBeNull();
+      }
     }
   });
   it('fails closed on anything else and recognises an ended session', () => {

@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, FIXTURE_USERS as U, assertLoopbackDatabaseUrl, claimsFor } from '../helpers/db';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Batch 3 (20261123000100) two-session proofs on REAL Postgres only
@@ -248,7 +249,7 @@ describe.skipIf(!enabled)('Batch 3 referral drafts: two sessions (real Postgres)
           await pause();
           await a.query('commit');
           const err = await waiting;
-          expect(err).toMatchObject({ code: '40001', message: 'version_changed' });
+          expect(err).toMatchObject({ code: CONFLICT_STATE, message: 'version_changed' });
           await b.query('rollback');
           const rv = (await draftRow(d.referralDraftId)).row_version;
           const r = await as<{ closedAutomatically: boolean }>(OWNER_ACTOR, 'select public.referral_draft_reopen($1, $2, $3) as r',
