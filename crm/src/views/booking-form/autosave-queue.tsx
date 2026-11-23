@@ -355,6 +355,8 @@ export function useCardLatest(f: { latest: LatestOutcome; loadLatest: () => void
     seen.current = f.latest;
     if (f.latest === 'rebased') settle({ state: 'fix', reason: CARD_LATEST_TEXT.rebased, retry: true, paused: true });
     else if (f.latest === 'changed') settle({ state: 'fix', reason: ERROR_TEXT.version_changed, note: CARD_LATEST_TEXT.changed, paused: true });
+    // Re-review N3: the latest view already holds what is typed (the employee's own lost save).
+    else if (f.latest === 'saved') settle({ state: 'saved', reason: null });
   }, [f.latest, settle]);
   return { latest: f.latest, onLoadLatest: f.loadLatest };
 }
@@ -386,6 +388,13 @@ export function useKeepFocus(targetId: string | undefined) {
     run();
   };
 }
+
+/**
+ * Re-review N3: what "Try again" answers on a card whose save the database
+ * cannot replay in full (customer & trip, payment plan) when the latest view
+ * already holds the typed values: the card is saved and nothing is sent.
+ */
+export const SAVED_ALREADY: SendOutcome = { ok: true, data: undefined, message: '', card: { state: 'saved', reason: null } } as SendOutcome;
 
 /**
  * The controls under a card's save reason (V4, V5, V6): "Sign in (opens in a
