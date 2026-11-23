@@ -155,6 +155,7 @@ describe.skipIf(!!url)('B1-1 definition diff, stage by stage (PGlite)', () => {
     for (const [sig, b] of before) {
       const a = afterStage1.get(sig)!;
       expect(attrs(a), sig).toEqual(attrs(b));
+      if (a.def === b.def) continue; // unchanged by this stage
       expect(undoStage1(a.def), sig).toBe(b.def);
       expect(undoStage1(a.src), sig).toBe(b.src);
     }
@@ -168,6 +169,7 @@ describe.skipIf(!!url)('B1-1 definition diff, stage by stage (PGlite)', () => {
     for (const [sig, b] of afterStage1) {
       const a = afterStage2.get(sig)!;
       expect(attrs(a), sig).toEqual(attrs(b));
+      if (a.def === b.def) continue; // unchanged by this stage
       expect(undoStage2(a.def), sig).toBe(b.def);
       expect(undoStage2(a.src), sig).toBe(b.src);
     }
@@ -229,6 +231,8 @@ describe('B1-1 behaviour after both stages', () => {
 
   it.each(['sm', 'flight', 'visa'] as const)('%s replay wrapper: the same request returns the remembered answer; other details are duplicate_request PT409', async (prefix) => {
     await asOwner(db, async () => {
+      // finance_command_results keeps the actor: a synthetic Accounts person (claims only; the owner calls the helpers).
+      await db.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: FIXTURE_USERS.accountsJodhpur, role: 'authenticated' })]);
       const [entity] = await db.query<{ id: string }>('select id from public.legal_entities order by id limit 1');
       const request = (await db.query<{ id: string }>('select gen_random_uuid() as id'))[0]!.id;
       const payload = { synthetic: 'B1-1', n: 1 };
