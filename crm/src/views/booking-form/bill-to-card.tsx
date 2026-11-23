@@ -1,6 +1,7 @@
 'use client';
 
 import { Pencil, Search, Upload, UserRound, X } from 'lucide-react';
+import { isSessionEnded, SignInNewTabLink } from '../b11/session-link';
 import { useCallback, useRef, useState, type ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn, focusRing } from '@/components/ui/cn';
@@ -168,6 +169,7 @@ export function BillToCard({
   const [adding, setAdding] = useState<{ name: string; type: BillToType } | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const [pickError, setPickError] = useState<string | null>(null);
+  const [pickSignedOut, setPickSignedOut] = useState(false);
   const set = <K extends keyof BillToInput>(k: K, x: BillToInput[K]) => {
     f.setValues((s) => ({ ...s, [k]: x }));
     setSelection((sel) => (sel ? { ...sel, edited: true } : sel));
@@ -231,6 +233,7 @@ export function BillToCard({
                 // Search hits carry only the name and place: read the full details first; on failure nothing changes.
                 setPicked(`Loading ${hit.name}…`);
                 setPickError(null);
+                setPickSignedOut(false);
                 parties
                   .pick(hit.partyId)
                   .then((r) => {
@@ -238,6 +241,7 @@ export function BillToCard({
                     else {
                       setPicked(null);
                       setPickError(`${r.message} The Bill To details were not changed.`);
+                      setPickSignedOut(isSessionEnded({ message: r.message }));
                     }
                   })
                   .catch(() => {
@@ -255,6 +259,7 @@ export function BillToCard({
                 {pickError}
               </p>
             ) : null}
+            {pickError && pickSignedOut ? <SignInNewTabLink className="-mt-2" /> : null}
             <AddCustomerDialog
               open={adding !== null}
               onOpenChange={(o) => {
@@ -385,7 +390,7 @@ export function BillToCard({
               <span>{save.reason}</span>
             </p>
           ) : null}
-          {editable && !verified ? <SaveRecovery save={save} describedBy="why-billTo" /> : null}
+          {editable && !verified ? <SaveRecovery save={save} describedBy="why-billTo" focusId="billTo-heading" /> : null}
         </form>
       </SectionBody>
     </SectionCard>

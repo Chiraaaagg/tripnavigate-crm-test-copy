@@ -44,10 +44,11 @@ const TEST_SLICES: FrozenFormsConfig['slices'] = {
     deletes: [],
   },
   R4: { note: 'test: no approved-form exception', allow: [], deletes: [] },
+  BF1: { note: 'test: booking fix go-live 1 (Book now behaviour fixes)', allow: [], deletes: [] },
 };
 const config: FrozenFormsConfig = { ...realConfig, slices: { ...TEST_SLICES, ...realConfig.slices } };
 const script = join(crm, 'scripts/ci/check-frozen-forms.mjs');
-const SLICES = ['R0', 'R1', 'R2', 'R3', 'R4'];
+const SLICES = ['R0', 'R1', 'R2', 'R3', 'R4', 'BF1'];
 
 function run(...args: string[]): { code: number; out: string } {
   try {

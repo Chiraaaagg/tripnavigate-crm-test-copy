@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BookingFormServiceItemView } from '@/modules/fulfilment/booking-form-contract';
+import { latestStep } from '@/views/b11/result';
 import { passengersContent } from '@/views/booking-form/passenger-display';
 import type { PassengerRow } from '@/views/booking-form/passenger-drawer';
 import { sameServiceItem } from '@/views/booking-form/service-model';
@@ -68,5 +69,33 @@ describe('card re-base check (passengers)', () => {
     const opened = { travellers: [row(1, 'Asha Rao')], removed: [] };
     expect(passengersContent(opened)).not.toBe(passengersContent({ travellers: [row(1, 'Asha Sharma')], removed: [] }));
     expect(passengersContent(opened)).not.toBe(passengersContent({ travellers: [row(1, 'Asha Rao'), row(2, 'New')], removed: [] }));
+  });
+});
+
+describe('"Load the latest" decides only on the view that arrived (review P1-2)', () => {
+  const opened = hotel();
+  const base = 5;
+
+  it('view arrives after the press and the same item changed: "changed", no re-base', () => {
+    // Render of the press: the old view (row version 5), the old item. Nothing is decided yet.
+    expect(latestStep({ waiting: true, refreshing: true, versionBound: true, viewRowVersion: 5, base, sameAsOpened: sameServiceItem(opened, hotel()) })).toBe('wait');
+    // Render that brings the refreshed view: row version 6 and the colleague's item, in the same render.
+    const colleague = hotel({ facts: { ...opened.facts, rooms: 3 } });
+    expect(latestStep({ waiting: true, refreshing: false, versionBound: true, viewRowVersion: 6, base, sameAsOpened: sameServiceItem(opened, colleague) })).toBe('changed');
+  });
+
+  it('view arrives after the press and only another part changed: re-base', () => {
+    expect(latestStep({ waiting: true, refreshing: true, versionBound: true, viewRowVersion: 5, base, sameAsOpened: true })).toBe('wait');
+    expect(latestStep({ waiting: true, refreshing: false, versionBound: true, viewRowVersion: 6, base, sameAsOpened: sameServiceItem(opened, hotel()) })).toBe('rebase');
+  });
+
+  it('a view that is not newer never lets a re-base through; the wait ends when the refresh does', () => {
+    expect(latestStep({ waiting: true, refreshing: true, versionBound: true, viewRowVersion: 5, base, sameAsOpened: true })).toBe('wait');
+    expect(latestStep({ waiting: true, refreshing: false, versionBound: true, viewRowVersion: 5, base, sameAsOpened: true })).toBe('stop');
+  });
+
+  it('nothing happens unless the button was pressed, and never for a form without a row version', () => {
+    expect(latestStep({ waiting: false, refreshing: false, versionBound: true, viewRowVersion: 9, base, sameAsOpened: true })).toBe('idle');
+    expect(latestStep({ waiting: true, refreshing: false, versionBound: false, viewRowVersion: 9, base, sameAsOpened: true })).toBe('stop');
   });
 });

@@ -15,7 +15,7 @@ import { BOOK_RELIABILITY_TEXT } from '@/modules/fulfilment/contracts';
 import { dateText } from '../b11/book-fields';
 import { DraftSyncProvider, SaveRulesProvider, useDraftSync, useSectionForm, type SaveRules } from '../b11/draft-sync';
 import { PrefillInlineProvider } from '../b11/prefill-inline';
-import { AUTOSAVE_LABEL, AUTOSAVE_TARGET, SaveQueueProvider, useSaveQueue, type AutosaveKey } from './autosave-queue';
+import { AUTOSAVE_LABEL, AUTOSAVE_TARGET, SaveQueueProvider, useKeepFocus, useSaveQueue, type AutosaveKey } from './autosave-queue';
 import { ClaimCard, OkCard, PlanCard, ReviewCard, SUBMIT_TRIGGER_ID, SubmitCard } from './before-submit';
 import { BillToCard } from './bill-to-card';
 import { countsOf, CustomerTripCard, customerInitial, customerIssues, dealBacked, travellersText, type CustomerValues } from './customer-trip-card';
@@ -129,6 +129,8 @@ function AutoFillOnOpen({ view, prefillUi, actions }: BookingFormScreenProps) {
 
 function ScreenBody({ vm, view, actions, links, ownerText, vn, messagePrefsCard, refreshFailed = false, onRefreshAgain, refreshing = false }: BookingFormScreenProps & BookingFormHostExtras) {
   const { step, go, focusField, hrefs, stepButtonReady } = useFormStep();
+  // When "Refresh again" works the notice and its button go away: focus moves to the page heading.
+  const keepFocus = useKeepFocus('book-heading');
   // B1-3: optional parts that did not load on this render (a missing checklist never reads as ready).
   const checklistMissing = (view.partsNotLoaded ?? []).includes('checklist');
   const queue = useSaveQueue();
@@ -268,12 +270,16 @@ function ScreenBody({ vm, view, actions, links, ownerText, vn, messagePrefsCard,
           View only. The deal owner, assigned Sales or branch Manager can change it.
         </p>
       ) : null}
+      {/* W2 is announced from a live region that is always in the page (rule 12, review P2-4). */}
+      <span className="sr-only" role="status">
+        {refreshFailed ? BOOK_RELIABILITY_TEXT.refreshFailed : ''}
+      </span>
       {refreshFailed ? (
-        <Notice tone="warning" role="status" className="mt-[0.5rem]">
+        <Notice tone="warning" role="none" className="mt-[0.5rem]">
           <p className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <span>{BOOK_RELIABILITY_TEXT.refreshFailed}</span>
             {onRefreshAgain ? (
-              <Button size="sm" loading={refreshing} onClick={onRefreshAgain}>
+              <Button size="sm" data-recovery="refresh-again" loading={refreshing} onClick={keepFocus(onRefreshAgain)}>
                 {BOOK_RELIABILITY_TEXT.refreshAgain}
               </Button>
             ) : null}

@@ -20,8 +20,8 @@ describe('how a card reads after a save', () => {
     expect(cardStateOf(offline)).toEqual({ state: 'fix', reason: BOOK_RELIABILITY_TEXT.offlineNotSaved, retry: true, paused: true });
   });
 
-  it('an unknown outcome: today’s words, autosave paused (no automatic re-send)', () => {
-    expect(cardStateOf(unknown)).toEqual({ state: 'fix', reason: UNKNOWN_OUTCOME_TEXT, paused: true });
+  it('an unknown outcome: today’s words, autosave paused (no automatic re-send), "Try again" offered (review P2-1)', () => {
+    expect(cardStateOf(unknown)).toEqual({ state: 'fix', reason: UNKNOWN_OUTCOME_TEXT, retry: true, paused: true });
   });
 
   it('an ended session: the signed-out words, the sign-in link, "Try again", autosave paused', () => {

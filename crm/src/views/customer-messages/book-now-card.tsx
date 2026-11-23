@@ -1,6 +1,7 @@
 'use client';
 
 import { MessageSquareText } from 'lucide-react';
+import { isSessionEnded, SignInNewTabLink } from '../b11/session-link';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -82,6 +83,7 @@ export function BookNowMessagePrefsCard({ prefs, action }: { prefs: BookNowPrefs
                 <p className="m-0 text-sm text-quiet">Only the Sales owner or the branch Manager can change these.</p>
               )}
               <DeskResultLine state={cmd.state} okTitle="Saved" />
+              {cmd.state && !cmd.state.ok && isSessionEnded(cmd.state as { code?: string; message?: string }) ? <SignInNewTabLink /> : null}
             </div>
           </form>
         </CardBody>

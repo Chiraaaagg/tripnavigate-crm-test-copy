@@ -551,7 +551,7 @@ export function PassengersCard({
             <span>{reason}</span>
           </p>
         ) : null}
-        {editable ? <SaveRecovery save={save} describedBy="why-passengers" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="px-5 pb-3 max-sm:px-4" /> : null}
+        {editable ? <SaveRecovery save={save} describedBy="why-passengers" focusId="passengers-heading" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="px-5 pb-3 max-sm:px-4" /> : null}
       </form>
       {openRow ? (
         <PassengerDrawer

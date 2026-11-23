@@ -466,7 +466,7 @@ export function CustomerTripCard({
               <span>{reason}</span>
             </p>
           ) : null}
-          {editable ? <SaveRecovery save={save} describedBy="why-customer" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="mt-2" /> : null}
+          {editable ? <SaveRecovery save={save} describedBy="why-customer" focusId="customer-heading" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="mt-2" /> : null}
         </div>
       </form>
     </SectionCard>

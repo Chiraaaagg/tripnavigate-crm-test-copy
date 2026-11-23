@@ -33,3 +33,16 @@ export function normaliseResult(raw: unknown): NormalisedResult {
 export function requestIdFor(last: { id: string; key: string; unknown: boolean } | null, key: string, fresh: () => string): string {
   return last && last.unknown && last.key === key ? last.id : fresh();
 }
+
+/**
+ * B1-5 (pure, unit-tested): what "Load the latest and keep my entries" does on
+ * this render. All inputs are this render's values: the view's row version and
+ * whether that view still holds what the form was opened on. Until a newer
+ * view is in, nothing is decided ('wait'), so an older view can never let a
+ * re-base through; 'stop' ends the wait when the refresh brought nothing newer.
+ */
+export function latestStep(s: { waiting: boolean; refreshing: boolean; versionBound: boolean; viewRowVersion: number; base: number; sameAsOpened: boolean }): 'idle' | 'wait' | 'rebase' | 'changed' | 'stop' {
+  if (!s.waiting) return 'idle';
+  if (s.versionBound && s.viewRowVersion > s.base) return s.sameAsOpened ? 'rebase' : 'changed';
+  return s.refreshing ? 'wait' : 'stop';
+}

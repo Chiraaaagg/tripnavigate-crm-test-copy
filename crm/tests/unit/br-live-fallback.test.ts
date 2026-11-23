@@ -186,6 +186,43 @@ describe('notice bell live: fallback does not call itself (BR-25)', () => {
     expect(reads).toHaveLength(4);
   });
 
+  it('a failed poll after the fallback keeps the last good items (marked stale), never an empty list', async () => {
+    const channel = fakeChannel<NoticeChannelStatus>();
+    const shown: Array<{ mode: NoticeLiveMode; stale: boolean; items: number | null }> = [];
+    const good: NoticeInboxDTO = {
+      ...inbox(7),
+      unreadCount: 2,
+      urgentCount: 1,
+      items: [
+        { noticeId: 'n-7', seq: 7 } as NoticeInboxDTO['items'][number],
+        { noticeId: 'n-6', seq: 6 } as NoticeInboxDTO['items'][number],
+      ],
+    };
+    let fail = false;
+    const live = startNoticeLive({
+      read: async () => {
+        if (fail) throw new Error('down');
+        return good;
+      },
+      onState: (s) => shown.push({ mode: s.mode, stale: s.stale, items: s.inbox ? s.inbox.items.length : null }),
+      subscribe: channel.subscribe,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(shown[shown.length - 1]).toEqual({ mode: 'connecting', stale: false, items: 2 });
+    fail = true;
+    channel.handlers!.onStatus('CHANNEL_ERROR');
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(NOTICE_POLL_MS);
+    const afterFailures = shown.slice(shown.findIndex((s) => s.mode === 'polling'));
+    expect(afterFailures.length).toBeGreaterThan(0);
+    for (const s of afterFailures) expect(s.items, 'the last good list stays').toBe(2);
+    expect(shown[shown.length - 1]).toEqual({ mode: 'polling', stale: true, items: 2 });
+    fail = false;
+    await vi.advanceTimersByTimeAsync(NOTICE_POLL_MS);
+    expect(shown[shown.length - 1]).toEqual({ mode: 'polling', stale: false, items: 2 });
+    live.stop();
+  });
+
   it('a later status from the removed channel changes nothing', async () => {
     const { channel, modes, live } = run();
     await vi.advanceTimersByTimeAsync(0);

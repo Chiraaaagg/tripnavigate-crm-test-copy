@@ -1,6 +1,7 @@
 'use client';
 
 import { ExternalLink, Lock, RefreshCw } from 'lucide-react';
+import { isSessionEnded, SignInNewTabLink } from '../b11/session-link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -108,6 +109,7 @@ export function RefreshDialog({
               {problem}
             </p>
           ) : null}
+          {problem && isSessionEnded({ message: problem }) ? <SignInNewTabLink /> : null}
         </DialogBody>
         <DialogFooter>
           {dealHref ? (

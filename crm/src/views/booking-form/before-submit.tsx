@@ -1,6 +1,7 @@
 'use client';
 
 import { CalendarDays, ChevronRight, CircleAlert, FileText, Info, Pencil, Plus, Trash2 } from 'lucide-react';
+import { isSessionEnded, SignInNewTabLink } from '../b11/session-link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -161,7 +162,7 @@ export function PlanCard({ view, action, totalPaise }: { view: BookNowView; acti
               <span>{save.reason}</span>
             </p>
           ) : null}
-          {editable ? <SaveRecovery save={save} describedBy="why-plan" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="mt-2" /> : null}
+          {editable ? <SaveRecovery save={save} describedBy="why-plan" focusId="plan-heading" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="mt-2" /> : null}
         </SectionBody>
       </form>
     </SectionCard>
@@ -271,6 +272,7 @@ export function OkCard({ view, actions }: { view: BookNowView; actions: BookingF
                 {problem}
               </p>
             ) : null}
+            {problem && isSessionEnded({ message: problem }) ? <SignInNewTabLink /> : null}
           </>
         )}
       </SectionBody>

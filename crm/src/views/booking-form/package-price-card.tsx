@@ -275,7 +275,7 @@ export function PackagePriceCard({
               <span>{reason}</span>
             </p>
           ) : null}
-          {editable ? <SaveRecovery save={save} describedBy="why-price" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="mt-2" /> : null}
+          {editable ? <SaveRecovery save={save} describedBy="why-price" focusId="price-heading" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="mt-2" /> : null}
         </SectionBody>
       </form>
     </SectionCard>
