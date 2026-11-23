@@ -39,13 +39,20 @@ import {
  *   d.  Window B is stale on the cards: its cards show the conflict text
  *       (ERROR_TEXT.version_changed, not a bare "Not saved") and W9a; after
  *       loading the latest the typed text is still on screen, nothing is sent
- *       by the re-base, and W9c says the same part was changed.
+ *       by the re-base, and the card's W9c (CARD_LATEST_TEXT.changed) says the
+ *       same part was changed.
  *
  * Synthetic data only. Runs when targeted.yml names this file (JOURNEY_FILES)
  * or BR_JOURNEYS=1; ci.yml skips it.
  */
 
 const FILE = 'br-conflict.real.e2e.ts';
+/**
+ * W9c as worded for a CARD (lead decision; CARD_LATEST_TEXT.changed in
+ * src/views/booking-form/autosave-queue.tsx, slice S3). A literal here: the
+ * view module is client code and is not on this branch before S3 merges.
+ */
+const CARD_W9C = 'Someone changed this part after you opened it. Reload the page to see the latest; your typed changes here will be lost.';
 const requested = requestedBrFile(FILE);
 
 test.use({ trace: 'retain-on-failure', screenshot: 'on', video: 'off', actionTimeout: 20_000, navigationTimeout: 45_000 });
@@ -173,7 +180,7 @@ test.describe('B1-5: conflict recovery, two windows (fix batch 1) @br', () => {
     const loadLatest = mainB.getByRole('button', { name: W.loadLatestKeepEntries });
     await expect(loadLatest.first(), 'W9a on the stale card').toBeVisible();
     await loadLatest.first().click();
-    await expect(mainB.getByText(W.sameItemChanged).first(), 'W9c: A changed the same card').toBeVisible({ timeout: 20_000 });
+    await expect(mainB.getByText(CARD_W9C).first(), 'W9c on a card: A changed the same card').toBeVisible({ timeout: 20_000 });
     await sleep(2_000);
     await expect(mainB.getByLabel('Destination', { exact: true }), 'typed destination still on screen').toHaveValue('Jodhpur and Udaipur');
     await expect(mainB.getByLabel('Passenger 2 full name'), 'typed name still on screen').toHaveValue('Synthetic Window Adult Two B');

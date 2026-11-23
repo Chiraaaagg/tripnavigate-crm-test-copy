@@ -40,7 +40,7 @@ import {
  * Then asserted:
  *   - the screen shows Submitted; one confirmed version, no draft left;
  *   - fulfilment tasks were created for the hotel;
- *   - an Accounts booking review exists for the confirmed version (pending);
+ *   - no Accounts decision exists yet (a review row is written only on a decision);
  *   - an Accounts user sees the Deal in "To check" (/app/accounts) (BR-37);
  *   - no page errors during the journey (B1-2).
  *
@@ -63,7 +63,7 @@ test.describe('Fix batch 1: journey to a stored Submit and the Accounts queue @b
     if (requested) await restoreSwitch(FILE);
   });
 
-  test('Sales books from Deal to a stored Submit; tasks and the Accounts review exist; Accounts sees the Deal @br', async ({ browser }, testInfo) => {
+  test('Sales books from Deal to a stored Submit; tasks exist; Accounts sees the Deal to check @br', async ({ browser }, testInfo) => {
     test.setTimeout(10 * 60_000);
     const rec = new Recorder('br-submit', testInfo);
     await loadFixture(testInfo);
@@ -140,7 +140,7 @@ test.describe('Fix batch 1: journey to a stored Submit and the Accounts queue @b
       await expect(main).toContainText(/Submitted/, { timeout: 30_000 });
     });
 
-    await test.step('stored: one confirmed version, tasks, the Accounts review', async () => {
+    await test.step('stored: one confirmed version, tasks, no Accounts decision yet', async () => {
       const versions = await db(async (c) => (await c.query<{ status: string; n: number }>('select status, count(*)::int as n from public.booking_versions where deal_id = $1 group by status', [deal.id])).rows);
       rec.facts.versions = versions;
       expect(versions.find((v) => v.status === 'confirmed')?.n, 'one confirmed version').toBe(1);
@@ -153,7 +153,9 @@ test.describe('Fix batch 1: journey to a stored Submit and the Accounts queue @b
         `select r.status, (v.status = 'confirmed') as confirmed from public.accounts_booking_reviews r
            join public.booking_versions v on v.id = r.booking_version_id where r.deal_id = $1`, [deal.id])).rows);
       rec.facts.accountsReviews = reviews;
-      expect(reviews.filter((r) => r.confirmed && r.status === 'pending'), 'an Accounts booking review (pending) for the confirmed version').toHaveLength(1);
+      // A review row is written only when Accounts decides (approve or return); until then the
+      // confirmed version is "to check" with no row. Nothing may be decided already.
+      expect(reviews.filter((r) => r.status !== 'pending'), 'no Accounts decision yet on the new booking').toEqual([]);
       await page.reload();
       await expect(main).toContainText(/Submitted/, { timeout: 30_000 });
     });
