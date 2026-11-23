@@ -33,7 +33,14 @@ const timeText = (iso: string) => {
 
 type View = 'inbox' | 'history' | 'settings';
 
-export function NoticeBell({ id, withLabel = false }: { id: string; /** Sidebar: the word "Notices" beside the bell. */ withLabel?: boolean }) {
+/**
+ * Where the bell sits (UX redesign R1, B1): 'sidebar' is the desktop sidebar's header row beside the
+ * wordmark (the panel opens to the right, under the bell); 'top' is the phone top bar (opens to the left).
+ * The button is the same compact bell in both; its name always starts with "Notices".
+ */
+export type NoticeBellPlacement = 'sidebar' | 'top';
+
+export function NoticeBell({ id, placement = 'top' }: { id: string; placement?: NoticeBellPlacement }) {
   const ctx = useNotices();
   const p = ctx?.preview;
   const [open, setOpen] = useState(false);
@@ -41,13 +48,13 @@ export function NoticeBell({ id, withLabel = false }: { id: string; /** Sidebar:
   const [view, setView] = useState<View>(p?.view ?? 'inbox');
   // The shared store is published after the first commit, so the preview's view is applied here too.
   useEffect(() => {
-    if (!p?.open || window.matchMedia('(min-width: 1024px)').matches !== withLabel) return;
+    if (!p?.open || window.matchMedia('(min-width: 1024px)').matches !== (placement === 'sidebar')) return;
     const frame = requestAnimationFrame(() => {
       setView(p.view ?? 'inbox');
       setOpen(true);
     });
     return () => cancelAnimationFrame(frame);
-  }, [p?.open, p?.view, withLabel]);
+  }, [p?.open, p?.view, placement]);
   const headingId = useId();
   if (!ctx || !ctx.state.loaded || !ctx.state.inbox?.enabled) return null;
   const { state } = ctx;
@@ -70,17 +77,11 @@ export function NoticeBell({ id, withLabel = false }: { id: string; /** Sidebar:
           type="button"
           aria-label={label}
           className={cn(
-            'relative inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-control border border-line bg-card px-2.5 text-ink hover:bg-wash',
-            withLabel && 'w-full justify-start',
+            'relative inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-control border border-line bg-card px-2.5 text-ink hover:bg-wash',
             focusRing,
           )}
         >
           {state.stale ? <BellOff aria-hidden="true" className="size-5 text-quiet" /> : <Bell aria-hidden="true" className="size-5" />}
-          {withLabel ? (
-            <span aria-hidden="true" className="mr-auto text-sm font-medium">
-              Notices
-            </span>
-          ) : null}
           {unread > 0 ? (
             <span aria-hidden="true" className="min-w-5 rounded-full bg-brand-strong px-1.5 text-xs leading-5 font-semibold text-white tabular-nums">
               {unread > 99 ? '99+' : unread}
@@ -103,7 +104,7 @@ export function NoticeBell({ id, withLabel = false }: { id: string; /** Sidebar:
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
-          align="end"
+          align={placement === 'sidebar' ? 'start' : 'end'}
           sideOffset={8}
           collisionPadding={12}
           aria-labelledby={headingId}
@@ -123,8 +124,10 @@ export function NoticeBell({ id, withLabel = false }: { id: string; /** Sidebar:
                 </Button>
               ) : (
                 <>
+                  {/* B1: a visible word on the settings button; the name keeps the full description. */}
                   <Button variant="ghost" size="sm" onClick={() => setView('settings')} aria-label="Sound, pop-up and alert settings">
                     <Settings2 aria-hidden="true" />
+                    Settings
                   </Button>
                 </>
               )}

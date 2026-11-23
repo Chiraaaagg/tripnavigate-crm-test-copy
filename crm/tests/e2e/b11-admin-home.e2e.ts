@@ -21,7 +21,8 @@ test.describe('B1.1 Home counts', () => {
     await open(page, 'b11-home-visa');
     const visa = page.getByRole('region', { name: 'What needs you', exact: true });
     await expect(visa).toContainText('Visa and passport tasks not taken yet, or yours in progress');
-    await expect(visa.getByRole('link', { name: /^Open Visa and passport tasks/ })).toHaveAttribute('href', '/app/visa');
+    // R2 (SL-19): the row's button is named for the count; its accessible name ends with the row's words.
+    await expect(visa.getByRole('link', { name: /^Open 2 tasks\W+Visa and passport tasks/ })).toHaveAttribute('href', '/app/visa');
     await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Visa and passport tasks' })).toBeVisible();
     await open(page, 'b11-home-accounts-claims');
     const work = page.getByRole('region', { name: 'What needs you', exact: true });
@@ -36,7 +37,7 @@ test.describe('B1.1 workflow switches and Won-only intake', () => {
     await open(page, 'b11-admin-workflow-b11');
     const row = page.locator('[data-slot="setting-row"][data-key="visa_passport_tasks_enabled"]');
     await expect(row).toContainText('Visa and passport tasks');
-    await expect(row).toContainText('current state: Off');
+    await expect(row).toContainText('State: Off');
     await expect(row).toContainText('On: each sold visa or passport service gets one task for the Visa and passport desk. Off: those services are saved and wait; no task is created or deleted.');
   });
 

@@ -6,6 +6,7 @@ import { asRpcClient, type RpcClient } from '@/modules/fulfilment/commands';
 import { checkEvidenceFile } from '@/modules/fulfilment/evidence';
 import { readUuid } from '@/modules/fulfilment/forms';
 import { requireStaff } from '@/modules/identity/server/session';
+import { withOptionalReason } from '@/modules/settings/reason';
 import {
   MessageCommandError,
   boardingPassBegin,
@@ -185,9 +186,14 @@ export async function markVoucherReadyAction(_prev: Prev<undefined>, formData: F
 
 const settingsPath = () => revalidatePath(ADMIN_MESSAGES_PATH);
 
-/** A7. Fields: entityId, type, channel, enabled, reason, expectedRowVersion. */
-export async function setMessageSwitchAction(_prev: Prev<undefined>, formData: FormData): Promise<MessageActionResult> {
+/**
+ * A7. Fields: entityId, type, channel, enabled, reason, expectedRowVersion.
+ * D9 / Q1 (R1): a switch outside the four STANDING-RULES families, so the reason is optional;
+ * an empty one is saved as "No reason given" (modules/settings/reason.ts).
+ */
+export async function setMessageSwitchAction(_prev: Prev<undefined>, input: FormData): Promise<MessageActionResult> {
   const staff = await requireStaff();
+  const formData = withOptionalReason(input);
   const entityId = readUuid(formData, F.entityId);
   const type = str(formData, F.type, 40);
   const channel = str(formData, F.channel, 10);
@@ -208,9 +214,13 @@ export async function setMessageSwitchAction(_prev: Prev<undefined>, formData: F
   }
 }
 
-/** A8. Fields: entityId, pilotOnly, reason. */
-export async function setPilotOnlyAction(_prev: Prev<undefined>, formData: FormData): Promise<MessageActionResult> {
+/**
+ * A8. Fields: entityId, pilotOnly, reason.
+ * D9 / Q1 (R1): pilot mode is a switch; the reason is optional ("No reason given" when empty).
+ */
+export async function setPilotOnlyAction(_prev: Prev<undefined>, input: FormData): Promise<MessageActionResult> {
   const staff = await requireStaff();
+  const formData = withOptionalReason(input);
   const entityId = readUuid(formData, F.entityId);
   const pilotOnly = bool(formData, F.pilotOnly);
   if (!entityId || pilotOnly === undefined) return fail('invalid_input');
@@ -264,9 +274,13 @@ export async function setTemplateStatusAction(_prev: Prev<undefined>, formData: 
   }
 }
 
-/** A11 timer switch. Fields: enabled, reason (10..500). Super Admin (the command checks). */
-export async function setTimerEnabledAction(_prev: Prev<undefined>, formData: FormData): Promise<MessageActionResult> {
+/**
+ * A11 timer switch. Fields: enabled, reason (10..500, or empty). Super Admin (the command checks).
+ * D9 / Q1 (R1): the reason is optional; an empty one is saved as "No reason given".
+ */
+export async function setTimerEnabledAction(_prev: Prev<undefined>, input: FormData): Promise<MessageActionResult> {
   const staff = await requireStaff();
+  const formData = withOptionalReason(input);
   const enabled = bool(formData, F.enabled);
   if (enabled === undefined) return fail('invalid_input', F.enabled);
   const r = reason(formData, 10, 500);

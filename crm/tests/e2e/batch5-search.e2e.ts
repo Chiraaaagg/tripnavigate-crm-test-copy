@@ -30,6 +30,8 @@ const STATES = [
   'b5-deals-search-not-installed',
   'b5-deals-search-error',
   'b5-features-no-permission-purchase',
+  // UX redesign R2: the Leads list loading file.
+  'leads-loading',
 ];
 
 accessibilitySuite('Batch 5 search: accessibility (idle)', STATES);
@@ -285,6 +287,44 @@ test('N1: Features refused for a Bitrix-connection manager who also works in Pur
   );
   await open(page, 'admin-workflow-no-permission');
   await expect(page.locator('main').getByRole('status')).toHaveText('Only a Super Admin or staff who manage the Bitrix connection can open Features.');
+});
+
+test.describe('Leads list: toolbar, row link and loading (UX redesign R2)', () => {
+  test('one toolbar: the search box first, then the chips; the chips step aside while results show', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, 'b5-leads-search');
+    const toolbar = page.locator('main [data-slot="list-toolbar"]');
+    await expect(toolbar).toHaveCount(1);
+    const box = toolbar.getByRole('searchbox', { name: 'Search leads' });
+    const chips = toolbar.getByRole('navigation', { name: 'Filter leads' });
+    await expect(box).toBeVisible();
+    await expect(chips).toBeVisible();
+    expect(await box.evaluate((a, b) => !!(a.compareDocumentPosition(b!) & Node.DOCUMENT_POSITION_FOLLOWING), await chips.elementHandle())).toBe(true);
+    await search(page, 'leads', 'goa');
+    await expect(page.getByRole('region', { name: 'Lead search results' })).toBeVisible();
+    await expect(chips).toHaveCount(0);
+  });
+
+  test('the customer name is the row link', async ({ page }) => {
+    await open(page, 'b5-leads-search');
+    const row = page.getByRole('region', { name: 'Leads table' }).locator('tbody tr').first();
+    await expect(row.getByRole('link')).toHaveCount(1);
+    await expect(row.getByRole('link')).toHaveAttribute('href', /^\/app\/leads\/[^/?#]+$/);
+    await expect(row.getByRole('link')).toHaveAttribute('data-slot', 'row-link');
+  });
+
+  test('loading: announced once, one h1, the list\'s own shapes, still under reduced motion', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await open(page, 'leads-loading');
+    await expect(page.getByRole('status').filter({ hasText: 'Loading leads…' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Leads');
+    await expect(page.getByRole('table')).toHaveCount(0);
+    await expect(page.locator('main [data-slot="list-toolbar-loading"]')).toHaveCount(1);
+    const shapes = page.locator('main [data-slot="skeleton"]');
+    expect(await shapes.count()).toBeGreaterThan(5);
+    await expect(shapes.first()).toHaveAttribute('aria-hidden', 'true');
+    expect(await shapes.first().evaluate((el) => getComputedStyle(el).animationName)).toBe('none');
+  });
 });
 
 test.describe('Deals search box', () => {

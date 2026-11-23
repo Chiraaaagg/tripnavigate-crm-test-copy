@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { homeWorkRoles, shellPermissions } from '@/app/app/shell-permissions';
-import { currentHref, currentNavHref } from '@/components/NavLinks';
+import { homeWorkRoles, settingsAreasFor, shellPermissions } from '@/app/app/shell-permissions';
+import { currentHref } from '@/components/NavLinks';
 import { settingsTabsFor } from '@/modules/settings/contracts';
 import type { RolePermissionFact } from '@/modules/access/policy';
 import type { MyWorkCounts } from '@/modules/fulfilment/contracts';
 import type { StaffContext } from '@/modules/identity/server/session';
 import { flightRows, homeRows, NO_HOME_ROLES } from '@/views/home-view';
-import { navItemsFor, type ShellViewer } from '@/views/StaffShell';
+import type { ShellViewer } from '@/views/StaffShell';
+import { currentMenuKey, menuFor, sectionsFor } from '@/app/app/sections';
 
 /**
- * Direction A R0 menu (copy-catalogue §16.1, DA-01 to DA-08; lead R0
- * decisions 2 and 5): the grouped menu each role gets from today's permission
- * rules (shellPermissions, unchanged), and the Home "What needs you" rows each
+ * The grouped menu each role gets from today's permission rules
+ * (shellPermissions, unchanged; menu regrouped in the UX redesign R1, C1 and
+ * D5, src/app/app/sections.ts), and the Home "What needs you" rows each
  * role gets from the existing my_work_counts read. Navigation convenience
  * only: every page, command and database policy still decides access.
  */
@@ -59,110 +60,134 @@ function viewerOf(s: StaffContext, financeEntities = FINANCE_ON): ShellViewer {
   return { displayName: s.displayName, primaryRole: '', primaryBranch: '', ...shellPermissions(s, financeEntities) };
 }
 
-/** "Group: label" for every menu item, in order. */
-const menuOf = (s: StaffContext, financeEntities = FINANCE_ON) => navItemsFor(viewerOf(s, financeEntities)).map((i) => `${i.group}: ${i.label}`);
+/** "group: label" for every menu link, in order (the pinned Settings link last). */
+const menuOf = (s: StaffContext, financeEntities = FINANCE_ON) => {
+  const menu = menuFor(viewerOf(s, financeEntities));
+  return [...menu.groups.flatMap((g) => g.links), ...(menu.settings ? [menu.settings] : [])].map((l) => `${l.group}: ${l.label}`);
+};
 
-// Voice-note batch: Customers to check sits right after To check.
-// Purchase build: Hotel go-ahead, Supplier payments, Supplier invoices and Company funding after Reported payments.
-const ACCOUNTS_GROUP = [
-  'Accounts: To check',
-  'Accounts: Customers to check',
-  'Accounts: Reported payments',
-  'Accounts: Hotel go-ahead',
-  'Accounts: Supplier payments',
-  'Accounts: Supplier invoices',
-  'Accounts: Company funding',
-  'Accounts: Department costs',
-  'Accounts: Branch cash',
-  'Accounts: Company accounts',
-];
-// Batch 4 (DA-250): one "Settings" item; its tabs (settingsTabsFor) are tested below.
-const SETTINGS_GROUP = ['Settings: Settings'];
+// UX redesign R1 (C1, D5): Accounts is six sections; a person sees only the sections that hold a tab they may open.
+const ACCOUNTS_GROUP = ['accounts: To check', 'accounts: Money out', 'accounts: Cash and bank'];
+// Batch 4 (DA-250): one "Settings" item, pinned under the menu (R1); its areas (settingsTabsFor, settingsAreasFor) are tested below.
+const SETTINGS_GROUP = ['settings: Settings'];
 
-describe('navItemsFor: grouped menu per role (Direction A)', () => {
-  it('Sales: Home, Leads, Deals, Quotations, Itineraries (DA-01)', () => {
-    expect(menuOf(staff('sales', [{ roleCode: 'sales' }]))).toEqual(['Work: Home', 'Work: Leads', 'Work: Deals', 'Work: Quotations', 'Work: Itineraries']);
+describe('menuFor: grouped menu per role (UX redesign R1)', () => {
+  it('Sales: Home, then the Sales group: Leads, Deals, Quotations (R2: Itineraries is a tab of the Quotations page)', () => {
+    expect(menuOf(staff('sales', [{ roleCode: 'sales' }]))).toEqual(['top: Home', 'sales: Leads', 'sales: Deals', 'sales: Quotations']);
   });
 
-  it('Manager: Home, Leads, Deals, Quotations, Itineraries, Purchase tasks, Suppliers (DA-02)', () => {
+  it('Manager: Home and Approvals, Sales, and the Desks group with the read-only Flight and Visa queues', () => {
     expect(menuOf(staff('manager', [{ roleCode: 'manager', branchId: 'del' }]))).toEqual([
-      'Work: Home',
-      'Work: Leads',
-      'Work: Deals',
-      'Work: Quotations',
-      'Work: Itineraries',
-      'Work: Purchase tasks',
-      'Work: Suppliers',
-      // Accounts phase 3 (contract 15 Nav): rate contracts for Purchase and Managers.
-      'Work: Rate contracts',
-      'Work: Approvals',
-      // Flight build (contract 11.2 Nav, 4 Nov 2026): the Manager gets the read-only Flight tasks queue link.
-      'Work: Flight tasks',
-      // Visa build (contract 11.2 Nav, 8 Nov 2026): the Manager gets the read-only Visa and passport tasks queue link.
-      'Work: Visa and passport tasks',
+      'top: Home',
+      'top: Approvals',
+      'sales: Leads',
+      'sales: Deals',
+      'sales: Quotations',
+      'desks: Purchase tasks',
+      'desks: Flight tasks',
+      'desks: Visa and passport tasks',
+      'desks: Suppliers',
+      'desks: Rate contracts',
     ]);
   });
 
-  it('Purchase: Home, Deals, Purchase tasks, Suppliers, Payment requests (never Leads)', () => {
+  it('Purchase: Home, Deals, Purchase tasks, Payment requests, Suppliers, Rate contracts (never Leads)', () => {
     const menu = menuOf(staff('purchase', [{ roleCode: 'purchase' }]));
-    expect(menu).toEqual(['Work: Home', 'Work: Deals', 'Work: Purchase tasks', 'Work: Suppliers', 'Work: Rate contracts', 'Work: Payment requests']);
+    expect(menu).toEqual(['top: Home', 'sales: Deals', 'desks: Purchase tasks', 'desks: Payment requests', 'desks: Suppliers', 'desks: Rate contracts']);
     expect(menu.some((m) => m.includes('Leads'))).toBe(false);
   });
 
   it('Flight: Home, Deals, Flight tasks', () => {
-    expect(menuOf(staff('flight', [{ roleCode: 'flight' }]))).toEqual(['Work: Home', 'Work: Deals', 'Work: Flight tasks']);
+    expect(menuOf(staff('flight', [{ roleCode: 'flight' }]))).toEqual(['top: Home', 'sales: Deals', 'desks: Flight tasks']);
   });
 
   it('Visa & Passport desk: Home, Deals, Visa and passport tasks', () => {
-    expect(menuOf(staff('visa', [{ roleCode: 'visa' }]))).toEqual(['Work: Home', 'Work: Deals', 'Work: Visa and passport tasks']);
+    expect(menuOf(staff('visa', [{ roleCode: 'visa' }]))).toEqual(['top: Home', 'sales: Deals', 'desks: Visa and passport tasks']);
   });
 
-  it('Accounts: Home, Deals, the Accounts group with all six items, and Settings with only the Imports tab (customer list)', () => {
+  it('Accounts: Home, Deals, the Accounts sections, and Settings with only the Imports tab (customer list)', () => {
     const s = staff('accounts', [{ roleCode: 'accounts' }]);
-    expect(menuOf(s)).toEqual(['Work: Home', 'Work: Deals', ...ACCOUNTS_GROUP, ...SETTINGS_GROUP]);
+    expect(menuOf(s)).toEqual(['top: Home', 'sales: Deals', ...ACCOUNTS_GROUP, ...SETTINGS_GROUP]);
     expect(settingsTabsFor(viewerOf(s)).map((t) => t.category)).toEqual(['imports']);
-    expect(navItemsFor(viewerOf(s)).find((i) => i.group === 'Settings')?.href).toBe('/app/admin/imports');
+    expect(menuFor(viewerOf(s)).settings?.href).toBe('/app/admin/imports');
   });
 
-  it('Accounts with finance switched off: no money items, but Customers to check and Imports stay (Echo-B N2: same rule as those pages)', () => {
-    expect(menuOf(staff('accounts', [{ roleCode: 'accounts' }]), [])).toEqual(['Work: Home', 'Work: Deals', 'Accounts: Customers to check', 'Settings: Settings']);
+  it('Accounts with finance switched off: no money sections, but To check › Customers and Imports stay (Echo-B N2: same rule as those pages)', () => {
+    const menu = menuFor(viewerOf(staff('accounts', [{ roleCode: 'accounts' }]), []));
+    expect(menuOf(staff('accounts', [{ roleCode: 'accounts' }]), [])).toEqual(['top: Home', 'sales: Deals', 'accounts: To check', 'settings: Settings']);
+    // One link: no group heading; the section opens its only tab.
+    const accounts = menu.groups.find((g) => g.key === 'accounts')!;
+    expect(accounts.label).toBe('');
+    expect(accounts.links[0]!.href).toBe('/app/accounts/customers');
   });
 
-  it('Super Admin: Home, Leads (Bitrix connection permission), Deals, then one Settings item with all seven tabs (DA-250, Imports added in the voice-note batch)', () => {
+  it('Super Admin: Home, Leads (Bitrix connection permission), Deals, then the pinned Settings item that opens Overview, with all ten areas', () => {
     const s = staff('admin', [{ roleCode: 'super_admin' }]);
-    expect(menuOf(s)).toEqual(['Work: Home', 'Work: Leads', 'Work: Deals', ...SETTINGS_GROUP]);
-    const item = navItemsFor(viewerOf(s)).find((i) => i.group === 'Settings')!;
-    expect(item).toEqual({ href: '/app/admin/staff', label: 'Settings', group: 'Settings', activePrefix: '/app/admin' });
-    expect(settingsTabsFor(viewerOf(s)).map((t) => t.label)).toEqual(['People and access', 'Company and branches', 'Money rules', 'Accounts', 'Bitrix connection', 'Imports', 'Features', 'System health']);
+    expect(menuOf(s)).toEqual(['top: Home', 'sales: Leads', 'sales: Deals', ...SETTINGS_GROUP]);
+    const item = menuFor(viewerOf(s)).settings!;
+    // R1 (S1): the Settings item opens the Overview landing, the first area of anyone with an admin right.
+    expect(item).toMatchObject({ href: '/app/admin', label: 'Settings', group: 'settings', prefixes: ['/app/admin'] });
+    const areas = [
+      'Overview',
+      'People and access',
+      'Company and branches',
+      'Money rules',
+      'Accounts',
+      'Bitrix connection',
+      'Features',
+      'Customer messages',
+      'Imports',
+      'System health',
+    ];
+    expect(settingsTabsFor(viewerOf(s)).map((t) => t.label)).toEqual(areas);
+    // The frame's own rule (admin layout and Overview page) gives the same list to a Super Admin.
+    expect(settingsAreasFor(s, FINANCE_ON).map((t) => t.label)).toEqual(areas);
+    expect(settingsAreasFor(s, FINANCE_ON)[0]!.href).toBe(item.href);
   });
 
-  it('Super Admin who also holds Accounts: Accounts group, one Settings item, and no Money rules tab (cannot set the cash cap)', () => {
+  it('Super Admin who also holds Accounts: Accounts sections, one Settings item, and no Money rules tab (cannot set the cash cap)', () => {
     const s = staff('admin-acc', [{ roleCode: 'super_admin' }, { roleCode: 'accounts' }]);
-    expect(menuOf(s)).toEqual(['Work: Home', 'Work: Leads', 'Work: Deals', ...ACCOUNTS_GROUP, ...SETTINGS_GROUP]);
-    expect(settingsTabsFor(viewerOf(s)).map((t) => t.category)).toEqual(['people', 'company', 'bitrix', 'imports', 'features', 'health']);
+    expect(menuOf(s)).toEqual(['top: Home', 'sales: Leads', 'sales: Deals', ...ACCOUNTS_GROUP, ...SETTINGS_GROUP]);
+    expect(settingsTabsFor(viewerOf(s)).map((t) => t.category)).toEqual(['overview', 'people', 'company', 'bitrix', 'features', 'messages', 'imports', 'health']);
+    expect(settingsAreasFor(s, FINANCE_ON).map((t) => t.category)).toEqual(['overview', 'people', 'company', 'bitrix', 'features', 'messages', 'imports', 'health']);
   });
 
-  it('Settings item: absent for roles with no Settings right; its address is the first tab the person may open', () => {
-    // Accounts now opens Settings · Imports (customer list), tested above.
+  it('Customer messages area: only for a Super Admin (its page answers no one else), never for an integration manager who is not one', () => {
+    // A synthetic integration-manager role (integration.manage at entity scope, not a Super Admin), as in shell-permissions.test.ts.
+    const integration = staff('integration', [{ roleCode: 'integration' }]);
+    integration.access.rolePermissions = [...ROLE_PERMISSIONS, { roleCode: 'integration', permissionCode: 'integration.manage', scope: 'entity' }];
+    expect(shellPermissions(integration, FINANCE_ON).canManageIntegration).toBe(true);
+    expect(settingsAreasFor(integration, FINANCE_ON).map((t) => t.category)).toEqual(['overview', 'company', 'bitrix', 'features', 'health']);
+    expect(settingsAreasFor(staff('admin', [{ roleCode: 'super_admin' }]), FINANCE_ON).map((t) => t.category)).toContain('messages');
+    for (const roleCode of ['sales', 'manager', 'purchase', 'flight', 'visa', 'accounts']) {
+      expect(settingsAreasFor(staff(roleCode, [{ roleCode }]), FINANCE_ON).map((t) => t.category), roleCode).not.toContain('messages');
+    }
+  });
+
+  it('Settings item: absent for roles with no Settings right; its address is the first area the person may open (Overview for any admin right)', () => {
     for (const roleCode of ['sales', 'manager', 'purchase', 'flight', 'visa']) {
-      expect(navItemsFor(viewerOf(staff(roleCode, [{ roleCode }]))).filter((i) => i.group === 'Settings'), roleCode).toEqual([]);
+      expect(menuFor(viewerOf(staff(roleCode, [{ roleCode }]))).settings, roleCode).toBeNull();
     }
     const base: ShellViewer = { displayName: 'x', primaryRole: '', primaryBranch: '', canAdministerStaff: false, canManageGrants: false };
-    const href = (v: Partial<ShellViewer>) => navItemsFor({ ...base, ...v }).find((i) => i.group === 'Settings')?.href;
-    expect(href({ canManageIntegration: true, canOpenBitrixConnection: true })).toBe('/app/admin/company');
-    expect(href({ canManageGrants: true })).toBe('/app/admin/access');
-    expect(href({ canManageFinancePolicy: true })).toBe('/app/admin/company');
-    // integration.manage while holding Purchase: no Bitrix connection tab, Features and System health stay.
-    expect(settingsTabsFor({ ...base, canManageIntegration: true, canOpenBitrixConnection: false }).map((t) => t.category)).toEqual(['company', 'features', 'health']);
+    const href = (v: Partial<ShellViewer>) => menuFor({ ...base, ...v }).settings?.href;
+    expect(href({ canManageIntegration: true, canOpenBitrixConnection: true })).toBe('/app/admin');
+    expect(href({ canManageGrants: true })).toBe('/app/admin');
+    expect(href({ canManageFinancePolicy: true })).toBe('/app/admin');
+    // No admin right, only Imports (Accounts): straight to Imports, no Overview.
+    expect(href({ canImport: true })).toBe('/app/admin/imports');
+    // The first area after Overview is still the one the person may open (Extra access without staff.manage).
+    expect(settingsTabsFor({ ...base, canManageGrants: true })[1]).toMatchObject({ category: 'people', href: '/app/admin/access' });
+    // integration.manage while holding Purchase: no Bitrix connection area; Features, Customer messages (flag not given) and System health stay.
+    expect(settingsTabsFor({ ...base, canManageIntegration: true, canOpenBitrixConnection: false }).map((t) => t.category)).toEqual(['overview', 'company', 'features', 'messages', 'health']);
   });
 
   it('the one Settings item is current on every Settings address, never on another page', () => {
-    const items = navItemsFor({ displayName: 'x', primaryRole: '', primaryBranch: '', canAdministerStaff: true, canManageGrants: true, canManageIntegration: true, canOpenBitrixConnection: true, canManageFinancePolicy: true });
-    for (const path of ['/app/admin/staff', '/app/admin/access', '/app/admin/company', '/app/admin/finance-policy', '/app/admin/integration', '/app/admin/imports', '/app/admin/workflow', '/app/admin/bookings']) {
-      expect(currentNavHref(items, path), path).toBe('/app/admin/staff');
+    const links = sectionsFor({ canAdministerStaff: true, canManageGrants: true, canManageIntegration: true, canOpenBitrixConnection: true, canManageFinancePolicy: true });
+    for (const path of ['/app/admin', '/app/admin/staff', '/app/admin/access', '/app/admin/company', '/app/admin/finance-policy', '/app/admin/integration', '/app/admin/imports', '/app/admin/workflow', '/app/admin/bookings', '/app/admin/customer-messages']) {
+      expect(currentMenuKey(links, path), path).toBe('settings');
     }
-    expect(currentNavHref(items, '/app/deals')).toBe('/app/deals');
-    expect(currentNavHref(items, '/app/access')).toBeUndefined();
+    expect(currentMenuKey(links, '/app/deals')).toBe('deals');
+    expect(currentMenuKey(links, '/app/access')).toBeUndefined();
   });
 
   it('several roles get the union in group order, never a duplicate', () => {
@@ -176,18 +201,16 @@ describe('navItemsFor: grouped menu per role (Direction A)', () => {
       ]),
     );
     expect(menu).toEqual([
-      'Work: Home',
-      'Work: Leads',
-      'Work: Deals',
-      'Work: Quotations',
-      'Work: Itineraries',
-      'Work: Purchase tasks',
-      'Work: Suppliers',
-      // Accounts phase 3 (contract 15 Nav): rate contracts for Purchase and Managers.
-      'Work: Rate contracts',
-      'Work: Approvals',
-      'Work: Flight tasks',
-      'Work: Visa and passport tasks',
+      'top: Home',
+      'top: Approvals',
+      'sales: Leads',
+      'sales: Deals',
+      'sales: Quotations',
+      'desks: Purchase tasks',
+      'desks: Flight tasks',
+      'desks: Visa and passport tasks',
+      'desks: Suppliers',
+      'desks: Rate contracts',
       ...ACCOUNTS_GROUP,
       ...SETTINGS_GROUP,
     ]);
@@ -201,34 +224,33 @@ describe('navItemsFor: grouped menu per role (Direction A)', () => {
         { roleCode: 'sales', legalEntityId: B },
       ]),
     );
-    expect(menu).not.toContain('Work: Leads');
-    expect(menu).toEqual(['Work: Home', 'Work: Deals', 'Work: Purchase tasks', 'Work: Suppliers', 'Work: Rate contracts', 'Work: Payment requests']);
+    expect(menu).not.toContain('sales: Leads');
+    expect(menu).toEqual(['top: Home', 'sales: Deals', 'desks: Purchase tasks', 'desks: Payment requests', 'desks: Suppliers', 'desks: Rate contracts']);
   });
 
   it('"My access" is never a menu item for any role (it is in the account panel; /app/access still opens)', () => {
     for (const roleCode of ['sales', 'manager', 'purchase', 'flight', 'visa', 'accounts', 'super_admin']) {
-      const items = navItemsFor(viewerOf(staff(roleCode, [{ roleCode }])));
-      expect(items.map((i) => i.label)).not.toContain('My access');
-      expect(items.map((i) => i.href)).not.toContain('/app/access');
+      const links = sectionsFor(viewerOf(staff(roleCode, [{ roleCode }])));
+      expect(links.map((i) => i.label)).not.toContain('My access');
+      expect(links.map((i) => i.href)).not.toContain('/app/access');
     }
   });
 
-  it('Quotations and Itineraries only for quotation editors: never Purchase (anywhere), Flight, Visa, Accounts or Super Admin by role (DA-03..DA-07)', () => {
-    const quoteItems = (s: StaffContext) => navItemsFor(viewerOf(s)).filter((i) => i.href === '/app/quotations' || i.href === '/app/itineraries');
+  it('Quotations (with its Itineraries tab) only for quotation editors: never Purchase (anywhere), Flight, Visa, Accounts or Super Admin by role (DA-03..DA-07)', () => {
+    const quoteItems = (s: StaffContext) => sectionsFor(viewerOf(s)).filter((i) => i.href === '/app/quotations' || i.href === '/app/itineraries' || i.pageTabs?.includes('/app/itineraries'));
     for (const roleCode of ['purchase', 'flight', 'visa', 'accounts', 'super_admin']) expect(quoteItems(staff(roleCode, [{ roleCode }])), roleCode).toEqual([]);
     // Purchase in one entity hides them even with Sales elsewhere (same rule as Leads).
     expect(quoteItems(staff('ps', [{ roleCode: 'purchase', legalEntityId: HC }, { roleCode: 'sales', legalEntityId: B }]))).toEqual([]);
-    // Accounts who also sells gets them; each appears once, right after Deals.
-    const acc = navItemsFor(viewerOf(staff('as', [{ roleCode: 'accounts' }, { roleCode: 'sales' }]))).map((i) => i.href);
-    expect(acc.slice(0, 5)).toEqual(['/app', '/app/leads', '/app/deals', '/app/quotations', '/app/itineraries']);
-    expect(quoteItems(staff('sm', [{ roleCode: 'sales' }, { roleCode: 'manager' }])).map((i) => `${i.group}: ${i.label}`)).toEqual(['Work: Quotations', 'Work: Itineraries']);
+    // Accounts who also sells gets it once, right after Deals; Itineraries is its page tab (R2), not a link of its own.
+    const accLinks = sectionsFor(viewerOf(staff('as', [{ roleCode: 'accounts' }, { roleCode: 'sales' }])));
+    expect(accLinks.map((i) => i.href).slice(0, 4)).toEqual(['/app', '/app/leads', '/app/deals', '/app/quotations']);
+    expect(accLinks.find((i) => i.href === '/app/quotations')?.pageTabs).toEqual(['/app/itineraries']);
+    expect(accLinks.map((i) => i.href)).not.toContain('/app/itineraries');
+    expect(quoteItems(staff('sm', [{ roleCode: 'sales' }, { roleCode: 'manager' }])).map((i) => `${i.group}: ${i.label}`)).toEqual(['sales: Quotations']);
   });
 
-  it('every item opens an existing address (same addresses as before R0)', () => {
-    const all = navItemsFor({
-      displayName: 'x',
-      primaryRole: '',
-      primaryBranch: '',
+  it('every link opens an existing address (same addresses as before R1, except Itineraries, now a tab of the Quotations page in R2)', () => {
+    const all = sectionsFor({
       canAdministerStaff: true,
       canManageGrants: true,
       canManageIntegration: true,
@@ -245,29 +267,22 @@ describe('navItemsFor: grouped menu per role (Direction A)', () => {
     }).map((i) => i.href);
     expect(all).toEqual([
       '/app',
+      '/app/approvals',
       '/app/leads',
       '/app/deals',
       '/app/quotations',
-      '/app/itineraries',
       '/app/purchase',
-      '/app/purchase/suppliers',
-      '/app/purchase/rate-contracts',
       '/app/purchase/payments',
-      '/app/approvals',
       '/app/flight',
       '/app/visa',
+      '/app/purchase/suppliers',
+      '/app/purchase/rate-contracts',
+      // The Accounts sections open their first tab (an existing address).
       '/app/accounts',
-      '/app/accounts/customers',
-      '/app/accounts/claims',
       '/app/accounts/go-ahead',
-      '/app/accounts/supplier-payments',
-      '/app/accounts/supplier-invoices',
-      '/app/accounts/funding',
-      '/app/accounts/expenses',
       '/app/accounts/cash',
-      '/app/accounts/destinations',
-      // Batch 4: one Settings item (first tab); the other Settings addresses are its tabs, unchanged (L1).
-      '/app/admin/staff',
+      // Batch 4: one Settings item (first area: the R1 Overview at /app/admin); the other Settings addresses are its areas, unchanged (L1).
+      '/app/admin',
     ]);
   });
 });

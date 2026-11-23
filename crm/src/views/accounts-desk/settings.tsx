@@ -2,206 +2,279 @@
 
 import Link from 'next/link';
 import { useId, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn, focusRing } from '@/components/ui/cn';
 import { Field, fieldDescribedBy } from '@/components/ui/field';
 import { Notice } from '@/components/ui/notice';
 import { Select } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
-import { Hidden, type DecisionAction } from '@/views/accounts/supplier-forms';
-import { DeskResultLine, useDeskCommand, useRefusedControl, type DeskResult } from './desk-kit';
+import { StateBlock } from '@/components/ui/state-block';
+import { Status } from '@/components/ui/status';
+import { switchRowDescribedBy } from '@/components/ui/switch-row';
+import { Tabs } from '@/components/ui/tabs';
+import { ActionSwitchRow, ExistingActionChange, onOffState, type ActionRowPreview, type ExistingSettingsAction } from '@/views/settings/setting-switch-form';
+import { TALLY_MAPPING_PATH, type accountsSettingsTabs } from '@/views/tally-mapping/labels';
+import { Acc3SettingRows, type Acc3AccountsSettingsActions, type Acc3RowKey } from './acc3-settings';
 
 /*
- * Settings · Accounts (contract 6.2.6, 6.3.3, 7.1 T6/T7, 11.8): the notices
- * switch (Super Admin), the Tally export switch and the exception owner per
- * company (the finance policy managers: Super Admin without Accounts). Each
- * change needs a reason (10 to 500 characters) and is recorded. Current
- * values come from the server; "Not known" never reads as Off.
+ * Settings › Accounts, UX redesign R1 (C6 switch rows, C7 confirm dialog,
+ * owner D9 and D12; audit S4, S8, S12). Per company one card with eight
+ * rows: Tally export, Tally exception owner, customer documents, refunds,
+ * automatic drafts, automatic release, write-offs and the Tally import file.
+ * Each row shows the value in words and "Change", which opens one confirm
+ * dialog. These are finance-mode switches (lead ruling on Q1), so the reason
+ * stays required (10 to 500 characters); only the exception owner, a person
+ * and not a switch, takes the optional reason ("No reason given" is saved).
+ * The dialog posts the same fields as the old forms. "Not known" never reads as Off and offers no
+ * change. The staff notices switch moved to Features (D12).
  *
- * Accounts phase 2 (contract 6.2 B9, 7.3 C12, 11.12): per company the
- * customer documents switch and the refunds switch, same pattern. Both stay
- * Off until the owner approves switching them on; a company whose read does
- * not carry the value shows "Not known" and no switch.
+ * Tally mapping is a sub-tab (its own address, kept). A Super Admin who also
+ * holds Accounts in a company sees that company read only, with the reason:
+ * the database lets only a Super Admin without Accounts change these.
  */
 
 export const SETTINGS_FIELD = { entityId: 'entityId', enabled: 'enabled', userId: 'userId', reason: 'reason' } as const;
 
+
+export interface AccountsCompanySettings {
+  entityId: string;
+  entityName: string;
+  tallyExportEnabled: boolean | null;
+  /** Phase 2 (B9). Omitted or null = not known: no change. */
+  customerDocumentsEnabled?: boolean | null;
+  /** Phase 2 (C12). Omitted or null = not known: no change. */
+  refundsEnabled?: boolean | null;
+  exceptionOwnerUserId: string | null;
+  /** Active Accounts people of the company without Purchase (the only valid owners). */
+  accountsPeople: Array<{ userId: string; name: string }>;
+  /** Phase 3 (B1, B2, C2). Omitted = the row is not shown; null = not known. */
+  autoBillsEnabled?: boolean | null;
+  autoBillReleaseEnabled?: boolean | null;
+  writeOffEnabled?: boolean | null;
+  /** Whole paise, decimal string. */
+  writeOffLimitPaise?: string | null;
+  tallyXmlEnabled?: boolean | null;
+  tallyCompanyName?: string | null;
+}
+
 export interface AccountsSettingsViewModel {
-  /** null = could not be read. */
-  noticesEnabled: boolean | null;
-  canSetNotices: boolean;
-  entities: Array<{
-    entityId: string;
-    entityName: string;
-    tallyExportEnabled: boolean | null;
-    /** Phase 2 (B9). Omitted or null = not known: no switch. */
-    customerDocumentsEnabled?: boolean | null;
-    /** Phase 2 (C12). Omitted or null = not known: no switch. */
-    refundsEnabled?: boolean | null;
-    exceptionOwnerUserId: string | null;
-    /** Active Accounts people of the company without Purchase (the only valid owners). */
-    accountsPeople: Array<{ userId: string; name: string }>;
-  }>;
+  entities: AccountsCompanySettings[];
+  /** Companies where this Super Admin also holds Accounts: shown read only with the reason (S12). */
+  readOnlyEntities?: Array<{ entityId: string; entityName: string }>;
+  /** Settings › Features, where the staff notices switch is now (D12); null hides the line. */
+  featuresHref?: string | null;
+  /** Kept for older callers; the notices switch is on Features now. */
+  noticesEnabled?: boolean | null;
+  canSetNotices?: boolean;
 }
 
-export interface AccountsSettingsActions {
-  setNotices: DecisionAction;
-  setTallyExport: DecisionAction;
-  setExceptionOwner: DecisionAction;
-  /** Phase 2 B9 (track B). Omitted until the action exists: the section is not shown. */
-  setCustomerDocuments?: DecisionAction;
-  /** Phase 2 C12 (track C setRefundsEnabledAction). Omitted until the action exists. */
-  setRefunds?: DecisionAction;
+export interface AccountsSettingsActions extends Partial<Acc3AccountsSettingsActions> {
+  setTallyExport: ExistingSettingsAction;
+  setExceptionOwner: ExistingSettingsAction;
+  /** Phase 2 B9. Omitted: the row is not shown. */
+  setCustomerDocuments?: ExistingSettingsAction;
+  /** Phase 2 C12. Omitted: the row is not shown. */
+  setRefunds?: ExistingSettingsAction;
+  /** Kept for older callers; not shown here (moved to Features). */
+  setNotices?: ExistingSettingsAction;
 }
 
-const onOff = (v: boolean | null) => (v === null ? 'Not known (could not be read)' : v ? 'On' : 'Off');
+export type AccountsRowKey = 'tallyExport' | 'owner' | 'documents' | 'refunds' | Acc3RowKey;
 
-export function AccountsSettingsView({ model, actions, initial }: { model: AccountsSettingsViewModel; actions: AccountsSettingsActions; initial?: Partial<Record<'notices' | 'tally' | 'owner' | 'documents' | 'refunds', DeskResult>> }) {
+export function AccountsSettingsTabs({ tabs }: { tabs: ReturnType<typeof accountsSettingsTabs> }) {
+  if (tabs.length < 2) return null;
+  return <Tabs label="Accounts settings" items={tabs} variant="pill" />;
+}
+
+const linkClass = cn('rounded-chip font-semibold text-brand-strong underline decoration-1 underline-offset-4 hover:text-brand-deep hover:decoration-2', focusRing);
+
+export function AccountsSettingsView({
+  model,
+  actions,
+  tabs = [],
+  initial,
+}: {
+  model: AccountsSettingsViewModel;
+  actions: AccountsSettingsActions;
+  /** accountsSettingsTabs(...) from the page. */
+  tabs?: ReturnType<typeof accountsSettingsTabs>;
+  /** Preview gallery only: one row's dialog open, by row. */
+  initial?: Partial<Record<AccountsRowKey, ActionRowPreview>>;
+}) {
+  const readOnly = model.readOnlyEntities ?? [];
   return (
     <div className="flex flex-col gap-5 font-sans text-base text-copy">
-      {model.canSetNotices ? (
-        <Card>
-          <section aria-labelledby="set-notices">
-            <CardHeader>
-              <div>
-                <CardTitle id="set-notices">Staff notices (the bell)</CardTitle>
-                <CardDescription>Now: {onOff(model.noticesEnabled)}. While off, nothing is written and the bell is hidden for everyone. Work lists and Home counts never depend on it.</CardDescription>
-              </div>
-            </CardHeader>
-            <CardBody>
-              <SwitchForm
-                legend="Staff notices"
-                current={model.noticesEnabled}
-                action={actions.setNotices}
-                fields={{}}
-                initialState={initial?.notices}
-              />
-            </CardBody>
-          </section>
-        </Card>
-      ) : null}
+      <AccountsSettingsTabs tabs={tabs} />
       {model.entities.map((e) => (
         <Card key={e.entityId}>
           <section aria-labelledby={`set-acc-${e.entityId}`}>
             <CardHeader>
-              <CardTitle id={`set-acc-${e.entityId}`}>Accounts · {e.entityName}</CardTitle>
+              <CardTitle id={`set-acc-${e.entityId}`}>{e.entityName}</CardTitle>
             </CardHeader>
-            <CardBody className="flex flex-col gap-6">
-              <div className="flex flex-col gap-2">
-                <h3 className="m-0 text-base font-semibold text-ink">Tally export</h3>
-                <p className="m-0 text-copy">Now: {onOff(e.tallyExportEnabled)}. When on, Accounts can create CSV exports on the Tally page. Exporting never marks anything matched.</p>
-                <SwitchForm legend={`Tally export for ${e.entityName}`} current={e.tallyExportEnabled} action={actions.setTallyExport} fields={{ [SETTINGS_FIELD.entityId]: e.entityId }} initialState={initial?.tally} />
-                <p className="m-0 text-sm">
-                  <Link href={`/app/admin/accounts/tally-mapping?entity=${e.entityId}`} className="font-semibold text-brand-strong underline underline-offset-4">
-                    Tally ledger mapping<span className="sr-only"> for {e.entityName}</span>
-                  </Link>{' '}
-                  <span className="text-quiet">— which Tally ledgers and voucher types each export row uses.</span>
-                </p>
-              </div>
-              <OwnerForm entity={e} action={actions.setExceptionOwner} initialState={initial?.owner} />
-              {actions.setCustomerDocuments ? (
-                <div className="flex flex-col gap-2">
-                  <h3 className="m-0 text-base font-semibold text-ink">Customer documents</h3>
-                  <p className="m-0 text-copy">
-                    Now: {onOff(e.customerDocumentsEnabled ?? null)}. When on, Accounts can draft and release Advance Invoices, Invoices and Credit Notes, and Sales owners and Managers can download them. Keep it off until the company’s CA has confirmed the document names and numbering.
+            <ul className="m-0 list-none border-t border-line p-0" aria-label={`Accounts settings for ${e.entityName}`}>
+              <ActionSwitchRow
+                id={`acc-${e.entityId}-tally-export`}
+                rowKey="tally_export"
+                name="Tally export"
+                changeName={`Tally export for ${e.entityName}`}
+                effect="Accounts can create CSV exports on the Tally page. Exporting never marks anything matched."
+                more={
+                  <p className="m-0">
+                    The ledger names each export line uses are on{' '}
+                    <Link href={`${TALLY_MAPPING_PATH}?entity=${e.entityId}`} className={linkClass}>
+                      Tally mapping<span className="sr-only"> for {e.entityName}</span>
+                    </Link>
+                    .
                   </p>
-                  <SwitchForm legend={`Customer documents for ${e.entityName}`} current={e.customerDocumentsEnabled ?? null} action={actions.setCustomerDocuments} fields={{ [SETTINGS_FIELD.entityId]: e.entityId }} initialState={initial?.documents} />
-                </div>
+                }
+                state={onOffState(e.tallyExportEnabled)}
+                change={switchChange(`Tally export for ${e.entityName}`, e.tallyExportEnabled, actions.setTallyExport, e.entityId, {
+                  on: 'Accounts can create CSV exports on the Tally page.',
+                  off: 'Accounts can no longer create CSV exports. Exports already made stay.',
+                })}
+                preview={initial?.tallyExport}
+              />
+              <OwnerRow entity={e} action={actions.setExceptionOwner} preview={initial?.owner} />
+              {actions.setCustomerDocuments ? (
+                <ActionSwitchRow
+                  id={`acc-${e.entityId}-documents`}
+                  rowKey="customer_documents"
+                  name="Customer documents"
+                  changeName={`Customer documents for ${e.entityName}`}
+                  effect="Accounts draft and release Advance Invoices, Invoices and Credit Notes; Sales owners and Managers download them."
+                  more={<p className="m-0">Keep it off until the company’s CA has confirmed the document names and numbering.</p>}
+                  state={onOffState(e.customerDocumentsEnabled)}
+                  change={switchChange(`Customer documents for ${e.entityName}`, e.customerDocumentsEnabled ?? null, actions.setCustomerDocuments, e.entityId, {
+                    on: 'Accounts can draft and release Advance Invoices, Invoices and Credit Notes. Keep it off until the CA has confirmed the names and numbering.',
+                    off: 'No new customer documents are drafted or released. Documents already released stay.',
+                  })}
+                  preview={initial?.documents}
+                />
               ) : null}
               {actions.setRefunds ? (
-                <div className="flex flex-col gap-2">
-                  <h3 className="m-0 text-base font-semibold text-ink">Refunds</h3>
-                  <p className="m-0 text-copy">
-                    Now: {onOff(e.refundsEnabled ?? null)}. When on, Sales owners can ask for customer refunds, a branch Manager approves the exact amount, and Accounts pay out with proof. Supplier refunds received can be recorded.
-                  </p>
-                  <SwitchForm legend={`Refunds for ${e.entityName}`} current={e.refundsEnabled ?? null} action={actions.setRefunds} fields={{ [SETTINGS_FIELD.entityId]: e.entityId }} initialState={initial?.refunds} />
-                </div>
+                <ActionSwitchRow
+                  id={`acc-${e.entityId}-refunds`}
+                  rowKey="refunds"
+                  name="Refunds"
+                  changeName={`Refunds for ${e.entityName}`}
+                  effect="Sales owners ask for customer refunds, a branch Manager approves the amount, Accounts pay out with proof."
+                  more={<p className="m-0">Supplier refunds received can be recorded too.</p>}
+                  state={onOffState(e.refundsEnabled)}
+                  change={switchChange(`Refunds for ${e.entityName}`, e.refundsEnabled ?? null, actions.setRefunds, e.entityId, {
+                    on: 'Sales owners can ask for customer refunds; a branch Manager approves the exact amount and Accounts pay out with proof.',
+                    off: 'No new refund requests. Refunds already started can still be finished.',
+                  })}
+                  preview={initial?.refunds}
+                />
               ) : null}
-            </CardBody>
+              <Acc3SettingRows e={e} actions={actions} initial={initial} />
+            </ul>
           </section>
         </Card>
       ))}
+      {readOnly.map((e) => (
+        <Card key={e.entityId}>
+          <section aria-labelledby={`set-acc-ro-${e.entityId}`}>
+            <CardHeader>
+              <CardTitle id={`set-acc-ro-${e.entityId}`}>{e.entityName}</CardTitle>
+            </CardHeader>
+            <div className="border-t border-line px-4.5 py-3.5">
+              <StateBlock kind="readOnly" text={`You also work in Accounts at ${e.entityName}, so another Super Admin changes these settings.`} who="Nobody sets the rules for their own work." />
+            </div>
+          </section>
+        </Card>
+      ))}
+      {model.entities.length === 0 && readOnly.length === 0 ? (
+        <Notice tone="info">
+          <p>No company here uses the Accounts tools yet, so there is nothing to set.</p>
+        </Notice>
+      ) : null}
+      {model.featuresHref ? (
+        <p className="m-0 text-sm text-copy">
+          Staff notices (the bell) are switched on Features now.{' '}
+          <Link href={model.featuresHref} className={linkClass}>
+            Open Features
+          </Link>
+        </p>
+      ) : null}
     </div>
   );
 }
 
-function ReasonField({ id }: { id: string }) {
-  return (
-    <Field htmlFor={id} label="Reason" hint="10 to 500 characters, for example the owner’s approval. It is recorded with the change.">
-      <Textarea id={id} name={SETTINGS_FIELD.reason} required minLength={10} maxLength={500} rows={2} aria-describedby={fieldDescribedBy(id, { hint: true })} />
-    </Field>
-  );
+/** The change of a plain On/Off Accounts switch: posts entityId, enabled and reason (the old fields). */
+function switchChange(what: string, current: boolean | null, action: ExistingSettingsAction, entityId: string, words: { on: string; off: string }) {
+  const target = current ? 'off' : 'on';
+  return {
+    confirmLabel: `Turn ${what} ${target}`,
+    effect: target === 'on' ? words.on : words.off,
+    affected: 'Accounts of this company.',
+    tone: target === 'off' ? ('danger' as const) : ('primary' as const),
+    action,
+    hiddenFields: { [SETTINGS_FIELD.entityId]: entityId, [SETTINGS_FIELD.enabled]: String(target === 'on') },
+    // Lead ruling on Q1: the Accounts switches are finance-mode switches; the reason stays required.
+    reasonRule: 'required' as const,
+  };
 }
 
-function SwitchForm({ legend, current, action, fields, initialState }: { legend: string; current: boolean | null; action: DecisionAction; fields: Record<string, string>; initialState?: DeskResult }) {
-  const cmd = useDeskCommand(action, initialState ?? null);
+/** The Tally exception owner: a person, not On/Off, so the row shows the name in words. */
+function OwnerRow({ entity, action, preview }: { entity: AccountsCompanySettings; action: ExistingSettingsAction; preview?: ActionRowPreview }) {
+  const id = `acc-${entity.entityId}-owner`;
   const uid = useId();
-  const [formEl, setFormEl] = useState<HTMLFormElement | null>(null);
-  useRefusedControl(formEl, cmd.state && !cmd.state.ok ? cmd.state : null, `${uid}-result`);
-  const next = current === true ? false : true;
-  // Not known is never Off: no switch until the current value can be read.
-  if (current === null) {
-    return (
-      <div className="flex flex-col items-start gap-2">
-        <p className="m-0 text-sm text-copy">The current setting could not be read, so it cannot be changed from here right now.</p>
-        <Button type="button" variant="secondary" onClick={() => window.location.reload()}>
-          Check again
-        </Button>
-      </div>
-    );
-  }
-  return (
-    <form ref={setFormEl} noValidate aria-label={legend} className="flex flex-col gap-3" onSubmit={(e) => cmd.submit(e)}>
-      <Hidden fields={{ ...fields, [SETTINGS_FIELD.enabled]: String(next) }} />
-      <DeskResultLine state={cmd.state} okTitle="Saved" id={`${uid}-result`} />
-      <ReasonField id={`${uid}-reason`} />
-      <div>
-        <Button type="submit" variant="secondary" aria-disabled={cmd.pending || undefined} onClick={(e) => cmd.pending && e.preventDefault()}>
-          {cmd.pending ? 'Saving…' : next ? 'Switch on' : 'Switch off'}
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-function OwnerForm({ entity, action, initialState }: { entity: AccountsSettingsViewModel['entities'][number]; action: DecisionAction; initialState?: DeskResult }) {
-  const cmd = useDeskCommand(action, initialState ?? null);
-  const uid = useId();
-  const [formEl, setFormEl] = useState<HTMLFormElement | null>(null);
-  useRefusedControl(formEl, cmd.state && !cmd.state.ok ? cmd.state : null, `${uid}-result`);
   const current = entity.accountsPeople.find((p) => p.userId === entity.exceptionOwnerUserId);
+  const [who, setWho] = useState(entity.exceptionOwnerUserId ?? '');
   return (
-    <form ref={setFormEl} noValidate aria-labelledby={`${uid}-h`} className="flex flex-col gap-3" onSubmit={(e) => cmd.submit(e)}>
-      <h3 id={`${uid}-h`} className="m-0 text-base font-semibold text-ink">
-        Tally exception owner
-      </h3>
-      <p className="m-0 text-copy">
-        Now: {current ? <strong className="text-ink">{current.name}</strong> : 'Not set — every Accounts person gets the exception notices.'} The owner gets the Tally exception notices and runs the daily check. Anyone in Accounts may still match and raise exceptions.
-      </p>
-      <Hidden fields={{ [SETTINGS_FIELD.entityId]: entity.entityId }} />
-      <DeskResultLine state={cmd.state} okTitle="Saved" id={`${uid}-result`} />
-      {entity.accountsPeople.length === 0 ? (
-        <Notice tone="info">
-          <p>No active Accounts person without a Purchase role in this company.</p>
-        </Notice>
-      ) : (
-        <Field htmlFor={`${uid}-who`} label="Exception owner">
-          <Select id={`${uid}-who`} name={SETTINGS_FIELD.userId} defaultValue={entity.exceptionOwnerUserId ?? ''}>
-            <option value="">Nobody (everyone in Accounts is told)</option>
-            {entity.accountsPeople.map((p) => (
-              <option key={p.userId} value={p.userId}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      )}
-      <ReasonField id={`${uid}-reason`} />
-      <div>
-        <Button type="submit" variant="secondary" aria-disabled={cmd.pending || undefined} onClick={(e) => cmd.pending && e.preventDefault()}>
-          {cmd.pending ? 'Saving…' : 'Save exception owner'}
-        </Button>
+    <li className="m-0 border-b border-line last:border-b-0" data-slot="setting-row" data-key="exception_owner">
+      <div id={`${id}-row`} className="flex flex-col gap-2.5 px-4.5 py-3.5 font-sans sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="min-w-0 flex-1">
+          <p id={`${id}-name`} className="m-0 font-semibold text-ink">
+            Tally exception owner
+          </p>
+          <p className="m-0 text-sm text-copy">Gets the Tally exception notices and runs the daily check. Anyone in Accounts may still match and raise exceptions.</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-3 sm:justify-end">
+          <span id={`${id}-state`}>
+            {current ? <Status kind="on" label={current.name} srPrefix="Exception owner: " /> : <Status kind="off" label="Nobody: every Accounts person is told" srPrefix="Exception owner: " />}
+          </span>
+          <ExistingActionChange
+            title={`Tally exception owner for ${entity.entityName}`}
+            confirmLabel="Save exception owner"
+            effect="The person chosen gets the Tally exception notices and runs the daily check."
+            affected="Accounts of this company."
+            action={action}
+            hiddenFields={{ [SETTINGS_FIELD.entityId]: entity.entityId }}
+            reasonRule="optional"
+            describedBy={switchRowDescribedBy(id)}
+            initialOpen={preview?.open}
+            initialReason={preview?.reason}
+            initialResult={preview?.result}
+            fields={(refused) =>
+              entity.accountsPeople.length === 0 ? (
+                <Notice tone="info">
+                  <p>No active Accounts person without a Purchase role in this company. Saving keeps “Nobody”.</p>
+                  <input type="hidden" name={SETTINGS_FIELD.userId} value="" />
+                </Notice>
+              ) : (
+                <Field htmlFor={`${uid}-who`} label="Exception owner" error={refused === SETTINGS_FIELD.userId ? 'Choose an active Accounts person of this company.' : null}>
+                  <Select
+                    id={`${uid}-who`}
+                    name={SETTINGS_FIELD.userId}
+                    value={who}
+                    onChange={(ev) => setWho(ev.target.value)}
+                    invalid={refused === SETTINGS_FIELD.userId}
+                    aria-describedby={fieldDescribedBy(`${uid}-who`, { error: refused === SETTINGS_FIELD.userId })}
+                  >
+                    <option value="">Nobody (everyone in Accounts is told)</option>
+                    {entity.accountsPeople.map((p) => (
+                      <option key={p.userId} value={p.userId}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )
+            }
+          />
+        </div>
       </div>
-    </form>
+    </li>
   );
 }

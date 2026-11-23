@@ -3,13 +3,15 @@ import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
 import { StaffShell, type ShellViewer } from '@/views/StaffShell';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
+import type { TallyMethod } from '@/views/accounts-desk/r4-address';
+import { TallyPage, type TallyCsvView } from '@/views/accounts-desk/tally';
 import { TallyFileLoading, TallyLeftOutView } from '@/views/tally-file/files';
 import { TALLY_FILE_REFUSAL } from '@/views/tally-file/labels';
 import { TallyMatchBatchView } from '@/views/tally-file/match-batch';
 import { TallyPartyNameField } from '@/views/tally-file/party-name';
-import { TallyFileNoAccess, TallyFileSections, type TallyFileActions, type TallyFileModel } from '@/views/tally-file/sections';
-import { INBOX, INBOX_ACCOUNTS } from './acc-fixtures';
-import { accNoticeNoop } from './acc-preview-actions';
+import { TallyEarlierFiles, TallyFileNoAccess, TallyFileSections, type TallyFileActions, type TallyFileModel } from '@/views/tally-file/sections';
+import { INBOX, INBOX_ACCOUNTS, TALLY_VIEW } from './acc-fixtures';
+import { accExportOk, accNoticeNoop } from './acc-preview-actions';
 import { BRANCHES, ENTITIES, FILES, LEFT_OUT_PAGE, MATCH_BATCH, MATCH_PAGE, TALLY_PREVIEW, TALLY_PREVIEW_EMPTY } from './acc3-tally-fixtures';
 import * as A from './acc3-tally-preview-actions';
 
@@ -77,6 +79,28 @@ function customer(body: ReactNode) {
   );
 }
 
+/*
+ * UX redesign R4 (owner answer D11): the whole Tally page with only the
+ * switched-on method; two pill tabs when both are on; files of a switched-off
+ * method in a closed fold; open exceptions as a count with a link to
+ * Documents and money.
+ */
+const CSV_VIEW: TallyCsvView = { exportEnabled: true, entities: TALLY_VIEW.entities, branches: TALLY_VIEW.branches, exports: TALLY_VIEW.exports, daily: TALLY_VIEW.daily };
+function tallyPage(on: { file: boolean; csv: boolean }, method: TallyMethod | null) {
+  return shell(
+    accountsViewer,
+    '/app/accounts/tally',
+    <TallyPage
+      view={{ ...CSV_VIEW, exportEnabled: on.csv }}
+      method={method}
+      fileOn={on.file}
+      fileSections={method === 'file' ? <TallyFileSections model={MODEL} actions={ACTIONS} /> : undefined}
+      earlierFiles={on.file ? undefined : <TallyEarlierFiles files={FILES} entityId={MODEL.entities[0]?.id ?? ''} stageMatch={ACTIONS.stageMatch} />}
+      exportAction={act(accExportOk)}
+    />,
+  );
+}
+
 const PARTY = { partyId: 'a0003701-0000-4000-8000-000000003701', name: null, rowVersion: 3 };
 
 const states: Record<string, () => ReactNode> = {
@@ -94,6 +118,13 @@ const states: Record<string, () => ReactNode> = {
   'acc3-tally-files-error': () => tally({ model: { files: 'error' } }),
   'acc3-tally-loading': () => shell(accountsViewer, '/app/accounts/tally', <TallyFileLoading />),
   'acc3-tally-no-access': () => shell(managerViewer, '/app/accounts/tally', <TallyFileNoAccess />),
+
+  /* Whole page by switched-on method (R4, D11) */
+  'acc3-tally-method-both': () => tallyPage({ file: true, csv: true }, 'file'),
+  'acc3-tally-method-both-csv': () => tallyPage({ file: true, csv: true }, 'csv'),
+  'acc3-tally-method-file-only': () => tallyPage({ file: true, csv: false }, 'file'),
+  'acc3-tally-method-csv-only': () => tallyPage({ file: false, csv: true }, 'csv'),
+  'acc3-tally-method-none': () => tallyPage({ file: false, csv: false }, null),
 
   /* Left-out list */
   'acc3-tally-left-out': () => shell(accountsViewer, '/app/accounts/tally', <TallyLeftOutView page={LEFT_OUT_PAGE} />),

@@ -2,19 +2,19 @@ import { CalendarClock, FileSpreadsheet, SearchX, X } from 'lucide-react';
 import Link from 'next/link';
 import { StatusBadge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
-import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardBody } from '@/components/ui/card';
 import { cn, focusRing } from '@/components/ui/cn';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Field } from '@/components/ui/field';
-import { Input } from '@/components/ui/input';
 import { Notice } from '@/components/ui/notice';
 import { PageHeader } from '@/components/ui/page-header';
-import { Select } from '@/components/ui/select';
+import { QueueToolbar } from '@/components/ui/queue-toolbar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tabs } from '@/components/ui/tabs';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import type { DeskResult } from '@/views/accounts-desk/desk-kit';
+import { AddDrawer } from '@/views/suppliers/add-drawer';
+import { SupplierAreaTabs } from '@/views/suppliers/area-tabs';
+import { rateContractChips, rateContractHref, rateContractSearchKeep } from '@/views/suppliers/queue';
 import { NewContractForm } from './forms';
 import { RateContractsSwitch } from './switch';
 import { daysLeftText, endingSoon, rangeText } from './format';
@@ -22,14 +22,18 @@ import { STATUS_LOOK } from './labels';
 import type { ContractSupplierChoice, RateContractFilter, RateContractPage, RateContractRow, RateContractStatus, RateContractViewer } from './types';
 
 /*
- * Suppliers › Rate contracts (Accounts phase 3 contract §9.5 R-E1, §15 item 9).
- * Search and filters are a plain GET form, so the address keeps them and the
- * back button works. Link tabs for the presets (Managers: "To approve";
- * everyone: "Ending soon"). From 640 px the table keeps its columns and
- * scrolls inside its own labelled region; under 640 px each row is a
- * labelled card, so the page never scrolls sideways. Purchase adds contracts
- * below the list; Managers approve on the contract page; Accounts read.
- * Rate contracts are supplier costs: Purchase, Managers and Accounts only.
+ * Suppliers › Rate contracts (Accounts phase 3 contract §9.5 R-E1, §15 item 9;
+ * UX redesign R3, DM-22 and DM-23). The second tab of the Suppliers area.
+ * Queue pattern: one toolbar row with the search (on Enter) and chips for
+ * the presets (Managers: "To approve"; everyone: "Ending soon", with counts)
+ * and the statuses. Every chip and the search are the same addresses as
+ * before (?q=, ?preset=, ?status=, ?supplierId=, ?hotelId=, ?after=), so the
+ * back button and old links work. From 640 px the table keeps its columns
+ * and scrolls inside its own labelled region; under 640 px each row is a
+ * labelled card. Purchase adds a contract from the button (the same form in
+ * the side drawer) or uploads a rate sheet; Managers approve on the contract
+ * page; Accounts read. Rate contracts are supplier costs: Purchase, Managers
+ * and Accounts only.
  */
 
 const TEXT: Record<RateContractViewer, { eyebrow: string; description: string }> = {
@@ -37,19 +41,6 @@ const TEXT: Record<RateContractViewer, { eyebrow: string; description: string }>
   manager: { eyebrow: 'Suppliers', description: 'Approve the rate contracts Purchase entered, and end a contract that no longer applies.' },
   accounts: { eyebrow: 'Suppliers', description: 'Read the agreed room rates per hotel and supplier.' },
 };
-
-const STATUS_FILTER: RateContractStatus[] = ['draft', 'pending_approval', 'returned', 'active', 'ended'];
-
-function href(base: string, filter: RateContractFilter, drop?: keyof RateContractFilter, after?: string): string {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(filter)) {
-    if (k === drop || v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) continue;
-    p.set(k, Array.isArray(v) ? v.join(',') : String(v));
-  }
-  if (after) p.set('after', after);
-  const s = p.toString();
-  return s ? `${base}?${s}` : base;
-}
 
 function chipText(k: keyof RateContractFilter, v: unknown, names: { supplier?: string | null; hotel?: string | null }): string {
   switch (k) {
@@ -97,6 +88,7 @@ export function RateContractsListView({
   suppliers = [],
   createAction,
   createInitialState,
+  createOpen,
   importHref,
   switchAction,
 }: {
@@ -108,7 +100,7 @@ export function RateContractsListView({
   filter: RateContractFilter;
   page: RateContractPage | 'error';
   basePath?: string;
-  /** Counts for the preset tabs (from the same read). */
+  /** Counts for the preset chips (from the same read). */
   counts?: { toApprove?: number; endingSoon?: number };
   /** Names of the filtered supplier / hotel, for the chips. */
   names?: { supplier?: string | null; hotel?: string | null };
@@ -116,17 +108,25 @@ export function RateContractsListView({
   suppliers?: ContractSupplierChoice[];
   createAction?: DecisionAction | null;
   createInitialState?: DeskResult | null;
-  /** Settings › Imports › Rate sheet, for Purchase. */
+  /** Preview gallery: start with the add drawer open (default: open when a create result is given). */
+  createOpen?: boolean;
+  /** The rate-sheet upload page for Purchase (inside this area since UX redesign R3). */
   importHref?: string | null;
 }) {
   const t = TEXT[viewer];
   const canAdd = viewer === 'purchase' && enabled && !!createAction && suppliers.length > 0;
-  const active = (Object.entries(filter) as Array<[keyof RateContractFilter, unknown]>).filter(([k, v]) => k !== 'preset' && v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0));
-  const tabs = [
-    { key: undefined, label: 'All contracts' },
-    ...(viewer === 'manager' ? [{ key: 'to_approve' as const, label: 'To approve', count: counts?.toApprove }] : []),
-    { key: 'ending_soon' as const, label: 'Ending soon', count: counts?.endingSoon },
-  ];
+  const canUpload = viewer === 'purchase' && enabled && !!importHref;
+  const active = (Object.entries(filter) as Array<[keyof RateContractFilter, unknown]>).filter(
+    // The preset, the words and a single status show in the toolbar (current chip, "Showing matches for"); the rest are listed to remove.
+    ([k, v]) => k !== 'preset' && k !== 'q' && !(k === 'status' && Array.isArray(v) && v.length === 1) && v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0),
+  );
+  const filtered = Object.values(filter).some((v) => v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0));
+  const uploadLink = canUpload ? (
+    <Link href={importHref!} className={buttonVariants({ variant: 'secondary' })}>
+      <FileSpreadsheet aria-hidden="true" />
+      Upload a rate sheet
+    </Link>
+  ) : null;
   return (
     <div className="flex flex-col gap-5 font-sans text-base text-copy">
       <PageHeader
@@ -135,21 +135,25 @@ export function RateContractsListView({
         description={t.description}
         className="mb-[0]"
         actions={
-          canAdd ? (
+          canAdd || uploadLink ? (
             <>
-              <a href="#contract-add" className={buttonVariants({ variant: 'primary' })}>
-                Add a contract
-              </a>
-              {importHref ? (
-                <Link href={importHref} className={buttonVariants({ variant: 'secondary' })}>
-                  <FileSpreadsheet aria-hidden="true" />
-                  Upload a rate sheet
-                </Link>
+              {canAdd ? (
+                <AddDrawer
+                  buttonLabel="Add a contract"
+                  title="Add a contract"
+                  description="Choose the supplier and the hotel, and the dates the rates apply. You add the rate lines on the next page."
+                  initialOpen={createOpen ?? !!createInitialState}
+                >
+                  <NewContractForm action={createAction!} suppliers={suppliers} initialState={createInitialState} />
+                </AddDrawer>
               ) : null}
+              {uploadLink}
             </>
           ) : undefined
         }
       />
+
+      <SupplierAreaTabs current="rate-contracts" />
 
       {switchAction ? <RateContractsSwitch enabled={enabled} action={switchAction} /> : null}
       {!enabled ? (
@@ -158,56 +162,35 @@ export function RateContractsListView({
         </Notice>
       ) : null}
 
-      <Tabs
-        label="Rate contract lists"
-        items={tabs.map((x) => ({ href: href(basePath, { ...filter, preset: x.key }), label: x.label, current: filter.preset === x.key, count: x.count }))}
-      />
-
-      <Card>
-        <CardBody className="flex flex-col gap-3">
-          <form method="get" action={basePath} role="search" aria-label="Search rate contracts" className="flex flex-col gap-3">
-            {filter.preset ? <input type="hidden" name="preset" value={filter.preset} /> : null}
-            {filter.supplierId ? <input type="hidden" name="supplierId" value={filter.supplierId} /> : null}
-            {filter.hotelId ? <input type="hidden" name="hotelId" value={filter.hotelId} /> : null}
-            <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[minmax(0,1fr)_11rem_auto]">
-              <Field htmlFor="rc-q" label="Search" hint="Contract number, hotel or supplier name (start of it).">
-                <Input id="rc-q" name="q" type="search" defaultValue={filter.q ?? ''} maxLength={80} autoComplete="off" spellCheck={false} aria-describedby="rc-q-hint" />
-              </Field>
-              <Field htmlFor="rc-status" label="Status">
-                <Select id="rc-status" name="status" defaultValue={filter.status?.length === 1 ? filter.status[0] : ''}>
-                  <option value="">Any</option>
-                  {STATUS_FILTER.map((s) => (
-                    <option key={s} value={s}>
-                      {STATUS_LOOK[s].word}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <button type="submit" className={buttonVariants({ variant: 'secondary' })}>
-                Search
-              </button>
-            </div>
-          </form>
-          {active.length > 0 ? (
-            <ul className="m-0 flex list-none flex-wrap items-center gap-2 p-0" aria-label="Active filters">
-              {active.map(([k, v]) => (
-                <li key={k}>
-                  <Link href={href(basePath, filter, k)} className={cn('inline-flex min-h-8 items-center gap-1.5 rounded-full border border-line bg-wash px-3 text-sm text-ink no-underline hover:border-brand-strong', focusRing)}>
-                    {chipText(k, v, names)}
-                    <X aria-hidden="true" className="size-3.5" />
-                    <span className="sr-only">(remove this filter)</span>
-                  </Link>
-                </li>
-              ))}
-              <li>
-                <Link href={href(basePath, { preset: filter.preset })} className={cn('rounded-chip text-sm font-medium text-brand-strong underline underline-offset-4', focusRing)}>
-                  Clear all
+      <div className="flex flex-col gap-3">
+        <QueueToolbar
+          action={basePath}
+          label="Search and filter rate contracts"
+          chipsLabel="Rate contract lists"
+          search={{ name: 'q', value: filter.q ?? '', placeholder: 'Contract number, hotel or supplier', label: 'Search rate contracts by contract number, or the start of the hotel or supplier name' }}
+          chips={rateContractChips(basePath, filter, { manager: viewer === 'manager', counts })}
+          keep={rateContractSearchKeep(filter)}
+          className="mb-[0]"
+        />
+        {active.length > 0 ? (
+          <ul className="m-0 flex list-none flex-wrap items-center gap-2 p-0" aria-label="Active filters">
+            {active.map(([k, v]) => (
+              <li key={k}>
+                <Link href={rateContractHref(basePath, filter, k)} className={cn('inline-flex min-h-8 items-center gap-1.5 rounded-full border border-line bg-wash px-3 text-sm text-ink no-underline hover:border-brand-strong', focusRing)}>
+                  {chipText(k, v, names)}
+                  <X aria-hidden="true" className="size-3.5" />
+                  <span className="sr-only">(remove this filter)</span>
                 </Link>
               </li>
-            </ul>
-          ) : null}
-        </CardBody>
-      </Card>
+            ))}
+            <li>
+              <Link href={rateContractHref(basePath, { preset: filter.preset, q: filter.q })} className={cn('rounded-chip text-sm font-medium text-brand-strong underline underline-offset-4', focusRing)}>
+                Clear all
+              </Link>
+            </li>
+          </ul>
+        ) : null}
+      </div>
 
       <Card>
         {page === 'error' ? (
@@ -217,7 +200,7 @@ export function RateContractsListView({
             </Notice>
           </CardBody>
         ) : page.items.length === 0 ? (
-          active.length > 0 || filter.preset ? (
+          filtered ? (
             <EmptyState
               icon={SearchX}
               headingLevel={2}
@@ -230,35 +213,25 @@ export function RateContractsListView({
               }
             />
           ) : (
-            <EmptyState icon={FileSpreadsheet} headingLevel={2} title="No rate contracts yet" description={canAdd ? 'Add the first contract below, or upload a rate sheet.' : 'Purchase adds contracts here; a Manager approves each one.'} />
+            <EmptyState
+              icon={FileSpreadsheet}
+              headingLevel={2}
+              title="No rate contracts yet"
+              description={canAdd ? 'Use “Add a contract” at the top, or upload a supplier’s rate sheet to make draft contracts.' : 'Purchase adds contracts here; a Manager approves each one.'}
+              action={uploadLink ?? undefined}
+            />
           )
         ) : (
           <ContractTable rows={page.items} basePath={basePath} />
         )}
         {page !== 'error' && page.hasMore && page.nextAfter ? (
           <CardBody className="border-t border-line">
-            <Link href={href(basePath, filter, undefined, page.nextAfter)} className={buttonVariants({ variant: 'secondary' })}>
+            <Link href={rateContractHref(basePath, filter, undefined, page.nextAfter)} className={buttonVariants({ variant: 'secondary' })}>
               Show more contracts
             </Link>
           </CardBody>
         ) : null}
       </Card>
-
-      {canAdd ? (
-        <Card id="contract-add">
-          <section aria-labelledby="contract-add-heading">
-            <CardHeader>
-              <div className="min-w-0">
-                <CardTitle id="contract-add-heading">Add a contract</CardTitle>
-                <CardDescription>Choose the supplier and the hotel, and the dates the rates apply. You add the rate lines on the next page.</CardDescription>
-              </div>
-            </CardHeader>
-            <CardBody>
-              <NewContractForm action={createAction!} suppliers={suppliers} initialState={createInitialState} />
-            </CardBody>
-          </section>
-        </Card>
-      ) : null}
     </div>
   );
 }

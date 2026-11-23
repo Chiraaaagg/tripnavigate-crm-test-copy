@@ -44,3 +44,17 @@ Tool: `search`, type `component`, limit 5. Short synthetic queries only; no supp
 
 - Route wiring waits for track A's `S/modules/suppliers/server/**` (not present when this was built): the register and supplier routes still render the Phase 4 views.
 - `views/purchase/work-tab.tsx` must pass `catalogue` (from `purchase_workspace` 13.4 keys) and `searchHotels` to `AddRateForm`.
+
+## UX redesign R3 (helper C3, 18 November 2026)
+
+Presentation only. No server action, query, field name, permission check or database rule changed.
+
+- Suppliers area: the register and Rate contracts are two pill tabs of one area (`area-tabs.tsx`); each keeps its own address. Flight-only readers get no Rate contracts tab.
+- Register in the queue pattern (C2): one toolbar row (search on Enter, state chips that are the old filter addresses: `?verification=unverified`, `?bankState=on_hold`, `?bankState=none`, `?status=archived`), the less used filters in a "More filters" fold, the old removable filter chips below. Pure helpers in `queue.ts`.
+- "Add a supplier" and "Add a contract" open the same forms in the existing side drawer (`add-drawer.tsx`, Radix Dialog: focus trap, Escape, focus back on the button). The forms are unchanged.
+- GSTIN and PAN left the register row (they are on the supplier page); a supplier without GSTIN keeps a small "No GSTIN" flag. The row shows one main badge ("Payments on hold" when it applies, else the details check) and the second fact as plain text.
+- Supplier page (CSV import: `/app/purchase/suppliers/import`, linked from the register for Accounts or a Super Admin, S14): the record header (C4) with "Next:" (`supplierNext` in `tabs.ts`); "Bank details" is its own tab (`?tab=bank`); the on-hold badge in the header links to it. Old `?tab=` values open the same tab (`supplierTabFrom`). Contacts and Hotels sold show their counts from the record already loaded (R3 integration, lead decision; no extra read).
+- Rate contracts: queue chips replace the preset tabs and the status select (same addresses); rate lines are one row per line under column headings from 1280 px, labelled cards below; contract dates in the usual format; the contract page uses the record header and jump links.
+- Rate-sheet upload inside the area at `/app/purchase/rate-contracts/import` (same actions and access rule as Settings › Imports › Rate sheets, which still works), with plain column titles beside the column names.
+
+21st.dev: no new search. Every pattern used is one the owner already chose (C2 toolbar, C4 record header, C5 pill tabs, C11 fold; the drawer is the existing CRM drawer).

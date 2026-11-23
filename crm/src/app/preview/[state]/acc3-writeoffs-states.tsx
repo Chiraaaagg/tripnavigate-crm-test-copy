@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
+import { SectionTabs } from '@/components/ui/section-tabs';
 import { Tabs } from '@/components/ui/tabs';
 import { StaffShell, type ShellViewer } from '@/views/StaffShell';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
@@ -59,7 +60,18 @@ function accounts(page: SmallBalancePage | 'error', over: { filter?: SmallBalanc
   return shell(
     accountsViewer,
     '/app/accounts/small-balances',
-    <SmallBalancesView viewer={ACC} filter={over.filter ?? {}} page={page} actions={over.actions ?? ACCOUNTS_ACTIONS} writeOffsOn={over.on ?? true} limitPaise={LIMIT} preview={over.preview} after={over.after} />,
+    <SmallBalancesView
+      viewer={ACC}
+      filter={over.filter ?? {}}
+      page={page}
+      actions={over.actions ?? ACCOUNTS_ACTIONS}
+      writeOffsOn={over.on ?? true}
+      limitPaise={LIMIT}
+      preview={over.preview}
+      after={over.after}
+      // UX redesign R4 (D5): the Money in tab strip under the header.
+      sectionTabs={<SectionTabs section="money-in" currentHref="/app/accounts/small-balances" viewer={accountsViewer} />}
+    />,
   );
 }
 function manager(page: SmallBalancePage | 'error', over: { filter?: SmallBalanceFilter; actions?: WriteOffActions; preview?: WriteOffPreviewOpen } = {}) {
@@ -141,7 +153,8 @@ const states: Record<string, () => ReactNode> = {
   'acc3-writeoffs-approvals-error': () => approvals('error'),
 
   /* Monthly totals */
-  'acc3-writeoffs-monthly': () => shell(managerViewer, '/app/accounts/small-balances', <WriteOffMonthlyView data={MONTHLY} />),
+  'acc3-writeoffs-monthly': () =>
+    shell(managerViewer, '/app/accounts/small-balances', <WriteOffMonthlyView data={MONTHLY} sectionTabs={<SectionTabs section="money-in" currentHref="/app/accounts/small-balances/monthly" viewer={managerViewer} />} />),
   'acc3-writeoffs-monthly-admin': () => shell(adminViewer, '/app/accounts/small-balances', <WriteOffMonthlyView data={MONTHLY} canSeeList={false} />),
   'acc3-writeoffs-monthly-empty': () => shell(managerViewer, '/app/accounts/small-balances', <WriteOffMonthlyView data={{ month: '2026-10-01', branches: [] }} />),
   'acc3-writeoffs-monthly-error': () => shell(managerViewer, '/app/accounts/small-balances', <WriteOffMonthlyView data="error" />),

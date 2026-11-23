@@ -10,9 +10,9 @@ import type { TallyFileHeader } from './types';
 
 /*
  * The Phase 3 blocks of Accounts › Tally, in page order: "Make Tally file",
- * "Files made" (XML and CSV together) and "Upload Tally vouchers". The route
- * renders these above the Phase 1 CSV export form and the Open exceptions of
- * TallyPage (views/accounts-desk/tally.tsx), which stay as they are.
+ * "Files made" and "Upload Tally vouchers". UX redesign R4 (D11): TallyPage
+ * (views/accounts-desk/tally.tsx) shows them only while the Tally file
+ * method is the one shown; the CSV export has its own tab.
  */
 
 export interface TallyFileModel {
@@ -61,6 +61,23 @@ export function TallyFileSections({
       <Card>
         <CardBody>
           <TallyMatchUpload entityId={model.entities[0]?.id ?? ''} action={actions.stageMatch} initialState={initial?.match ?? null} />
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+/**
+ * Tally file switched off (R4 review): the files made earlier stay listed, and "Upload Tally vouchers"
+ * stays too, so files that are still unmatched can be matched (the daily check keeps counting them).
+ */
+export function TallyEarlierFiles({ files, entityId, stageMatch, initialMatch = null }: { files: TallyFileHeader[] | 'error'; entityId: string; stageMatch: DecisionAction; initialMatch?: DeskResult | null }) {
+  return (
+    <div className="flex flex-col gap-5">
+      {files === 'error' || files.length > 0 ? <TallyFilesList files={files} /> : null}
+      <Card>
+        <CardBody>
+          <TallyMatchUpload entityId={entityId} action={stageMatch} initialState={initialMatch} />
         </CardBody>
       </Card>
     </div>

@@ -1,12 +1,12 @@
-import { ChevronLeft, CircleCheck, FileText, FolderOpen, History, Hourglass, Lock, PencilLine, type LucideIcon } from 'lucide-react';
+import { ChevronLeft, FileText, FolderOpen, History, Lock, type LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { StatusBadge, type StatusTone } from '@/components/ui/badge';
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn, focusRing } from '@/components/ui/cn';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Notice } from '@/components/ui/notice';
-import { Tabs } from '@/components/ui/tabs';
+import { Status, type StatusKind } from '@/components/ui/status';
+import { Tabs, type TabItem, type TabsVariant } from '@/components/ui/tabs';
 import { Timeline, type TimelineItem } from '@/components/ui/timeline';
 import { formatPaise } from '@/modules/deals/dto';
 import type { ServiceItemFileView } from '@/modules/fulfilment/booking-form-contract';
@@ -19,11 +19,11 @@ import {
   type DepartmentTaskStatus,
 } from '@/modules/fulfilment/contracts';
 import { PURCHASE_EVIDENCE_KIND_LABEL, type PurchaseEvidenceView } from '@/modules/procurement/contracts';
-import { TASK_TAB_LABEL, tabHref, type DepartmentTaskTabsVM, type TaskHistoryVM } from '@/modules/settings/contracts';
+import { TASK_TAB_LABEL, tabHref, type DepartmentTaskTabsVM, type TaskHistoryVM, type TaskTab } from '@/modules/settings/contracts';
 import type { IdProofsState } from '../b11/id-proofs-list';
 import { formatIst } from '../deal-labels';
 import { TASK_HISTORY_TEXT } from './task-history-vm';
-import { QUEUE_SHOW_LABEL, queueShowHref, queueShowsFor, type QueueShow } from './queue-show';
+import { defaultQueueShow, QUEUE_SHOW_LABEL, queueAddress, queueShowsFor, type QueueShow, type QueueSort } from './queue-show';
 
 /*
  * Department task frame (Direction A Batch 4, DA-16, DA-270 to DA-273,
@@ -45,11 +45,12 @@ const STATUS_LABEL: Record<TaskDepartment, Partial<Record<DepartmentTaskStatus, 
   visa: VISA_TASK_STATUS_LABEL,
 };
 
-const STATUS_LOOK: Record<DepartmentTaskStatus, { tone: StatusTone; icon: LucideIcon }> = {
-  not_started: { tone: 'neutral', icon: Hourglass },
-  in_progress: { tone: 'info', icon: PencilLine },
-  supplier_confirmed: { tone: 'success', icon: CircleCheck },
-  completed: { tone: 'success', icon: CircleCheck },
+/** R3 (C3): task states read from the one shared status table; the department's own words stay on the badge. */
+const STATUS_KIND: Record<DepartmentTaskStatus, StatusKind> = {
+  not_started: 'waiting_to_be_taken',
+  in_progress: 'in_progress',
+  supplier_confirmed: 'confirmed_by_supplier',
+  completed: 'completed',
 };
 
 /** M14: a budget of zero or none means none was entered, never an approved ₹0.00. */
@@ -66,17 +67,9 @@ export function taskStatusText(department: TaskDepartment, status: DepartmentTas
   return STATUS_LABEL[department][status] ?? STATUS_LABEL.visa[status] ?? status;
 }
 
-/** DA-271 status word with its icon. */
+/** DA-271 status word with its icon (shared status table, C3: tone, icon and words, never colour alone). */
 export function TaskStatusBadge({ department, status, wrap = false }: { department: TaskDepartment; status: DepartmentTaskStatus; wrap?: boolean }) {
-  const look = STATUS_LOOK[status];
-  // DA-318b: Flight's confirmed state uses Purchase's check icon (the word carries the state).
-  const icon = look.icon;
-  return (
-    <StatusBadge tone={look.tone} icon={icon} wrap={wrap}>
-      <span className="sr-only">Task status: </span>
-      {taskStatusText(department, status)}
-    </StatusBadge>
-  );
+  return <Status kind={STATUS_KIND[status] ?? 'not_known'} label={taskStatusText(department, status)} srPrefix="Task status: " wrap={wrap} />;
 }
 
 const DEPARTMENT_ACTOR: Record<TaskDepartment, string> = {
@@ -151,14 +144,30 @@ export function InternalTaskLine({ children }: { children: ReactNode }) {
   );
 }
 
-/** Link tabs (DA-16). No tab bar for a status-only viewer (tabs = []). Never a count. */
-export function TaskTabsNav({ basePath, tabs }: { basePath: string; tabs: DepartmentTaskTabsVM }) {
+/**
+ * Link tabs (DA-16). No tab bar for a status-only viewer (tabs = []). Never a count.
+ * `defaultTab` is the tab the bare address opens for this viewer (D6: Work for
+ * the task holder); it keeps the bare address and every other tab gets its
+ * `?tab=`, so Details stays reachable when the page opens on Work.
+ */
+export function TaskTabsNav({
+  basePath,
+  tabs,
+  defaultTab = 'details',
+  variant = 'underline',
+}: {
+  basePath: string;
+  tabs: DepartmentTaskTabsVM;
+  defaultTab?: TaskTab;
+  variant?: TabsVariant;
+}) {
   if (tabs.tabs.length === 0) return null;
   return (
     <Tabs
       label="Task sections"
       className="mb-5"
-      items={tabs.tabs.map((tab) => ({ href: tabHref(basePath, tab, 'details'), label: TASK_TAB_LABEL[tab], current: tab === tabs.current }))}
+      variant={variant}
+      items={tabs.tabs.map((tab) => ({ href: tabHref(basePath, tab, defaultTab), label: TASK_TAB_LABEL[tab], current: tab === tabs.current }))}
     />
   );
 }
@@ -303,30 +312,35 @@ export function QueueShowTabs({
   canTakeTasks,
   counts,
   label,
+  keep,
+  extra = [],
+  variant = 'underline',
 }: {
   basePath: string;
-  show: QueueShow;
+  /** null = another list is open (for example Payment requests beside Purchase tasks). */
+  show: QueueShow | null;
   canTakeTasks: boolean;
-  counts: Record<QueueShow, number>;
+  /** Counts from the rows already on the page; omitted when this page did not read the tasks. */
+  counts?: Record<QueueShow, number>;
   label: string;
+  /** R3: the search and sort carried over when the tab changes (the chip is not: it belongs to one tab's rows). */
+  keep?: { q?: string; sort?: QueueSort };
+  /** R3: more list tabs after All (for example "Payment requests"). */
+  extra?: TabItem[];
+  variant?: TabsVariant;
 }) {
-  return (
-    <Tabs
-      label={label}
-      className="mb-4"
-      items={queueShowsFor(canTakeTasks).map((s) => ({
-        href: queueShowHref(basePath, s, canTakeTasks),
-        label: (
-          <>
-            {QUEUE_SHOW_LABEL[s]}
-            <span className="sr-only">:</span>
-          </>
-        ),
-        current: s === show,
-        count: counts[s],
-      }))}
-    />
-  );
+  const items: TabItem[] = queueShowsFor(canTakeTasks).map((s) => ({
+    href: queueAddress(basePath, { show: s === defaultQueueShow(canTakeTasks) ? null : s, q: keep?.q, sort: keep?.sort }),
+    label: (
+      <>
+        {QUEUE_SHOW_LABEL[s]}
+        <span className="sr-only">:</span>
+      </>
+    ),
+    current: s === show,
+    count: counts?.[s],
+  }));
+  return <Tabs label={label} className="mb-4" variant={variant} items={[...items, ...extra]} />;
 }
 
 /** Empty list (DA-273) or an empty tab of a non-empty list. */

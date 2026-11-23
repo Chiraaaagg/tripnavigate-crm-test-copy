@@ -1,13 +1,14 @@
 import { ChevronRight, ChevronsUpDown, LogOut } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { AccountAccessLink, NavLinks, type NavItem } from '@/components/NavLinks';
+import { type MenuCounts, sectionsFor } from '@/app/app/sections';
+import { AccountAccessLink, NavLinks } from '@/components/NavLinks';
 import { PushSignOutForm } from '@/components/PushSignOutForm';
 import { buttonVariants } from '@/components/ui/button';
 import { cn, focusRing } from '@/components/ui/cn';
 import { MobileNav } from '@/components/ui/mobile-nav';
+import { type DealSearchAction, type LeadSearchAction, QuickSearchBox, QuickSearchButton, QuickSearchRoot } from '@/components/ui/quick-search';
 import { Wordmark } from '@/components/ui/sidebar-nav';
 import { signOutAction, signOutEverywhereAction } from '@/modules/identity/server/actions';
-import { SETTINGS_PREFIX, settingsTabsFor } from '@/modules/settings/contracts';
 import { NoticeBell } from './notices/bell';
 import { NoticesProvider } from './notices/provider';
 import type { NoticesConfig } from './notices/types';
@@ -18,6 +19,8 @@ export interface ShellMembership {
   roleName: string;
   branchName: string;
   isHeadOffice: boolean;
+  /** The company (legal entity) of this membership. Optional so older callers fall back to the company name. */
+  companyName?: string;
 }
 
 export interface ShellViewer {
@@ -81,98 +84,6 @@ export interface ShellViewer {
   canSeeOwnDues?: boolean;
 }
 
-/**
- * The person's menu, grouped as Direction A (copy-catalogue §16.1, DA-01 to
- * DA-07): Work, then Accounts, then Settings. The same permission rules as
- * before (shell-permissions.ts) decide each item; a person with several roles
- * gets the union, never a duplicate. "My access" is not in the menu (plan T5):
- * it sits in the account panel and /app/access still opens. Quotations and
- * Itineraries (Batch 3, FP-001/040/051) follow Deals for quotation editors
- * only (canSeeQuotations: Sales or Manager, no Purchase anywhere).
- * Navigation convenience only: every page, command and database policy still
- * decides access on its own.
- */
-export function navItemsFor(viewer: ShellViewer): NavItem[] {
-  const items: NavItem[] = [{ href: '/app', label: 'Home', group: 'Work' }];
-  if (viewer.canSeeLeads) items.push({ href: '/app/leads', label: 'Leads', group: 'Work' });
-  items.push({ href: '/app/deals', label: 'Deals', group: 'Work' });
-  if (viewer.canSeeQuotations) {
-    items.push({ href: '/app/quotations', label: 'Quotations', group: 'Work' }, { href: '/app/itineraries', label: 'Itineraries', group: 'Work' });
-  }
-  if (viewer.canSeePurchaseTasks) {
-    items.push({ href: '/app/purchase', label: 'Purchase tasks', group: 'Work' }, { href: '/app/purchase/suppliers', label: 'Suppliers', group: 'Work' });
-    // Accounts phase 3 (contract 15 Nav, 14): rate contracts for Purchase and Managers (rate_contracts_list decides rows).
-    items.push({ href: '/app/purchase/rate-contracts', label: 'Rate contracts', group: 'Work' });
-  }
-  // Purchase build: own payment requests (Purchase) and the branch Manager's approvals.
-  if (viewer.canSeePurchasePayments) items.push({ href: '/app/purchase/payments', label: 'Payment requests', group: 'Work' });
-  if (viewer.canSeeApprovals) items.push({ href: '/app/approvals', label: 'Approvals', group: 'Work' });
-  if (viewer.canSeeFlightTasks) items.push({ href: '/app/flight', label: 'Flight tasks', group: 'Work' });
-  if (viewer.canSeeVisaDesk) items.push({ href: '/app/visa', label: 'Visa and passport tasks', group: 'Work' });
-  if (viewer.canUseAccounts) {
-    // Branch cash and Company accounts open for anyone holding the Accounts role (the pages'
-    // own first check); canUseAccounts already requires that role, so no extra read is needed.
-    items.push(
-      { href: '/app/accounts', label: 'To check', group: 'Accounts' },
-      // Voice-note batch (owner item 10): stored customers that Accounts checks (same rule as the page).
-      ...(viewer.canCheckCustomers ? [{ href: '/app/accounts/customers', label: 'Customers to check', group: 'Accounts' as const }] : []),
-      { href: '/app/accounts/claims', label: 'Reported payments', group: 'Accounts' },
-      // Purchase build: hotel commitments and supplier money (the pages and the database decide access).
-      { href: '/app/accounts/go-ahead', label: 'Hotel go-ahead', group: 'Accounts' },
-      { href: '/app/accounts/supplier-payments', label: 'Supplier payments', group: 'Accounts' },
-      { href: '/app/accounts/supplier-invoices', label: 'Supplier invoices', group: 'Accounts' },
-      { href: '/app/accounts/funding', label: 'Company funding', group: 'Accounts' },
-      { href: '/app/accounts/expenses', label: 'Department costs', group: 'Accounts' },
-      { href: '/app/accounts/cash', label: 'Branch cash', group: 'Accounts' },
-      { href: '/app/accounts/destinations', label: 'Company accounts', group: 'Accounts' },
-    );
-  } else if (viewer.canCheckCustomers) {
-    // Finance switched off: customer checks do not depend on it (Echo-B N2).
-    items.push({ href: '/app/accounts/customers', label: 'Customers to check', group: 'Accounts' });
-  }
-  // Accounts phase (contract 11.8): Accounts get Documents and money, Dues and Tally; a branch Manager
-  // (without Purchase, Flight or Visa) gets Documents and money and Dues, view only; Sales get Dues of
-  // their own Deals. The reads decide every row.
-  if (viewer.canSeeAccountsDesk) {
-    items.push(
-      { href: '/app/accounts/records', label: 'Documents and money', group: 'Accounts' },
-      { href: '/app/accounts/dues', label: 'Dues', group: 'Accounts' },
-      // Accounts phase 2 (contract 11 Nav): customer documents and refund payouts.
-      { href: '/app/accounts/documents', label: 'Customer documents', group: 'Accounts' },
-      { href: '/app/accounts/refunds', label: 'Refunds', group: 'Accounts' },
-      // Accounts phase 3 (contract 15 Nav): small balances to write off (small_balances_list decides rows).
-      { href: '/app/accounts/small-balances', label: 'Small balances', group: 'Accounts' },
-      { href: '/app/accounts/tally', label: 'Tally', group: 'Accounts' },
-      // Accounts phase 3: Accounts read rate contracts (supplier costs); Purchase and Managers have the Work link.
-      ...(viewer.canSeePurchaseTasks ? [] : [{ href: '/app/purchase/rate-contracts', label: 'Rate contracts', group: 'Accounts' as const }]),
-    );
-  } else if (viewer.canSeeBranchMoney) {
-    // Accounts phase 2: the Manager reads released customer documents of their branches; refunds to approve
-    // are on Approvals.
-    items.push(
-      { href: '/app/accounts/records', label: 'Documents and money', group: 'Accounts' },
-      { href: '/app/accounts/dues', label: 'Dues', group: 'Accounts' },
-      { href: '/app/accounts/documents', label: 'Customer documents', group: 'Accounts' },
-      // Accounts phase 3: the branch Manager approves, returns and undoes write-offs here.
-      { href: '/app/accounts/small-balances', label: 'Small balances', group: 'Accounts' },
-    );
-  } else if (viewer.canSeeOwnDues) {
-    items.push({ href: '/app/accounts/dues', label: 'Dues', group: 'Work' });
-  }
-  // Batch 4 (DA-250): one "Settings" item for anyone who can open at least one Settings tab.
-  // Its address is the person's first tab; it stays current on every /app/admin/* page.
-  const settingsTabs = settingsTabsFor({
-    canAdministerStaff: viewer.canAdministerStaff,
-    canManageGrants: viewer.canManageGrants,
-    canManageIntegration: !!viewer.canManageIntegration,
-    canOpenBitrixConnection: !!viewer.canOpenBitrixConnection,
-    canManageFinancePolicy: !!viewer.canManageFinancePolicy,
-    canImport: !!viewer.canImport,
-  });
-  if (settingsTabs.length > 0) items.push({ href: settingsTabs[0]!.href, label: 'Settings', group: 'Settings', activePrefix: SETTINGS_PREFIX });
-  return items;
-}
-
 /** Two-letter initials for the avatar (decorative; the name is always given in text). */
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -182,6 +93,30 @@ function initialsOf(name: string): string {
 function membershipsOf(viewer: ShellViewer): ShellMembership[] {
   if (viewer.memberships && viewer.memberships.length > 0) return viewer.memberships;
   return viewer.primaryRole ? [{ roleName: viewer.primaryRole, branchName: viewer.primaryBranch, isHeadOffice: false }] : [];
+}
+
+/** The company name when none is given (single-company pilot). */
+const DEFAULT_COMPANY = 'Holiday Chacha Pvt LTD';
+
+/** The person's companies, each once, in membership order. */
+function companiesOf(viewer: ShellViewer): string[] {
+  const names = membershipsOf(viewer)
+    .map((m) => m.companyName)
+    .filter((n): n is string => !!n);
+  return names.length > 0 ? [...new Set(names)] : [DEFAULT_COMPANY];
+}
+
+/**
+ * The line under the wordmark (N6): the branch for someone who works in one
+ * branch; for someone in several branches the company name (or "All
+ * companies" across several), never just the first branch.
+ */
+export function frameScopeLine(viewer: ShellViewer): string {
+  const branches = [...new Set(membershipsOf(viewer).map((m) => m.branchName).filter(Boolean))];
+  if (branches.length === 1) return `${branches[0]} branch`;
+  if (branches.length === 0) return viewer.primaryBranch ? `${viewer.primaryBranch} branch` : DEFAULT_COMPANY;
+  const companies = companiesOf(viewer);
+  return companies.length === 1 ? companies[0]! : 'All companies';
 }
 
 const USER_MENU_ID = 'account-menu';
@@ -211,7 +146,7 @@ function AccountPanel({
     <div className="flex flex-col gap-3 font-sans text-base text-copy">
       <div className="px-2.5">
         <p className="m-0 font-semibold text-ink">{viewer.displayName}</p>
-        <p className="m-0 text-sm text-quiet">Holiday Chacha Pvt LTD</p>
+        <p className="m-0 text-sm text-quiet">{companiesOf(viewer).join(', ')}</p>
       </div>
       {memberships.length > 0 ? (
         <div className="px-2.5">
@@ -275,14 +210,19 @@ function AccountPanel({
 }
 
 /**
- * Staff app frame (Direction A, R0): a calm left sidebar on desktop (brand,
- * grouped menu, account panel in the footer) and, under 1024px, a top bar with
- * a visible "Menu" button that opens the same groups and account items in a
- * slide-in sheet. Page content renders unchanged inside <main>.
+ * Staff app frame (Direction A; UX redesign R1, C1 and C9): on desktop a calm
+ * left sidebar with the brand and the bell in one header row, the find box,
+ * the grouped, foldable menu (sections.ts), Settings pinned under the
+ * scrolling list, and the account panel in the footer. Under 1024px a top
+ * bar with a visible "Menu" button (the same groups and account items in a
+ * slide-in sheet), the search button and the bell. Page content renders
+ * unchanged inside <main>. The Accounts section tab strip (D5) is drawn by
+ * each Accounts page under its own header (R4), not by the frame.
  * Structure adapted from the shadcn Sidebar (21st.dev id 1627, MIT): header /
- * content / footer column, group labels and menu buttons. Departures: no
- * collapse, no cookie, no tooltip, no inline style (CSP nonce policy), fixed
- * width class instead of a CSS variable, links instead of buttons.
+ * content / footer column, group labels and menu buttons, collapsible groups
+ * (shadcn Collapsible 847 on Radix). Departures: no rail collapse, no cookie,
+ * no tooltip, no inline style (CSP nonce policy), fixed width class instead
+ * of a CSS variable, links instead of buttons, fold state in localStorage.
  */
 export function StaffShell({
   viewer,
@@ -290,6 +230,8 @@ export function StaffShell({
   currentPath,
   signOutOptionsOpen,
   notices,
+  counts,
+  search,
 }: {
   viewer: ShellViewer;
   children: ReactNode;
@@ -298,31 +240,43 @@ export function StaffShell({
   signOutOptionsOpen?: boolean;
   /** Accounts phase (contract 9.4, 11.5): the notification bell on every page; null or absent = no bell. */
   notices?: NoticesConfig | null;
+  /**
+   * R1 (N3): menu counts per address, or the promise the layout streams in
+   * (loadMenuCounts). Absent = no badges.
+   */
+  counts?: MenuCounts | Promise<MenuCounts>;
+  /**
+   * R1 (C9): the existing search actions for the quick search dialog; the
+   * Leads one only for people who may open Leads. Absent = no find box.
+   */
+  search?: { deals: DealSearchAction; leads?: LeadSearchAction; defaultOpen?: boolean; defaultQuery?: string };
 }) {
-  const items = navItemsFor(viewer);
-  const branchLine = viewer.primaryBranch ? `${viewer.primaryBranch} branch` : 'Holiday Chacha Pvt LTD';
+  const links = sectionsFor(viewer);
+  const scopeLine = frameScopeLine(viewer);
   return (
     <NoticesProvider config={notices ?? null}>
+    <QuickSearchRoot searchDeals={search?.deals} searchLeads={search?.leads} defaultOpen={search?.defaultOpen} defaultQuery={search?.defaultQuery}>
     <div className="staff-shell flex min-h-dvh bg-canvas">
       {/* The column carries the white background and border for the full page height; the menu inside stays in view while scrolling. */}
       <div className="hidden w-64 shrink-0 border-r border-line bg-card lg:block print:hidden">
         <div className="sticky top-0 flex h-dvh flex-col font-sans">
-          <div className="flex items-center gap-2.5 px-4.5 pt-4.5 pb-3">
+          <div className="flex shrink-0 items-center gap-2.5 px-4 pt-4 pb-2.5" data-slot="sidebar-header">
             <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-control bg-brand-strong text-sm font-bold text-white">
               TN
             </span>
-            <span className="flex min-w-0 flex-col leading-tight">
+            <span className="flex min-w-0 flex-1 flex-col leading-tight">
               <Wordmark className="text-lg" />
-              <span className="truncate text-xs text-quiet">{branchLine}</span>
+              <span className="truncate text-xs text-quiet">{scopeLine}</span>
             </span>
+            <NoticeBell id="notice-bell-sidebar" placement="sidebar" />
           </div>
-          <div className="px-3 pb-2 empty:hidden">
-            <NoticeBell id="notice-bell-sidebar" withLabel />
-          </div>
-          <nav aria-label="Main" className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-            <NavLinks items={items} currentPath={currentPath} />
-          </nav>
-          <div className="relative border-t border-line p-2">
+          {search ? (
+            <div className="shrink-0 px-2 pb-2">
+              <QuickSearchBox />
+            </div>
+          ) : null}
+          <NavLinks links={links} counts={counts} currentPath={currentPath} />
+          <div className="relative shrink-0 border-t border-line p-2">
             <details id={USER_MENU_ID} className="group m-0" open={signOutOptionsOpen}>
               <summary
                 className={cn(
@@ -353,16 +307,15 @@ export function StaffShell({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-card px-3 font-sans sm:px-5 lg:hidden print:hidden">
           <MobileNav>
-            <nav aria-label="Main">
-              <NavLinks items={items} currentPath={currentPath} />
-            </nav>
+            <NavLinks links={links} counts={counts} currentPath={currentPath} layout="sheet" />
             <section aria-label="Your account" className="border-t border-line pt-3">
               <AccountPanel viewer={viewer} idPrefix="sheet" currentPath={currentPath} signOutOptionsOpen={signOutOptionsOpen} />
             </section>
           </MobileNav>
           <Wordmark className="text-lg" />
-          <span className="ml-auto">
-            <NoticeBell id="notice-bell-top" />
+          <span className="ml-auto flex items-center gap-1">
+            {search ? <QuickSearchButton /> : null}
+            <NoticeBell id="notice-bell-top" placement="top" />
           </span>
         </header>
         <main id="main" className="w-full min-w-0 max-w-[72rem] p-8 max-md:p-5 print:max-w-none print:p-0" tabIndex={-1}>
@@ -371,6 +324,7 @@ export function StaffShell({
       </div>
       <UserMenuDismiss menuId={USER_MENU_ID} />
     </div>
+    </QuickSearchRoot>
     </NoticesProvider>
   );
 }

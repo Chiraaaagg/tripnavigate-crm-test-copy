@@ -41,7 +41,8 @@ type Kind = 'loading' | 'empty' | 'error' | 'refused' | 'readonly';
 type KindStates = string[] | { na: string };
 const SCREENS: Record<string, { prefix: string; main: string; words?: RegExp[]; states: Record<Kind, KindStates> }> = {
   '1 Book now › language and WhatsApp number': {
-    prefix: 'acc3-messages-booknow', main: 'acc3-messages-booknow', words: [/English/, /Hindi/, /WhatsApp number is the same as mobile/],
+    // D12 (UX redesign R1): no language choice; every customer message is in English (checked below: no "Hindi").
+    prefix: 'acc3-messages-booknow', main: 'acc3-messages-booknow', words: [/WhatsApp number is the same as mobile/],
     states: {
       loading: ['b11-book-loading'], // host: the Book now page loads the card with the form
       empty: ['acc3-messages-booknow'], // nothing chosen yet: English and "same as mobile" preselected
@@ -75,7 +76,7 @@ const SCREENS: Record<string, { prefix: string; main: string; words?: RegExp[]; 
     },
   },
   '4 Settings › Customer messages': {
-    prefix: 'acc3-messages-settings', main: 'acc3-messages-settings', words: [/[Pp]ilot/, /configured/i],
+    prefix: 'acc3-messages-settings', main: 'acc3-messages-settings', words: [/[Pp]ilot list/, /of 18 on/, /Every message is in English/],
     states: {
       loading: ['acc3-messages-settings-loading'], empty: ['acc3-messages-settings-empty'], error: ['acc3-messages-settings-error'],
       refused: ['acc3-messages-settings-switch-refused', 'acc3-messages-settings-pilot-add-refused'],
@@ -108,7 +109,8 @@ const SCREENS: Record<string, { prefix: string; main: string; words?: RegExp[]; 
       empty: { na: 'one company always exists; the page lists its settings' },
       error: ['acc3-bills-settings-unknown'], // the values could not be read: shown as unknown, never Off
       refused: ['acc3-bills-settings-limit-refused', 'acc3-bills-settings-tally-refused'],
-      readonly: { na: 'the Settings › Accounts tab is shown only to people who may change it (Money rules right)' },
+      // R1 (S12): a Super Admin who also holds Accounts sees the company read only with the reason: acc2-settings-accounts-read-only.
+      readonly: { na: 'these rows are shown only to people who may change them; the read-only view with its reason is the R1 state acc2-settings-accounts-read-only' },
     },
   },
   '6 Accounts › Small balances and Approvals › Write-offs': {
@@ -300,7 +302,7 @@ test.describe('Accounts Phase 3 preview states', () => {
     await word(/^acc3-changes-reconfirm$/, /Supplier refused/);
     await word(/^acc3-writeoffs-dues-line$/, /Written off ₹[0-9,]+(\.[0-9]{2})? by /);
     await word(/^acc3-bills-deal-held/, /Held — /);
-    // acc3-bills-settings-unknown: the values could not be read; it says so instead of showing the switches.
+    // acc3-bills-settings-unknown: the values could not be read; it says so, shows Not known and offers no change (R1 rows).
     await word(/^acc3-bills-settings(?!-unknown$)/, /[Aa]utomatic release/);
     await word(/^acc3-bills-settings-unknown$/, /could not be read/);
     expect(misses).toEqual([]);
@@ -395,5 +397,37 @@ test.describe('Accounts Phase 3 preview states', () => {
       const registered = await page.evaluate(() => (window as unknown as { __registers: number }).__registers);
       expect(registered, 'the service worker registers only after the button').toBeLessThanOrEqual(1);
     }
+  });
+
+  // R4 review P3-1: with the Tally file switched off, unmatched files can still be matched from the earlier-files fold.
+  test('Tally file off: the earlier-files fold keeps the voucher upload', async ({ page }) => {
+    test.skip(!STATES.includes('acc3-tally-method-csv-only'), 'needs the acc3-tally-method-csv-only state');
+    expect(await open(page, 'acc3-tally-method-csv-only')).toBe(true);
+    await waitForHydration(page);
+    await page.getByRole('main').getByText('Earlier Tally files and voucher upload').click();
+    await expect(page.getByRole('form', { name: 'Upload Tally vouchers' })).toBeVisible();
+  });
+
+  // R4 integration: Release on a Customer documents row never posts blind. It opens a confirm that names the draft,
+  // the Deal and the amount and links to the draft's preview on the Deal page; Cancel releases nothing.
+  test('Release on a document row opens a confirm naming the draft and Deal, with a link to its preview', async ({ page }) => {
+    test.skip(!STATES.includes('acc3-bills-list-release'), 'needs the acc3-bills-list-release state');
+    expect(await open(page, 'acc3-bills-list-release')).toBe(true);
+    await waitForHydration(page);
+    // Rows released earlier already show the "Released" status; Cancel must not add a release result.
+    const releasedBefore = await page.getByText('Released', { exact: true }).count();
+    await page.getByRole('button', { name: 'Release Invoice draft of SYN-JOD-117' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Release the Invoice draft of SYN-JOD-117?' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(/Invoice draft of Deal SYN-JOD-117 \(Jodhpur\) for ₹/);
+    const preview = dialog.getByRole('link', { name: 'Read the preview of this Invoice draft on the Deal page' });
+    // The fixture row: Deal a0002101-… (acc2-docs-fixtures DEAL_ID), draft document a0002283-….
+    await expect(preview).toHaveAttribute('href', '/app/accounts/deals/a0002101-0000-4000-8000-000000002101?tab=documents#draft-a0002283-0000-4000-8000-000000002283');
+    expect(await axe(page)).toEqual([]);
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByText('Released', { exact: true })).toHaveCount(releasedBefore);
+    await expect(page.getByRole('status').filter({ hasText: 'Released:' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Release Invoice draft of SYN-JOD-117' })).toBeFocused();
   });
 });

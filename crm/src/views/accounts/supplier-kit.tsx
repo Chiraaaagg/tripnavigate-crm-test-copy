@@ -1,4 +1,4 @@
-import { FileText, Landmark, type LucideIcon } from 'lucide-react';
+import { FileText, Landmark, Lock, Scale, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { StatusBadge, type StatusTone } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -32,6 +32,31 @@ export function Status({ tone, icon, label, children }: { tone: StatusTone; icon
       {label ? <span className="sr-only">{label}: </span> : null}
       {children}
     </StatusBadge>
+  );
+}
+
+/**
+ * Redesign R4 (A7): the ₹50,000 approval rule, said once per page instead of
+ * on every row. The database routes each request; this line only explains it.
+ */
+export function LimitLine({ children }: { children: ReactNode }) {
+  return (
+    <p className="m-0 mb-4 flex items-start gap-2 text-sm text-quiet" data-slot="limit-line">
+      <Scale aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-faint" />
+      <span>{children}</span>
+    </p>
+  );
+}
+
+/** A request this person may not decide because the branch Manager does (above ₹50,000). No Approve button. */
+export function NeedsManager({ who = 'Accounts cannot approve this request.' }: { who?: string }) {
+  return (
+    <p className="m-0 flex items-start gap-1.5 text-sm text-quiet" data-slot="needs-manager">
+      <Lock aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+      <span>
+        <strong className="font-semibold text-ink">Needs the branch Manager.</strong> {who}
+      </span>
+    </p>
   );
 }
 

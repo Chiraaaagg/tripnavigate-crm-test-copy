@@ -1,9 +1,12 @@
-import { Link2, Lock } from 'lucide-react';
+import { Link2, Lock, Send } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { cn, focusRing } from '@/components/ui/cn';
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Notice } from '@/components/ui/notice';
+import { dayText } from '@/lib/format';
+import { SENT_CHANNEL_LABEL } from '@/modules/quotations/contracts';
+import { PrintButton } from '../customer-documents/print-button';
 import { CostEstimatesForm, DiscardDraftForm, QuoteEditor } from './quote-editor';
 import { CheckAndMarkReadyButton, QuoteEditorShell } from './quote-editor-shell';
 import { SectionFocus } from '../b11/section-focus';
@@ -11,13 +14,13 @@ import { quoteCopyLinks, quoteHeader } from '@/modules/quotations/editor-model';
 import { quotationSubjectLink, referralDraftHref } from '@/modules/quotations/subject-links';
 import type { PrefillUiVM } from '@/modules/fulfilment/prefill-contract';
 import { AcceptForm, ConvertForm, CreateQuotationForm, DeclineForm, EvidenceList, EvidenceUploadForm, LinkDealForm, MarkSentForm, NewVersionForm } from './quote-forms';
-import type { QuoteActions } from './quote-kit';
+import type { QuoteAction, QuoteActions } from './quote-kit';
 import { QuotePreviewFrame } from './quote-preview-check';
 import { COMPANY_GSTIN_TEXT, companyGstinGapFor, quotationGstinWarning } from '@/modules/documents/company-identity';
 import type { QuotationDocumentView } from '@/modules/documents/contracts';
 import { quotationDayPlanNotice, quotationToEngineQuote } from '@/modules/documents/quotation-adapter';
 import { BrandedQuotationTemplate } from '@/modules/documents/render/branded-templates';
-import { bookingHref, quotationHref, quotationPreviewHref, type QuoteListView, type QuoteScreenData } from './quote-shapes';
+import { bookingHref, quotationHref, quotationPreviewHref, type QuoteListView, type QuoteScreenData, type QuoteVersionView } from './quote-shapes';
 import { latestVersion } from './quote-fields';
 import { LinkStateNotice, QuoteLinkButton, QuotationScreen, QuotationsCard, type QuoteScreenSlots } from './quote-views';
 
@@ -169,18 +172,93 @@ export function QuotationPage({
  * The customer preview: the customer view (quotation_get + quotation_customer_money,
  * the PDF's input) through the documents adapter (which runs the documents
  * safety scan) into the branded template the PDF uses.
+ *
+ * R2 (D1, owner Q3): "Print or save as PDF" opens the browser's print window
+ * (no PDF file is made); `share` adds the existing "Mark as shared" dialog for
+ * a version ready to share, or one line saying when it was shared or what
+ * must happen first. Both show only when the document passed its checks.
  */
-export function QuotationPreviewPage({ versionId, view, moneyVisible }: { versionId: string; view: QuotationDocumentView; moneyVisible: boolean }) {
+export function QuotationPreviewPage({
+  versionId,
+  view,
+  moneyVisible,
+  share,
+}: {
+  versionId: string;
+  view: QuotationDocumentView;
+  moneyVisible: boolean;
+  /** The version's send state (the editor's loader; null when it could not be read) and the existing mark-as-shared action. */
+  share?: { version: QuoteVersionView | null; action: QuoteAction };
+}) {
   const backHref = quotationHref(versionId);
   const copyLinks = quoteCopyLinks(versionId, 'customer_copy');
   if (!moneyVisible) return <QuotePreviewFrame backHref={backHref} copyLinks={copyLinks} check={{ kind: 'no_money' }} />;
   const r = quotationToEngineQuote(view);
   if (!r.ok) return <QuotePreviewFrame backHref={backHref} copyLinks={copyLinks} check={{ kind: 'refused', refusals: r.refusals }} />;
+  const v = share?.version ?? null;
+  const canShare = Boolean(v && share && v.status === 'ready' && v.canSend);
   return (
-    <QuotePreviewFrame backHref={backHref} copyLinks={copyLinks} check={{ kind: 'ok', document: 'quotation', placeholders: r.placeholders, notices: [quotationDayPlanNotice(view, r.input), r.placeholders.length > 0 ? 'You can still share it. Fill the missing details first if you can.' : null].filter((n): n is string => Boolean(n)) }}>
+    <QuotePreviewFrame
+      backHref={backHref}
+      copyLinks={copyLinks}
+      actions={
+        <>
+          {/* One primary per screen: when the version waits to be shared, "Mark as shared" is it. */}
+          <PrintButton label="Print or save as PDF" variant={canShare ? 'secondary' : 'primary'} />
+          {/* The editor's own form, trimmed of the internal money and Bitrix values it does not use. */}
+          {canShare && v && share ? <MarkSentForm version={{ ...v, money: undefined, prefill: undefined }} action={share.action} /> : null}
+        </>
+      }
+      shareLine={
+        v ? (
+          // One stable polite region: after "Mark as shared" the line changes to the shared date and is read out.
+          <div role="status" data-slot="quote-share-line">
+            <ShareLine version={v} backHref={backHref} canShare={canShare} />
+          </div>
+        ) : null
+      }
+      check={{ kind: 'ok', document: 'quotation', placeholders: r.placeholders, notices: [quotationDayPlanNotice(view, r.input), r.placeholders.length > 0 ? 'You can still share it. Fill the missing details first if you can.' : null].filter((n): n is string => Boolean(n)) }}
+    >
       <BrandedQuotationTemplate input={r.input} id="quote-document" />
     </QuotePreviewFrame>
   );
+}
+
+/** Where sharing stands on the customer copy: shared when and how, or what must happen before "Mark as shared". */
+function ShareLine({ version: v, backHref, canShare }: { version: QuoteVersionView; backHref: string; canShare: boolean }) {
+  if (v.sent) {
+    const how = v.sent.channel ? ` by ${SENT_CHANNEL_LABEL[v.sent.channel]}` : '';
+    return (
+      <p className="m-0 flex items-start gap-2 text-sm text-copy">
+        <Send aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-info" />
+        <span>
+          Version {v.versionNo} marked as shared{how} on {dayText(v.sent.at)}.
+        </span>
+      </p>
+    );
+  }
+  if (canShare) {
+    return (
+      <p className="m-0 text-sm text-copy">
+        Share it with the customer yourself (print it or save it as a PDF, then send it), then press “Mark as shared”. The CRM sends nothing.
+      </p>
+    );
+  }
+  if (v.status === 'draft' && v.canEdit) {
+    return (
+      <p className="m-0 flex items-start gap-2 text-sm text-copy">
+        <Lock aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-quiet" />
+        <span>
+          Not ready to share yet. Press “Check and mark ready” on{' '}
+          <Link href={backHref} className={draftLink}>
+            the quotation
+          </Link>{' '}
+          first; then you can mark it as shared here.
+        </span>
+      </p>
+    );
+  }
+  return null;
 }
 
 const draftLink = cn('rounded-chip font-semibold text-brand-strong underline decoration-1 underline-offset-4 hover:text-brand-deep hover:decoration-2', focusRing);

@@ -9,7 +9,8 @@ import { setBitrixNameRead } from '@/modules/integration/server/name-map';
 import { applySyncSettings, isSyncPreviewMissing, previewSyncSettings, SyncSettingsError } from '@/modules/integration/sync-settings-preview';
 import { SETTINGS_FIELD, SETTINGS_PATH, SETTINGS_REASON_LIMITS, type SyncPreviewActionResult, type SyncSettingsErrorCode, type SyncStaleHint } from '../contracts';
 import { fillSettingsText, visaPreviewModel, visaResultText, type VisaPreviewModel } from '../rows';
-import { isB12Key, isWorkflowKey, normaliseReason, parseSwitchForm, type SwitchActionResult, type SwitchErrorCode } from '../switch';
+import { reasonWasGiven, switchReasonRule, withOptionalReason } from '../reason';
+import { CHANGEABLE_SWITCH_KEYS, isB12Key, isWorkflowKey, normaliseReason, parseSwitchForm, SWITCH_FIELD, type ChangeableSwitchKey, type SwitchActionResult, type SwitchErrorCode } from '../switch';
 import { isSyncEnabledChosen, readSyncDraft, syncPreviewInput, syncRefusalText, syncReview, syncSavedText, type SyncApplyOutcome } from '../sync-scope';
 import { SETTINGS_TEXT, SWITCH_WORDS, SYNC_SCOPE_TEXT } from '../text';
 
@@ -59,11 +60,19 @@ function switchFailFrom(error: unknown): SwitchActionResult {
 
 /**
  * DA-256: change one switch of Features or Bitrix connection. Fields: settingKey,
- * state ('on' | 'off'), reason (10–500), confirm ('yes', from the review step),
+ * state ('on' | 'off'), reason (10–500), confirm ('yes', from the confirm dialog),
  * reviewedCount (Visa tasks only, for the result line).
+ *
+ * D9 / Q1 (R1): outside the four STANDING-RULES families an empty reason is
+ * saved as "No reason given" (modules/settings/reason.ts). A switch of the
+ * Bitrix scope family keeps a required reason with today's refusal.
  */
-export async function changeSettingSwitchAction(_prev: SwitchActionResult | null, formData: FormData): Promise<SwitchActionResult> {
+export async function changeSettingSwitchAction(_prev: SwitchActionResult | null, input: FormData): Promise<SwitchActionResult> {
   const staff = await requireStaff();
+  const keyRaw = input.get(SWITCH_FIELD.key);
+  const knownKey = typeof keyRaw === 'string' && (CHANGEABLE_SWITCH_KEYS as readonly string[]).includes(keyRaw) ? (keyRaw as ChangeableSwitchKey) : null;
+  const given = reasonWasGiven(input);
+  const formData = knownKey && switchReasonRule(knownKey) === 'optional' ? withOptionalReason(input) : input;
   const parsed = parseSwitchForm(formData);
   if (!parsed.ok) return switchFail(parsed.code, parsed.fields);
   const { key, on, reason, reviewedCount } = parsed.value;
@@ -72,7 +81,7 @@ export async function changeSettingSwitchAction(_prev: SwitchActionResult | null
   const state = on ? 'on' : 'off';
   const done = (changed: boolean, extra?: { tasksCreated?: number; message?: string }): SwitchActionResult => {
     revalidateSettings();
-    const base = fillSettingsText(changed ? SETTINGS_TEXT.resultChanged : SETTINGS_TEXT.resultUnchanged, { switch: title, state });
+    const base = fillSettingsText(changed ? (given ? SETTINGS_TEXT.resultChanged : SETTINGS_TEXT.resultChangedNoReason) : SETTINGS_TEXT.resultUnchanged, { switch: title, state });
     return { ok: true, key, state, changed, ...(extra?.tasksCreated !== undefined ? { tasksCreated: extra.tasksCreated } : {}), message: extra?.message ?? base };
   };
   try {
@@ -81,7 +90,7 @@ export async function changeSettingSwitchAction(_prev: SwitchActionResult | null
       if (key === 'visa_passport_tasks_enabled' && result.after && result.tasksCreated !== undefined) {
         // DA-258 / lead ruling D5: the actual count, and the review count when it differs.
         const counted = visaResultText(result.tasksCreated, reviewedCount);
-        return done(result.changed, { tasksCreated: result.tasksCreated, message: result.changed ? `${counted} Recorded with your name and reason.` : `${fillSettingsText(SETTINGS_TEXT.resultUnchanged, { switch: title, state })} ${counted}` });
+        return done(result.changed, { tasksCreated: result.tasksCreated, message: result.changed ? `${counted} ${given ? SETTINGS_TEXT.recordedWithReason : SETTINGS_TEXT.recordedNoReason}` : `${fillSettingsText(SETTINGS_TEXT.resultUnchanged, { switch: title, state })} ${counted}` });
       }
       return done(result.changed);
     }

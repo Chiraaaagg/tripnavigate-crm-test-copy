@@ -1,8 +1,4 @@
 import type {
-  BookPriceAccess,
-  BookSectionNavItem,
-  BookSectionNavState,
-  BookStepSectionsVM,
   ErrorSummaryItem,
   ErrorSummaryItemKind,
   ErrorSummaryVM,
@@ -13,9 +9,10 @@ import { BOOK_SECTION_LABEL, BOOK_SECTION_STEP, BOOK_SECTIONS, type BookChecklis
 
 /*
  * Batch 2 Book now flow (pure, server-safe; contract book-flow-contract.ts):
- * the step-3 section list, the next section that still needs input after a
- * save (lead decision L3), the price access line, the error summary shared
- * with the quotation editor, and the honest report of several saves in a row.
+ * the next section that still needs input after a save (lead decision L3),
+ * the error summary shared with the quotation editor, and the honest report
+ * of several saves in a row. The step-3 section list and the price access
+ * line went with the October step screen (17 November 2026, decision D2).
  * No data access, no React.
  */
 
@@ -55,60 +52,6 @@ export const nextSectionNeedingInput: NextSectionNeedingInput = (status, after) 
   if (step === 'finish' && after !== 'review') return 'review';
   return null;
 };
-
-type FlowView = Pick<BookNowView, 'dealId' | 'sectionStatus' | 'items' | 'travellers' | 'canEdit' | 'canEditCommercials' | 'version' | 'dealNotActive'>;
-
-/** A section that holds nothing and asks for nothing: hotels or other services with none added, ID details nobody needs. */
-function isEmptyOptional(view: FlowView, section: BookSection): boolean {
-  const active = view.items.filter((i) => i.state !== 'cancelled');
-  switch (section) {
-    case 'hotels':
-      return !active.some((i) => i.serviceType === 'hotel');
-    case 'services':
-      return !active.some((i) => i.serviceType !== 'hotel');
-    case 'identity':
-      return !view.travellers.some((t) => t.identityRequired);
-    default:
-      return false;
-  }
-}
-
-export function bookSectionNavState(view: FlowView, section: BookSection): BookSectionNavState {
-  const status = view.sectionStatus[section];
-  if (status === 'needs_input') return 'to_finish';
-  if (status === 'warnings_only') return 'check';
-  return isEmptyOptional(view, section) ? 'optional' : 'saved';
-}
-
-/** Editable draft, but no price access: one line instead of two locked sections (FP-033). */
-export function bookPriceAccess(view: FlowView): BookPriceAccess {
-  const editable = view.canEdit && view.version?.status === 'draft' && !view.dealNotActive;
-  return editable && !view.canEditCommercials ? 'note' : 'edit';
-}
-
-/** DA-153: one line for an editor without price access (it replaces both price and payment plan). */
-export const BOOK_PRICE_NOTE = 'The price and payment plan are filled by Sales on this deal.';
-/** DA-151: the merged block for staff without price access. */
-export const BOOK_PRICE_AND_PAYMENT_LABEL = 'Price and payment';
-
-/**
- * The section list of one step. An editor without price access (Echo M3):
- * only `payment` is dropped; `price` stays as the merged "Price and payment"
- * block (it holds the note and, when the read includes them, the reported
- * payments), so the list and the page show the same sections.
- */
-export function bookStepSections(view: FlowView, step: BookStep, current: BookSection | null = null): BookStepSectionsVM {
-  const priceAccess = bookPriceAccess(view);
-  const sections = bookSectionsOf(step).filter((s) => !(priceAccess === 'note' && s === 'payment'));
-  const items: BookSectionNavItem[] = sections.map((section) => ({
-    section,
-    label: priceAccess === 'note' && section === 'price' ? BOOK_PRICE_AND_PAYMENT_LABEL : BOOK_SECTION_LABEL[section],
-    state: bookSectionNavState(view, section),
-    href: `#${section}`,
-    current: section === current,
-  }));
-  return { step, items, priceAccess, priceNote: priceAccess === 'note' && step === 'finish' ? BOOK_PRICE_NOTE : null };
-}
 
 // ---------------------------------------------------------------------------
 // Field ids (the input ids of today's Book now markup; Luna keeps them stable)

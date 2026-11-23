@@ -18,15 +18,15 @@ import type { MoneyRulesModel } from '@/modules/settings/server/queries';
 import { READ_ONLY_WORDS } from '@/modules/settings/text';
 import { SettingsSectionHeading } from './settings/settings-frame';
 import { SettingsSectionView } from './settings/setting-rows';
-import {
-  DepositDecisionForms,
-  type FinanceActions,
-  type FinanceActionState,
-  PolicyEditForm,
-  RecordDepositForm,
-  RecordReconciliationForm,
-  VerifyReconciliationForm,
-} from './finance-forms';
+import { FormChangeDialog } from './settings/setting-switch-form';
+import { Fold } from '@/components/ui/fold';
+import { StateBlock } from '@/components/ui/state-block';
+import { Status } from '@/components/ui/status';
+import { SectionTabs } from '@/components/ui/section-tabs';
+import { Tabs } from '@/components/ui/tabs';
+import type { AccountsSectionViewer } from './accounts-desk/sections';
+import { DepositDecisionForms, RecordDepositForm, RecordReconciliationForm, VerifyReconciliationForm } from './finance-cash-forms';
+import { type FinanceActions, type FinanceActionState, PolicyEditForm } from './finance-forms';
 
 /*
  * Phase 5A cash custody and finance policy screens (contract §6, §12).
@@ -190,7 +190,9 @@ function BranchCash({ entityId, b, actions }: { entityId: string; b: CashBranchV
       <UnresolvedList b={b} />
 
       <h3>Verified cash waiting for deposit</h3>
-      {b.undepositedVerified.length === 0 ? null : (
+      {b.undepositedVerified.length === 0 ? (
+        <p className="hint">No verified cash is waiting to be deposited at {b.branchName}.</p>
+      ) : (
         <div className="table-scroll">
           <table className="stack-table">
             <caption className="visually-hidden">Verified cash waiting for deposit at {b.branchName}</caption>
@@ -217,7 +219,6 @@ function BranchCash({ entityId, b, actions }: { entityId: string; b: CashBranchV
           </table>
         </div>
       )}
-      <RecordDepositForm entityId={entityId} branch={b} action={actions.recordDepositAction} />
 
       <h3>Bank deposits</h3>
       {b.deposits.length === 0 ? (
@@ -305,27 +306,120 @@ function BranchCash({ entityId, b, actions }: { entityId: string; b: CashBranchV
           ))}
         </ul>
       )}
-      <RecordReconciliationForm entityId={entityId} branch={b} action={actions.recordReconciliationAction} />
     </section>
   );
 }
 
-export function CashOverviewView({ overview, actions }: { overview: CashOverview; actions: FinanceActions }) {
+/** Something at this branch needs an Accounts person: unresolved items, cash to deposit, or a deposit or count to verify. */
+export function cashBranchHasWork(b: CashBranchView): boolean {
+  return (
+    unresolvedTotal(b) > 0 ||
+    b.unresolved.length > 0 ||
+    b.undepositedVerified.length > 0 ||
+    b.deposits.some((d) => d.status === 'recorded') ||
+    b.reconciliations.some((r) => r.status === 'recorded')
+  );
+}
+
+/**
+ * The branch shown on Branch cash (A8 branch tabs): the one named by ?branch=
+ * when it is listed, otherwise the first branch with work, otherwise the
+ * first branch (head office first, then by name, as the database orders them).
+ */
+export function pickCashBranch(branches: readonly CashBranchView[], requested: string | null | undefined): CashBranchView | null {
+  return branches.find((b) => b.branchId === requested) ?? branches.find(cashBranchHasWork) ?? branches[0] ?? null;
+}
+
+/** Address of one branch tab. The company is kept when the page was opened for a named company (?entity=). */
+export function cashBranchHref(branchId: string, entityId: string | null): string {
+  const q = new URLSearchParams();
+  if (entityId) q.set('entity', entityId);
+  q.set('branch', branchId);
+  return `/app/accounts/cash?${q.toString()}`;
+}
+
+/**
+ * Accounts › Branch cash (UX redesign R4, A8): the Cash and bank section tabs
+ * under the header, one tab per branch when there are several, and the
+ * branch's "Record deposit" (primary while verified cash waits) and "Record
+ * cash count" at the top, each opening the existing form in a side drawer.
+ * The figures, unresolved list, deposits and daily counts of the branch are
+ * unchanged. Two different Accounts people, whole paise, cash caps and
+ * reversals stay with the server.
+ */
+export function CashOverviewView({
+  overview,
+  actions,
+  viewer = null,
+  branchId = null,
+  keepEntity = false,
+  depositInitialState = null,
+  countInitialState = null,
+}: {
+  overview: CashOverview;
+  actions: FinanceActions;
+  /** Menu flags for the section tabs; without them no section tabs are shown. */
+  viewer?: AccountsSectionViewer | null;
+  /** ?branch= of the address. */
+  branchId?: string | null;
+  /** The page was opened with ?entity=: branch tabs keep it. */
+  keepEntity?: boolean;
+  /** Design previews only: open a drawer with a refusal already shown. */
+  depositInitialState?: FinanceActionState | null;
+  countInitialState?: FinanceActionState | null;
+}) {
   const p = overview.policy;
+  const branch = pickCashBranch(overview.branches, branchId);
+  const total = overview.branches.reduce((sum, b) => sum + Math.max(unresolvedTotal(b), b.unresolved.length), 0);
+  const waiting = !!branch && branch.undepositedVerified.length > 0;
   return (
     <>
-      <FinanceHeader eyebrow="Accounts" title="Branch cash">
+      <FinanceHeader
+        eyebrow="Accounts"
+        title="Branch cash"
+        actions={
+          branch ? (
+            <>
+              <RecordDepositForm key={`dep-${branch.branchId}`} entityId={overview.legalEntityId} branch={branch} action={actions.recordDepositAction} initialState={depositInitialState} />
+              <RecordReconciliationForm
+                key={`rec-${branch.branchId}`}
+                entityId={overview.legalEntityId}
+                branch={branch}
+                action={actions.recordReconciliationAction}
+                primary={!waiting}
+                initialState={countInitialState}
+              />
+            </>
+          ) : null
+        }
+      >
         <p>
           Cash must be deposited within {p.cashDepositDays} working {p.cashDepositDays === 1 ? 'day' : 'days'} (Monday to Saturday).{' '}
           {p.reconciliationRequired ? 'A daily cash count is required for each business date with cash activity.' : 'A daily cash count is not required by the current policy.'}
         </p>
       </FinanceHeader>
-      {overview.branches.length === 0 ? (
+      {viewer ? <SectionTabs section="cash-bank" currentHref="/app/accounts/cash" viewer={viewer} counts={{ '/app/accounts/cash': total }} /> : null}
+      {!branch ? (
         <Card>
           <EmptyState icon={Banknote} headingLevel={2} title="No branch cash yet" description="Branches appear here once a cash receipt is recorded." />
         </Card>
       ) : (
-        overview.branches.map((b) => <BranchCash key={b.branchId} entityId={overview.legalEntityId} b={b} actions={actions} />)
+        <>
+          {overview.branches.length > 1 ? (
+            <Tabs
+              variant="pill"
+              label="Branches"
+              className="mb-4"
+              items={overview.branches.map((b) => ({
+                href: cashBranchHref(b.branchId, keepEntity ? overview.legalEntityId : null),
+                label: b.branchName,
+                current: b.branchId === branch.branchId,
+                count: Math.max(unresolvedTotal(b), b.unresolved.length),
+              }))}
+            />
+          ) : null}
+          <BranchCash key={branch.branchId} entityId={overview.legalEntityId} b={branch} actions={actions} />
+        </>
       )}
     </>
   );
@@ -381,11 +475,14 @@ function VersionStep({ v, tag }: { v: FinancePolicyView; tag: 'current' | 'sched
 }
 
 /**
- * Settings · Money rules (DA-264): the finance policy (A-26 line; history and
- * change form as before, keyed per reply) and, read only, which payment modes
- * are available per company with their last change (DA-253: changed by the
- * CRM team with the owner's approval, not here). Inside the Settings frame,
- * so the page heading is a section heading.
+ * Settings · Money rules (DA-264), UX redesign R1 (audit S13): a summary on
+ * top (the version in force, its values and the legal ceilings) with one
+ * "Change the policy" that opens the existing policy form in a dialog (same
+ * fields, rules, action and messages; the reason stays required: money rules
+ * are a live finance rule), then scheduled changes, the payment modes as
+ * read-only switch rows (changed by the CRM team with the owner's approval,
+ * DA-253), and the history folded. Inside the Settings frame, so the page
+ * heading is a section heading.
  */
 export function FinancePolicyPageView({
   page,
@@ -403,35 +500,50 @@ export function FinancePolicyPageView({
   companyAccountsHref?: string | null;
 }) {
   const history = page.history.filter((h) => h.versionNo !== page.current.versionNo);
+  const versions = history.length + 1;
   return (
     <>
-      <SettingsSectionHeading description={`Limits for receipts and cash at ${page.legalEntityName}. Each change is a new version with a reason.`}>Finance policy</SettingsSectionHeading>
+      <SettingsSectionHeading description={`Limits for receipts and cash at ${page.legalEntityName}. Each change is a new version with a reason.`}>Money rules</SettingsSectionHeading>
       <FinanceDisclaimer />
 
-      <div className="fin-grid">
-        <section className="fin-card" aria-labelledby="pol-current">
-          <div className="panel-header m-0">
-            <h3 id="pol-current" className="m-0">
-              Current policy
-            </h3>
-            <StatusPill tone="ok" glyph="●" label="Policy:">
-              Version {page.current.versionNo} in force
-            </StatusPill>
-          </div>
-          <p className="hint">Since {finDateTime(page.current.effectiveAt)}.</p>
+      <section className="flex flex-col gap-4 rounded-card border border-line bg-card px-4.5 py-4 shadow-card" aria-labelledby="pol-current">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 id="pol-current" className="m-0 text-lg font-semibold text-ink">
+            Current policy
+          </h3>
+          <Status kind="on" label={`Version ${page.current.versionNo} in force`} srPrefix="Policy: " />
+        </div>
+        <p className="m-0 text-sm text-quiet">Since {finDateTime(page.current.effectiveAt)}.</p>
+        <div className="grid gap-4 md:grid-cols-2">
           <PolicyFacts v={page.current} />
-        </section>
-        <section className="fin-card" aria-labelledby="pol-ceilings">
-          <h3 id="pol-ceilings">Legal ceilings</h3>
-          <p className="hint">Set by the owner after the CA confirms the law. Read-only here; policy values must stay within them.</p>
-          <dl className="facts">
-            <dt>Cash limit ceiling</dt>
-            <dd>{formatInr(page.ceilings.cashCapCeilingPaise)}</dd>
-            <dt>Receipt maximum ceiling</dt>
-            <dd>{formatInr(page.ceilings.receiptMaxCeilingPaise)}</dd>
-          </dl>
-        </section>
-      </div>
+          <section aria-labelledby="pol-ceilings" className="flex flex-col gap-1.5">
+            <h4 id="pol-ceilings" className="m-0 text-base font-semibold text-ink">
+              Legal ceilings
+            </h4>
+            <p className="m-0 text-sm text-quiet">Set by the owner after the CA confirms the law. Read only here; policy values must stay within them.</p>
+            <dl className="facts">
+              <dt>Cash limit ceiling</dt>
+              <dd>{formatInr(page.ceilings.cashCapCeilingPaise)}</dd>
+              <dt>Receipt maximum ceiling</dt>
+              <dd>{formatInr(page.ceilings.receiptMaxCeilingPaise)}</dd>
+            </dl>
+          </section>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 border-t border-line pt-3">
+          {page.canEdit ? (
+            <FormChangeDialog
+              label="Change the policy"
+              title="Change the policy"
+              description="Creates a new version; earlier versions and every recorded receipt stay unchanged."
+              initialOpen={editInitialState !== null}
+            >
+              <PolicyEditForm page={page} action={actions.updatePolicyAction} initialState={editInitialState} />
+            </FormChangeDialog>
+          ) : (
+            <StateBlock kind="readOnly" text="You can read this policy but not change it." who="Only a Super Admin who does not also hold the Accounts role can change it." />
+          )}
+        </div>
+      </section>
 
       {page.scheduled.length > 0 ? (
         <section className="fin-card" aria-labelledby="pol-scheduled">
@@ -443,15 +555,6 @@ export function FinancePolicyPageView({
           </ol>
         </section>
       ) : null}
-
-      <section className="fin-card" aria-labelledby="pol-edit">
-        <h3 id="pol-edit">Change the policy</h3>
-        {page.canEdit ? (
-          <PolicyEditForm page={page} action={actions.updatePolicyAction} initialState={editInitialState} />
-        ) : (
-          <p className="m-0">You can read this policy but not change it. Only a Super Admin who does not also hold the Accounts role can change it.</p>
-        )}
-      </section>
 
       {paymentModes ? (
         <section className="flex flex-col gap-3" aria-labelledby="pay-modes-heading">
@@ -478,15 +581,14 @@ export function FinancePolicyPageView({
         </section>
       ) : null}
 
-      <section className="fin-card" aria-labelledby="pol-history">
-        <h3 id="pol-history">History</h3>
+      <Fold summary="History" meta={versions === 1 ? '1 version' : `${versions} versions`} id="pol-history">
         <ol className="cost-timeline" aria-label="Policy versions, newest first">
           <VersionStep v={page.current} tag="current" />
           {history.map((v) => (
             <VersionStep key={v.versionNo} v={v} tag="past" />
           ))}
         </ol>
-      </section>
+      </Fold>
     </>
   );
 }

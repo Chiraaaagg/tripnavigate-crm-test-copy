@@ -67,7 +67,7 @@ export function idProof(no: number, over: Partial<TravellerIdProofView> = {}): T
     storedAt: '2026-10-11T08:20:02.000Z',
     consentByName: 'Synthetic Sales Delhi A',
     consentAt: '2026-10-11T08:20:00.000Z',
-    downloadHref: '/preview/b12-book-id-proof',
+    downloadHref: '/preview/b12-submitted-id-proof',
     ...over,
   };
 }

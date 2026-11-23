@@ -1,4 +1,5 @@
-import { type DealDetail, formatPaise } from '@/modules/deals/dto';
+import { type DealDetail, formatPaise, type ViewerRelation } from '@/modules/deals/dto';
+import { parseTab } from '@/lib/parse-tab';
 import { BITRIX_NAMES_OFF, type BitrixNameLookup, bitrixName, dealRowOwner, dealStageEntity } from '@/modules/deals/list-model';
 import type { BookNowView, DealServicesView, ServiceDepartment } from '@/modules/fulfilment/contracts';
 import type { DealFlightHistoryDTO } from '@/modules/flight/contracts';
@@ -6,6 +7,7 @@ import type { DealVisaHistoryDTO } from '@/modules/visa/contracts';
 import type { QuotationListView, QuotationStatus, QuotationSummary } from '@/modules/quotations/contracts';
 import type {
   DealBookingState,
+  DealDefaultTabInput,
   DealDocumentRow,
   DealDocumentsVM,
   DealHeaderVM,
@@ -13,11 +15,14 @@ import type {
   DealHistoryVM,
   DealMoneyVM,
   DealNextVM,
+  DealOverviewMoneyVM,
+  DealOverviewServiceVM,
   DealOverviewVM,
   DealPrimaryAction,
   DealStatusVM,
   DealStatusWord,
   DealTab,
+  DealTabAlias,
   DealWorkspaceVM,
   LeadLinkVM,
   TabItemVM,
@@ -46,59 +51,136 @@ import type {
 // Tabs
 // ---------------------------------------------------------------------------
 
-/** Display order and labels (DA-10). */
-export const DEAL_TABS = ['overview', 'services', 'quotations', 'documents', 'money', 'history'] as const satisfies readonly DealTab[];
+/** Display order and labels (R2 tab contract: Overview · Services and tasks · Money · Documents · Messages · History). */
+export const DEAL_TABS = ['overview', 'services', 'money', 'documents', 'messages', 'history'] as const satisfies readonly DealTab[];
 
 export const DEAL_TAB_LABEL: Record<DealTab, string> = {
   overview: 'Overview',
   services: 'Services and tasks',
-  quotations: 'Quotations',
-  documents: 'Documents',
   money: 'Money',
+  documents: 'Documents',
+  messages: 'Messages',
   history: 'History',
 };
+
+/** Retired `?tab=` values (R2): the old Quotations tab is now part of Documents. */
+export const DEAL_TAB_ALIASES: { readonly [K in keyof DealTabAlias]: DealTabAlias[K] } = { quotations: 'documents' };
 
 /** True when the viewer may read this Deal's prices (the DTO already applied the commercial policy). */
 export function canSeeDealMoney(deal: Pick<DealDetail, 'commercialAbsence'>): boolean {
   return deal.commercialAbsence !== 'withheld';
 }
 
-export interface DealTabAccess {
-  /** canSeeDealMoney(deal). */
-  money: boolean;
-  /** The quotation list or the itinerary list was readable (non-null) for this viewer. */
-  quotations: boolean;
-  /** The combined documents read (B1-2) is installed for this page (lead decision 3: hidden until then). */
-  documents: boolean;
+/** Desk roles (Purchase, Flight, Visa): they never see selling price, margin or customer payments. */
+export const DESK_ROLE_CODES = ['purchase', 'flight', 'visa'] as const;
+
+/**
+ * True when every role the person holds is a desk role. The page starts no
+ * customer-money read (dues, refunds, customer documents, customer messages,
+ * change requests) for such a viewer, even though the database would return
+ * nothing to them (build plan section 5: the page is never the only fence,
+ * and never asks).
+ */
+export function isDeskOnlyViewer(roleCodes: readonly string[]): boolean {
+  return roleCodes.length > 0 && roleCodes.every((code) => (DESK_ROLE_CODES as readonly string[]).includes(code));
 }
 
-/** Tabs this viewer may open, in DA-10 order. Overview, Services and tasks and History are always listed. */
+/**
+ * People who may read customer money on this Deal (dues, refunds) even
+ * without the selling-price summary: the Deal's Sales owner, a branch
+ * Manager, Accounts. Never a desk-only viewer. The dues and refunds reads
+ * still decide what each one sees (null = no card).
+ */
+export function isDealMoneyReader(relation: ViewerRelation, roleCodes: readonly string[]): boolean {
+  if (isDeskOnlyViewer(roleCodes)) return false;
+  return relation === 'owner' || roleCodes.includes('manager') || roleCodes.includes('accounts');
+}
+
+/**
+ * The Money tab is listed for price readers (canSeeDealMoney) and for money
+ * readers (isDealMoneyReader: a branch Manager reading the Deal through a
+ * deal.read grant has no price summary but does read dues and refunds).
+ * Never for a desk-only viewer (Purchase, Flight, Visa).
+ */
+export function canListDealMoney(deal: Pick<DealDetail, 'commercialAbsence' | 'relation'>, roleCodes: readonly string[]): boolean {
+  if (isDeskOnlyViewer(roleCodes)) return false;
+  return canSeeDealMoney(deal) || isDealMoneyReader(deal.relation, roleCodes);
+}
+
+/**
+ * The Messages tab is listed for the people the customer-message read serves:
+ * the Deal's Sales owner, a branch Manager, Accounts. Never a desk-only
+ * viewer. The read still decides what they see (null = nothing).
+ */
+export function canListDealMessages(relation: ViewerRelation, roleCodes: readonly string[]): boolean {
+  if (isDeskOnlyViewer(roleCodes)) return false;
+  return relation === 'owner' || roleCodes.includes('manager') || roleCodes.includes('accounts');
+}
+
+export interface DealTabAccess {
+  /** canListDealMoney(deal, roleCodes) (the route); canSeeDealMoney(deal) when the route does not say. */
+  money: boolean;
+  /** The combined documents read (B1-2) is installed, or the quotation or itinerary list was readable. */
+  documents: boolean;
+  /** canListDealMessages(...). */
+  messages: boolean;
+}
+
+/** Tabs this viewer may open, in display order. Overview, Services and tasks and History are always listed. */
 export function visibleDealTabs(access: DealTabAccess): DealTab[] {
   return DEAL_TABS.filter((tab) => {
     if (tab === 'money') return access.money;
-    if (tab === 'quotations') return access.quotations;
     if (tab === 'documents') return access.documents;
+    if (tab === 'messages') return access.messages;
     return true;
   });
 }
 
 /**
- * `?tab=` parsed against the server allowlist. Unknown values, repeated
- * parameters and tabs the viewer may not open all render Overview (the tab
- * never decides authorization and never reveals that a hidden tab exists).
+ * The tab a raw `?tab=` value names, after the retired values are mapped
+ * (quotations → documents); null when the value is absent or unknown. An
+ * array (the parameter given twice) uses its first entry, as parseTab does.
+ * Allowlist only: says nothing about whether this viewer may open the tab.
  */
-export function parseDealTab(raw: unknown, visible: readonly DealTab[] = DEAL_TABS): DealTab {
-  if (typeof raw !== 'string') return 'overview';
-  const tab = (DEAL_TABS as readonly string[]).includes(raw) ? (raw as DealTab) : null;
-  return tab && visible.includes(tab) ? tab : 'overview';
+export function requestedDealTab(raw: unknown): DealTab | null {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== 'string') return null;
+  const mapped = Object.prototype.hasOwnProperty.call(DEAL_TAB_ALIASES, value) ? DEAL_TAB_ALIASES[value as keyof DealTabAlias] : value;
+  return parseTab<DealTab | 'none'>(mapped, DEAL_TABS, 'none') === 'none' ? null : (mapped as DealTab);
 }
 
-export function dealHref(dealId: string, tab: DealTab = 'overview'): string {
-  return tab === 'overview' ? `/app/deals/${dealId}` : `/app/deals/${dealId}?tab=${tab}`;
+/**
+ * Default tab (owner, 16 November 2026): Services and tasks for the Deal's
+ * Sales owner when the Deal has services; Overview for everyone else.
+ */
+export function defaultDealTab(input: DealDefaultTabInput, visible: readonly DealTab[] = DEAL_TABS): DealTab {
+  return input.relation === 'owner' && input.hasServices && visible.includes('services') ? 'services' : 'overview';
+}
+
+/**
+ * `?tab=` parsed against the server allowlist. Retired values open their new
+ * tab; unknown values and tabs the viewer may not open render `fallback` (the
+ * viewer's default tab). The tab never decides authorization and never
+ * reveals that a hidden tab exists.
+ */
+export function parseDealTab(raw: unknown, visible: readonly DealTab[] = DEAL_TABS, fallback: DealTab = 'overview'): DealTab {
+  const tab = requestedDealTab(raw);
+  return tab && visible.includes(tab) ? tab : fallback;
+}
+
+/** The Deal page address; with a tab, `?tab=` is always written (so Overview stays reachable for the owner). */
+export function dealHref(dealId: string, tab?: DealTab): string {
+  return tab ? `/app/deals/${dealId}?tab=${tab}` : `/app/deals/${dealId}`;
 }
 
 export function dealTabItems(dealId: string, visible: readonly DealTab[], current: DealTab): TabItemVM<DealTab>[] {
   return visible.map((tab) => ({ tab, label: DEAL_TAB_LABEL[tab], href: dealHref(dealId, tab), current: tab === current }));
+}
+
+/** At least one service that is not cancelled, in the booking view or the services read. */
+export function dealHasServices(view: BookNowView | null, services: DealServicesView | null): boolean {
+  const items: ReadonlyArray<{ state: string }> = view?.items ?? services?.items ?? [];
+  return items.some((i) => i.state !== 'cancelled');
 }
 
 // ---------------------------------------------------------------------------
@@ -448,9 +530,51 @@ export function tripText(trip: { destination: string | null; start: string | nul
   return parts.length ? parts.join(' · ') : null;
 }
 
-export function buildDealOverview(deal: DealDetail, services: DealServicesView | null, names: BitrixNameLookup = BITRIX_NAMES_OFF): DealOverviewVM {
+/** One Overview service line: title, department and the task word only (never a budget, cost or rate). */
+function overviewService(item: ReadableItem): DealOverviewServiceVM {
+  const status = item.task?.status;
+  return {
+    itemNo: item.itemNo,
+    title: item.title,
+    departmentLabel: ASSIGNMENT_KIND_LABEL[item.department] ?? item.department,
+    statusWord: item.task ? taskWord(item) : item.waitingForLaunch ? 'Waiting for the Visa desk to start' : 'No task yet',
+    done: status === 'supplier_confirmed' || status === 'completed',
+  };
+}
+
+/**
+ * Overview money lines for price readers (R2). The same values the Money tab
+ * shows (final selling total, still to pay), from the same booking read; never
+ * built for a withheld viewer; absent when neither value is known.
+ */
+export function buildDealOverviewMoney(deal: DealDetail, view: BookNowView | null): DealOverviewMoneyVM | undefined {
+  if (!canSeeDealMoney(deal) || !view) return undefined;
+  const sellingTotal = paise(view.commercials?.sellingTotalPaise) ?? paise(view.claims?.sellingTotalPaise);
+  const stillToPay = paise(view.claims?.balancePaise);
+  if (sellingTotal === null && stillToPay === null) return undefined;
+  return { sellingTotal, stillToPay };
+}
+
+export interface DealOverviewExtras {
+  /** The Book now read (price readers' money lines come only from here). */
+  view?: BookNowView | null;
+  /** Tabs this viewer may open (the summary links only to these). */
+  visible?: readonly DealTab[];
+}
+
+export function buildDealOverview(
+  deal: DealDetail,
+  services: DealServicesView | null,
+  names: BitrixNameLookup = BITRIX_NAMES_OFF,
+  extras: DealOverviewExtras = {},
+): DealOverviewVM {
+  const view = extras.view ?? null;
   const travellers = services?.travellers;
   const source = deal.source;
+  const visible = extras.visible ?? DEAL_TABS;
+  const items: ReadableItem[] = view?.items ?? services?.items ?? [];
+  const money = buildDealOverviewMoney(deal, view);
+  const progressText = servicesProgressText(view, services);
   return {
     branchName: deal.branchName,
     createdOn: deal.createdOn,
@@ -462,6 +586,13 @@ export function buildDealOverview(deal: DealDetail, services: DealServicesView |
     tripText: tripText(services?.trip),
     // Absent for Purchase and Flight (the services DTO omits travellers for them).
     travellersText: travellers && travellers.length > 0 ? (travellers.length === 1 ? '1 traveller' : `${travellers.length} travellers`) : null,
+    services: items.filter((i) => i.state !== 'cancelled').sort((a, b) => a.itemNo - b.itemNo).map(overviewService),
+    ...(progressText ? { servicesProgressText: progressText } : {}),
+    ...(money ? { money } : {}),
+    links: {
+      services: dealHref(deal.id, 'services'),
+      ...(money && visible.includes('money') ? { money: dealHref(deal.id, 'money') } : {}),
+    },
     ...(source
       ? {
           bitrix: {
@@ -744,20 +875,35 @@ export interface DealWorkspaceInput extends DealHeaderInput {
   documents?: DealDocumentRow[] | 'error';
   /** True when the B1-2 read exists on this database (decides tab visibility before the rows are read). */
   documentsAvailable?: boolean;
+  /** canListDealMessages for this viewer (decided by the route from the relation and roles); default false. */
+  messagesListed?: boolean;
+  /** canListDealMoney for this viewer (decided by the route from the Deal and roles); default canSeeDealMoney(deal). */
+  moneyListed?: boolean;
   /** Flight build: loadDealFlightHistory when the History tab is open; undefined = not read. */
   flightHistory?: DealFlightHistoryDTO | null | 'error';
   /** Visa build: loadDealVisaHistory when the History tab is open; undefined = not read. */
   visaHistory?: DealVisaHistoryDTO | null | 'error';
 }
 
+/** The tabs this viewer may open and the one to render, from the reads the route already has. */
+export function dealTabsFor(input: Pick<DealWorkspaceInput, 'deal' | 'tab' | 'quotations' | 'itinerariesReadable' | 'documentsAvailable' | 'messagesListed' | 'moneyListed' | 'book' | 'services'>): {
+  visible: DealTab[];
+  current: DealTab;
+} {
+  const visible = visibleDealTabs({
+    money: input.moneyListed ?? canSeeDealMoney(input.deal),
+    documents: Boolean(input.documentsAvailable) || input.quotations !== null || input.itinerariesReadable,
+    messages: Boolean(input.messagesListed),
+  });
+  const view = input.book.state === 'ok' ? input.book.view : null;
+  const services = input.services.ok ? input.services.view : null;
+  const fallback = defaultDealTab({ relation: input.deal.relation, hasServices: dealHasServices(view, services) }, visible);
+  return { visible, current: parseDealTab(input.tab, visible, fallback) };
+}
+
 /** Only the current tab's model is built; the other tab models are left out (no hidden payload). */
 export function buildDealWorkspace(input: DealWorkspaceInput): DealWorkspaceVM {
-  const visible = visibleDealTabs({
-    money: canSeeDealMoney(input.deal),
-    quotations: input.quotations !== null || input.itinerariesReadable,
-    documents: Boolean(input.documentsAvailable),
-  });
-  const current = parseDealTab(input.tab, visible);
+  const { visible, current } = dealTabsFor(input);
   const view = input.book.state === 'ok' ? input.book.view : null;
   const services = input.services.ok ? input.services.view : null;
   const workspace: DealWorkspaceVM = {
@@ -765,7 +911,7 @@ export function buildDealWorkspace(input: DealWorkspaceInput): DealWorkspaceVM {
     tabs: dealTabItems(input.deal.id, visible, current),
     current,
   };
-  if (current === 'overview') workspace.overview = buildDealOverview(input.deal, services, input.names);
+  if (current === 'overview') workspace.overview = buildDealOverview(input.deal, services, input.names, { view, visible });
   if (current === 'money') {
     const money = buildDealMoney(input.deal, view);
     if (money) workspace.money = money;

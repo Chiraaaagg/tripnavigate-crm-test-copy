@@ -13,6 +13,8 @@ import type { RateContractRow } from './types';
  * Each contract opens on its own page, where the Manager reads every rate
  * line before approving or returning it — the list never approves blind.
  * A contract the viewer entered says so and points to another Manager.
+ * Redesign R3 (DM-7): the same card template as the other Approvals rows,
+ * with the one action at the bottom-left under the facts.
  */
 
 export function RateContractApprovalsTab({
@@ -43,7 +45,7 @@ export function RateContractApprovalsTab({
   }
   return (
     <section aria-labelledby="approvals-rc-heading" className="flex flex-col gap-4 font-sans text-base text-copy">
-      <h2 id="approvals-rc-heading" className={visibleHeading ? 'm-0 text-lg font-semibold text-ink' : 'sr-only'}>
+      <h2 id="approvals-rc-heading" className={visibleHeading ? 'm-0 scroll-mt-18 text-lg font-semibold text-ink' : 'sr-only'}>
         Rate contracts to approve
       </h2>
       {!enabled ? (
@@ -66,15 +68,10 @@ export function RateContractApprovalsTab({
                 <ItemCard
                   key={r.contractId}
                   id={`rc-${r.contractId}`}
+                  headingLevel={visibleHeading ? 3 : 2}
                   eyebrow={`${r.contractNo} · version ${r.versionNo}`}
                   title={r.hotelName}
                   status={<ContractStatusBadge status={r.status} />}
-                  aside={
-                    <Link href={`${basePath}/${r.contractId}`} className={buttonVariants({ variant: decide ? 'primary' : 'secondary', size: 'sm' })} aria-label={`${decide ? 'Review' : 'Open'} ${r.contractNo} for ${r.hotelName}`}>
-                      <FileSpreadsheet aria-hidden="true" />
-                      {decide ? 'Review and decide' : 'Open'}
-                    </Link>
-                  }
                 >
                   <Facts
                     rows={[
@@ -85,7 +82,13 @@ export function RateContractApprovalsTab({
                       ['Entered by', own ? 'You' : (r.enteredByName ?? 'A Purchase colleague')],
                     ]}
                   />
-                  {own ? <p className="m-0 text-sm text-quiet">You entered this contract. Another Manager approves it.</p> : null}
+                  <div className="flex flex-col items-start gap-1.5">
+                    <Link href={`${basePath}/${r.contractId}`} className={buttonVariants({ variant: decide ? 'primary' : 'secondary', size: 'sm' })} aria-label={`${decide ? 'Review' : 'Open'} ${r.contractNo} for ${r.hotelName}`}>
+                      <FileSpreadsheet aria-hidden="true" />
+                      {decide ? 'Review and decide' : 'Open'}
+                    </Link>
+                    {own ? <p className="m-0 text-sm text-quiet">You entered this contract. Another Manager approves it.</p> : null}
+                  </div>
                 </ItemCard>
               );
             })}

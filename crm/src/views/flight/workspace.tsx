@@ -4,12 +4,15 @@ import type { ReactNode } from 'react';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
+import { FocusHashTarget } from '@/components/ui/jump-links';
+import { RecordHeader, type NextButton } from '@/components/ui/record-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { DepartmentTaskTabsVM, TaskHistoryVM } from '@/modules/settings/contracts';
-import { InternalTaskLine, TaskBackLink, TaskFilesPanel, TaskHistoryPanel, TaskNextLine, TaskTabsNav, type TaskFilesVM } from '../department/task-frame';
+import { defaultTaskTab } from '../department/task-default-tab';
+import { InternalTaskLine, TaskFilesPanel, TaskHistoryPanel, TaskTabsNav, type TaskFilesVM } from '../department/task-frame';
 import { formatIst } from '../deal-labels';
 import type { FlightWorkActions } from './actions';
-import { chipsOf, FlightChips, FlightProgress, FlightStatusBadge } from './bits';
+import { chipsOf, FlightStatusBadge } from './bits';
 import { FlightDetailsTab } from './details-tab';
 import { FlightETicketsCard } from './files';
 import { FlightInvoicesSection } from './invoices';
@@ -23,7 +26,7 @@ import { FlightWorkTab } from './work-tab';
  * Flight workspace (contract 11.1, prototype flightTask FV:1615): one page
  * per Deal covering all its flight tasks. Header: back link, eyebrow, route
  * title, status words + chips, "Taken by"; ONE primary action chosen by
- * state; the Next line; the progress bar; link tabs Details · Work · Files ·
+ * state; the Next line (R3: the steps are the Work tab's jump links, O9); link tabs Details · Work · Files ·
  * History (?tab=, server allowlist). `?flight=<taskId>` scrolls to one flight.
  */
 
@@ -59,18 +62,19 @@ export function flightNextText(ws: FlightWorkspace): string {
   return 'finish the steps listed under “Finish this flight” on the Work tab';
 }
 
-function primaryAction(ws: FlightWorkspace, tab: string, actions: FlightWorkActions, base: string): ReactNode {
-  if (ws.canTake) return <ClaimGroupForm dealId={ws.dealId} flightCount={ws.flights.length} action={actions.claim} />;
-  if (!ws.canWork || ws.status.code === 'done') return null;
+/**
+ * The record header's one primary button (UX redesign R3, C4): the same
+ * labels and targets as before. Off the Work tab it opens Work at the control;
+ * on Work it jumps to the control and focuses it. Taking the flights stays
+ * the existing "Take these flights" form (beside the title).
+ */
+function nextButton(ws: FlightWorkspace, tab: string, base: string): NextButton | undefined {
+  if (ws.canTake || !ws.canWork || ws.status.code === 'done') return undefined;
   const changed = ws.flights.find((f) => f.bookingChanged);
-  const go = (label: string, anchor: string) => (
-    <Link href={`${base}?tab=work#${anchor}`} className={buttonVariants({ variant: 'primary', size: 'lg' })}>
-      {label}
-    </Link>
-  );
+  const go = (label: string, anchor: string): NextButton => (tab === 'work' ? { label, jumpTo: anchor } : { label, href: `${base}?tab=work#${anchor}` });
   if (changed) return go('Review booking change', `booking-changed-${changed.taskId}`);
-  if (ws.status.code === 'in_progress') return tab === 'work' ? null : go('Confirm tickets', 'itinerary');
-  return tab === 'work' ? null : go('Finish this flight', 'finish');
+  if (ws.status.code === 'in_progress') return tab === 'work' ? undefined : go('Confirm tickets', 'itinerary');
+  return tab === 'work' ? undefined : go('Finish this flight', 'finish');
 }
 
 export interface FlightWorkspaceProps {
@@ -103,7 +107,8 @@ export function FlightWorkspacePage(p: FlightWorkspaceProps) {
   const base = `/app/flight/deals/${ws.dealId}`;
   const current = tabs.current;
   const taken = ws.assignee.isYou ? 'You' : (ws.assignee.name ?? 'Not taken yet');
-  const primary = primaryAction(ws, current, p.actions, base);
+  const button = nextButton(ws, current, base);
+  const facts = workspaceChips(ws, p.money).map((c) => c.text).join(' · ');
   const internal =
     ws.status.code === 'done'
       ? `Internal task. Tickets issued and marked done${ws.completedAt ? ` on ${formatIst(ws.completedAt)}` : ''}${ws.completedByName ? ` by ${ws.completedByName}` : ''}. Nothing has been sent to the airline or the customer by the CRM.`
@@ -112,36 +117,42 @@ export function FlightWorkspacePage(p: FlightWorkspaceProps) {
         : `${FLIGHT_TEXT.internal}${ws.assignee.isYou ? ' Taking the flights did not book them.' : ''}`;
   return (
     <div className="font-sans text-base text-copy">
-      <TaskBackLink href="/app/flight">Back to Flight tasks</TaskBackLink>
-      <PageHeader
-        eyebrow={`Flight · ${ws.dealReference} · ${ws.dealKind === 'package' ? 'Package Deal' : 'Flight-only Deal'}`}
+      {/* UX redesign R3 (C4, owner Q6): the shared record header around the approved Work form. */}
+      <RecordHeader
+        back={{ href: '/app/flight', label: 'Back to Flight tasks' }}
+        recordId={`Flight · ${ws.dealReference} · ${ws.dealKind === 'package' ? 'Package Deal' : 'Flight-only Deal'}`}
         title={<span className="block wrap-anywhere">{workspaceTitle(ws)}</span>}
         status={
           <>
             <FlightStatusBadge status={ws.status} />
-            <FlightChips chips={workspaceChips(ws, p.money)} />
-            <span className="text-copy">Taken by: {taken}</span>
+            {facts ? <span className="text-copy">{facts}</span> : null}
           </>
         }
+        owner={taken}
+        ownerLabel="Taken by"
         actions={
-          primary || (ws.canReassign && ws.assigneeUserId) ? (
+          ws.canTake || (ws.canReassign && ws.assigneeUserId) ? (
             <>
-              {primary}
+              {ws.canTake ? <ClaimGroupForm dealId={ws.dealId} flightCount={ws.flights.length} action={p.actions.claim} /> : null}
               {ws.canReassign && ws.assigneeUserId && p.actions.reassign ? (
                 <ReassignGroupDrawer dealId={ws.dealId} expectedAssignee={ws.assigneeUserId} candidates={ws.reassignCandidates} action={p.actions.reassign} />
               ) : null}
             </>
           ) : undefined
         }
-        className="mb-3"
+        next={{ text: flightNextText(ws), button }}
+        className="mb-4"
       />
-      <FlightProgress steps={ws.progress} />
-      <TaskNextLine text={flightNextText(ws)}>
+      <div className="mb-4">
         <InternalTaskLine>{internal}</InternalTaskLine>
-      </TaskNextLine>
-      <TaskTabsNav basePath={base} tabs={tabs} />
+      </div>
+      {/* O9 (R3): the steps show once, as the Work tab's step links; the header keeps the status and "Next:". */}
+      {/* D6: the bare address opens Work for the holder, so Details gets "?tab=details". */}
+      <TaskTabsNav basePath={base} tabs={tabs} defaultTab={defaultTaskTab(tabs.tabs, ws.assignee.isYou)} variant="pill" />
       {current === 'work' ? (
         <div className="flex flex-col gap-5">
+          {/* O6: arriving from another tab at "?tab=work#…" moves focus to that control. */}
+          <FocusHashTarget />
           <FlightWorkTab ws={ws} actions={p.actions} money={p.money ?? null} suppliers={p.suppliers ?? []} paymentContexts={p.paymentContexts ?? {}} eTicketBase={p.eTicketBase} focusTaskId={p.focusTaskId ?? null} approvalSets={p.approvalSets} />
           {p.boardingPasses}
         </div>

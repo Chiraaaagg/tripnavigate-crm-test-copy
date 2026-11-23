@@ -290,6 +290,11 @@ const states: Record<string, () => ReactNode> = {
   'visa-queue-empty': () => shell(visaViewer, '/app/visa', <VisaQueuePage queue={{ ...QUEUE, tasks: [] }} show="not_taken" />),
   'visa-queue-loading': () => shell(visaViewer, '/app/visa', <VisaQueueLoading />),
   'visa-queue-error': () => shell(visaViewer, '/app/visa', <VisaQueueError />),
+  /* UX redesign R3 (C2): the queue toolbar's search, filter chip, sort and "nothing matches" states. */
+  'visa-queue-search': () => shell(visaViewer, '/app/visa', <VisaQueuePage queue={QUEUE} show="all" q="france" />),
+  'visa-queue-chip': () => shell(visaViewer, '/app/visa', <VisaQueuePage queue={QUEUE} show="all" only="decision" />),
+  'visa-queue-sort-latest': () => shell(visaViewer, '/app/visa', <VisaQueuePage queue={QUEUE} show="all" sort="latest" />),
+  'visa-queue-no-match': () => shell(visaViewer, '/app/visa', <VisaQueuePage queue={QUEUE} show="all" q="nothing-like-this" />),
 
   /* Task page */
   'visa-task-not-taken': () => page(notTaken, 'details'),

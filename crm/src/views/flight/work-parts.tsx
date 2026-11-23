@@ -1,6 +1,6 @@
 'use client';
 
-import { ImageIcon, Plus, RefreshCw } from 'lucide-react';
+import { ChevronRight, ImageIcon, Plus, RefreshCw } from 'lucide-react';
 import { useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -252,35 +252,64 @@ export function ChangesCard({ f, dealKind, canWork, actions }: { f: WorkspaceFli
           </div>
         </CardHeader>
         <ol className="m-0 flex list-none flex-col divide-y divide-line p-0" aria-label={`Flight changes of ${f.title}`}>
-          {shown.map((c) => (
-            <li key={c.changeId} className="m-0 flex flex-col gap-2 px-4.5 py-3.5">
-              <div className="flex flex-wrap items-center gap-2">
+          {shown.map((c) => {
+            const head = (
+              <>
                 <span className="font-semibold text-ink">
                   Change {c.changeNo} · {CHANGE_KIND_LABEL[c.kind]}
                 </span>
                 <ChangeStatusBadge status={c.status} waitingFor={c.status === 'pending' ? deciderWordOf(c) : undefined} />
-              </div>
-              <p className="m-0 text-sm">Travellers: {c.travellers.map((t) => t.name ?? `Traveller ${t.seq}`).join(', ')}</p>
-              {c.fromSectorIds.length ? <p className="m-0 text-sm">From: {line(c.fromSectorIds).join('; ') || '—'}</p> : null}
-              <p className="m-0 text-sm">To: {line(c.newSectorIds).join('; ') || '—'}</p>
-              <p className="m-0 text-sm text-quiet">
-                Remark: {c.remark} · sent {formatIst(c.requestedAt)}
-                {c.requestedByName ? ` by ${c.requestedByName}` : ''}
-                {c.decidedAt ? ` · decided ${formatIst(c.decidedAt)}${c.decidedByName ? ` by ${c.decidedByName}` : ''}` : ''}
-              </p>
-              {c.rejectReason ? <p className="m-0 text-sm">Reason for rejecting: {c.rejectReason}. The travellers are back on their previous flight.</p> : null}
-              {canWork && c.canWithdraw && c.status === 'pending' ? (
-                <ActionForm action={actions.withdrawChange} fields={{ [FF.changeId]: c.changeId, [FF.expectedRowVersion]: c.rowVersion }} label={`Withdraw change ${c.changeNo}`} className="flex flex-col items-start gap-2">
-                  {(state) => (state?.ok ? null : <Submit label="Withdraw" pendingLabel="Withdrawing…" variant="secondary" />)}
-                </ActionForm>
-              ) : null}
-              {canWork && c.needsAck ? (
-                <ActionForm action={actions.acknowledgeChange} fields={{ [FF.changeId]: c.changeId }} label={`Mark the decision on change ${c.changeNo} as seen`} className="flex flex-col items-start gap-2">
-                  {(state) => (state?.ok ? null : <Submit label="OK, seen" pendingLabel="Saving…" variant="secondary" />)}
-                </ActionForm>
-              ) : null}
-            </li>
-          ))}
+              </>
+            );
+            const body = (
+              <>
+                <p className="m-0 text-sm">Travellers: {c.travellers.map((t) => t.name ?? `Traveller ${t.seq}`).join(', ')}</p>
+                {c.fromSectorIds.length ? <p className="m-0 text-sm">From: {line(c.fromSectorIds).join('; ') || '—'}</p> : null}
+                <p className="m-0 text-sm">To: {line(c.newSectorIds).join('; ') || '—'}</p>
+                <p className="m-0 text-sm text-quiet">
+                  Remark: {c.remark} · sent {formatIst(c.requestedAt)}
+                  {c.requestedByName ? ` by ${c.requestedByName}` : ''}
+                  {c.decidedAt ? ` · decided ${formatIst(c.decidedAt)}${c.decidedByName ? ` by ${c.decidedByName}` : ''}` : ''}
+                </p>
+                {c.rejectReason ? <p className="m-0 text-sm">Reason for rejecting: {c.rejectReason}. The travellers are back on their previous flight.</p> : null}
+                {canWork && c.canWithdraw && c.status === 'pending' ? (
+                  <ActionForm action={actions.withdrawChange} fields={{ [FF.changeId]: c.changeId, [FF.expectedRowVersion]: c.rowVersion }} label={`Withdraw change ${c.changeNo}`} className="flex flex-col items-start gap-2">
+                    {(state) => (state?.ok ? null : <Submit label="Withdraw" pendingLabel="Withdrawing…" variant="secondary" />)}
+                  </ActionForm>
+                ) : null}
+                {canWork && c.needsAck ? (
+                  <ActionForm action={actions.acknowledgeChange} fields={{ [FF.changeId]: c.changeId }} label={`Mark the decision on change ${c.changeNo} as seen`} className="flex flex-col items-start gap-2">
+                    {(state) => (state?.ok ? null : <Submit label="OK, seen" pendingLabel="Saving…" variant="secondary" />)}
+                  </ActionForm>
+                ) : null}
+              </>
+            );
+            // O9: a decided change that nobody needs to mark as seen is a finished step: one line, details on request.
+            const finished = (c.status === 'approved' || c.status === 'rejected') && !c.needsAck;
+            return finished ? (
+              <li key={c.changeId} className="m-0">
+                <details className="group/fold" data-slot="fold">
+                  <summary
+                    className={cn(
+                      'flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-2 px-4.5 py-2.5 hover:bg-wash [&::-webkit-details-marker]:hidden',
+                      focusRing,
+                      'focus-visible:-outline-offset-2',
+                    )}
+                  >
+                    <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-quiet group-open/fold:rotate-90" />
+                    {head}
+                    <span className="sr-only">. Show details</span>
+                  </summary>
+                  <div className="flex flex-col gap-2 px-4.5 pt-1 pb-3.5">{body}</div>
+                </details>
+              </li>
+            ) : (
+              <li key={c.changeId} className="m-0 flex flex-col gap-2 px-4.5 py-3.5">
+                <div className="flex flex-wrap items-center gap-2">{head}</div>
+                {body}
+              </li>
+            );
+          })}
         </ol>
       </section>
     </Card>

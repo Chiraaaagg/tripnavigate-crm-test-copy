@@ -502,9 +502,10 @@ details.form-section[open] > summary > .form-section-recap { display: none; }
 details.form-section > fieldset.group { padding: 0 var(--space-4); margin: var(--space-2) 0 0; }
 .field-wide { grid-column: 1 / -1; }
 
-/* Batch 2: the Book now step footer sticks at >= 64rem wide and >= 45rem tall
-   (views/b11/step-footer.tsx). Matching scroll padding keeps a field reached by
-   Tab or a summary link above it (WCAG 2.4.11). */
+/* Batch 2: the Book now step footer (data-slot="step-footer" in
+   views/booking-form/booking-form-screen.tsx) is fixed at the bottom of the
+   screen. At >= 64rem wide and >= 45rem tall, matching scroll padding keeps a
+   field reached by Tab or a summary link above it (WCAG 2.4.11). */
 @media (min-width: 64rem) and (min-height: 45rem) {
   html { scroll-padding-bottom: 7rem; }
 }

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { LOCAL_NETWORK_ACCESS_OFF } from '../helpers/production-style-policy';
 import { axe, cspSuite, noHorizontalScroll, open, pillsHaveIconAndWord } from './b11-helpers';
+import { primaryActions } from '../helpers/primary-actions';
 
 /**
  * Direction A Batch 3 through the design preview states (synthetic view
@@ -16,6 +17,7 @@ test.use(LOCAL_NETWORK_ACCESS_OFF);
 
 const STATES = [
   'b3-quotations-list',
+  'r2-quotations-vm-labels',
   'b3-quotations-manager-all',
   'b3-quotations-ready-to-book',
   'b3-quotations-closed-drafts',
@@ -92,7 +94,7 @@ cspSuite('Batch 3: production style policy', STATES);
 
 /** Primary buttons and primary-styled links inside main (one per screen). The current filter chip shares the colour but is not an action (aria-current). */
 async function primaries(page: Page): Promise<number> {
-  return page.locator('main').locator('a.bg-brand-strong:visible:not([aria-current]), button.bg-brand-strong:visible').count();
+  return (await primaryActions(page.locator('main'))).length;
 }
 
 test.describe('Batch 3: one primary action per screen', () => {
@@ -148,6 +150,31 @@ test.describe('Batch 3: lists (QL, IL)', () => {
     // F21: the reference box names both kinds of reference.
     await expect(form.getByRole('textbox')).toHaveAttribute('placeholder', 'TQ-12 or TD-301');
     await expect(pager.getByRole('link')).toHaveCount(0);
+  });
+
+  test('R2: one list page with Quotations and Itineraries tabs; both addresses kept; the scope travels along', async ({ page }) => {
+    await open(page, 'b3-quotations-list');
+    const tabs = page.locator('main').getByRole('navigation', { name: 'Quotations and itineraries' });
+    await expect(tabs.getByRole('link', { name: 'Quotations' })).toHaveAttribute('aria-current', 'page');
+    await expect(tabs.getByRole('link', { name: 'Quotations' })).toHaveAttribute('href', '/app/quotations');
+    await expect(tabs.getByRole('link', { name: 'Itineraries' })).toHaveAttribute('href', '/app/itineraries');
+    await expect(tabs.getByRole('link', { name: 'Itineraries' })).not.toHaveAttribute('aria-current', 'page');
+    await open(page, 'b3-quotations-manager-all');
+    await expect(tabs.getByRole('link', { name: 'Itineraries' })).toHaveAttribute('href', '/app/itineraries?scope=all');
+    await open(page, 'b3-itineraries-list');
+    await expect(tabs.getByRole('link', { name: 'Itineraries' })).toHaveAttribute('aria-current', 'page');
+    await expect(tabs.getByRole('link', { name: 'Quotations' })).toHaveAttribute('href', '/app/quotations');
+    // Not for this role: no tabs either.
+    await open(page, 'b3-quotations-not-applicable');
+    await expect(page.locator('main').getByRole('navigation', { name: 'Quotations and itineraries' })).toHaveCount(0);
+  });
+
+  test('R2: a chip label that already ends in its count (the real view model) shows the count once', async ({ page }) => {
+    await open(page, 'r2-quotations-vm-labels');
+    const chips = page.locator('main').getByRole('navigation', { name: 'Filter quotations' });
+    await expect(chips.getByRole('link', { name: 'Open (5)', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(chips).not.toContainText('(5) (5)');
+    await expect(chips).not.toContainText('(5)(5)');
   });
 
   test('Ready to book: the chip lists accepted quotations with a deal; a linked referral row says so and offers Start booking', async ({ page }) => {
@@ -214,8 +241,10 @@ test.describe('Batch 3: lists (QL, IL)', () => {
     await expect(table.getByRole('link', { name: /Final PDF/ })).toHaveCount(1);
     await expect(table).not.toContainText('IT-');
     for (const word of MONEY) await expect(main).not.toContainText(word);
-    // The menu marks Itineraries as the current page.
-    await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Itineraries' })).toHaveAttribute('aria-current', 'page');
+    // R2: Itineraries is a tab of the Quotations page, so the menu has no Itineraries link and marks Quotations as current.
+    const menu = page.getByRole('navigation', { name: 'Main' });
+    await expect(menu.getByRole('link', { name: 'Itineraries' })).toHaveCount(0);
+    await expect(menu.getByRole('link', { name: /^Quotations/ })).toHaveAttribute('aria-current', 'page');
   });
 
   for (const state of NO_MONEY_STATES) {
@@ -564,7 +593,9 @@ test.describe('Batch 3: Deal section, referral quotation, referral itinerary, Ho
     await expect(needs.getByRole('link', { name: /Quotation drafts to finish \(yours\)$/ })).toHaveAttribute('href', '/app/quotations?filter=to_finish&scope=all');
     await expect(needs.getByRole('link', { name: /Accepted quotations to link to a deal \(yours\)$/ })).toHaveAttribute('href', '/app/quotations?filter=accepted_not_linked&scope=all');
     const nav = page.getByRole('navigation', { name: 'Main' });
-    await expect(nav.getByRole('link')).toContainText(['Home', 'Leads', 'Deals', 'Quotations', 'Itineraries']);
+    await expect(nav.getByRole('link')).toContainText(['Home', 'Leads', 'Deals', 'Quotations']);
+    // R2: Itineraries is a tab of the Quotations page, not a menu link.
+    await expect(nav.getByRole('link', { name: 'Itineraries' })).toHaveCount(0);
   });
 
   test('reduced motion: the dialogs and pages still work', async ({ page }) => {

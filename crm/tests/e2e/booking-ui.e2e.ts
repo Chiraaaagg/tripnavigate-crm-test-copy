@@ -1,5 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page, test } from '@playwright/test';
+import { primaryActions } from '../helpers/primary-actions';
+import { PAGE_FORM } from './b11-helpers';
 
 /**
  * Phase 3 hotel booking → Purchase task screens, through the design-preview
@@ -139,8 +141,10 @@ test.describe('hotel booking panel wording and structure', () => {
     const panel = page.getByRole('region', { name: 'Hotel booking', exact: true });
     await expect(panel).toContainText('Draft · ready to confirm');
     await expect(panel.locator('[data-slot="next-line"]')).toContainText('Next: review the details and confirm to create the Purchase task · Sales Sales Manager You');
-    await expect(panel.locator('.work-panel-head .button:not(.secondary):visible')).toHaveCount(1);
-    await expect(panel.locator('.work-panel-head').getByRole('button', { name: 'Review and confirm' })).toBeVisible();
+    // The panel head is the block that holds the panel's h2; its one primary action is "Review and confirm".
+    const head = panel.getByRole('heading', { name: 'Hotel booking', level: 2 }).locator('xpath=../..');
+    expect(await primaryActions(head)).toEqual(['Review and confirm']);
+    await expect(head.getByRole('button', { name: 'Review and confirm' })).toBeVisible();
   });
 
   test('repair list links to the exact fields and marks them invalid', async ({ page }) => {
@@ -160,7 +164,7 @@ test.describe('hotel booking panel wording and structure', () => {
       page.getByText('Proof files are visible only to the Sales owner, assigned Sales and the branch Sales Manager — never to Purchase.'),
     ).toBeVisible();
     await expect(page.getByLabel('File', { exact: true })).toHaveAccessibleDescription(/PDF, JPG, PNG or WebP, up to 4 MB/);
-    await expect(page.locator('.file-row')).toContainText('Upload failed');
+    await expect(page.getByRole('list', { name: 'Proof files' }).getByRole('listitem')).toContainText('Upload failed');
     await expect(page.getByRole('button', { name: 'Remove synthetic-bill.jpg' })).toBeVisible();
     await page.goto('/preview/booking-upload-failed');
     await expect(page.locator('main').getByRole('alert')).toContainText('The proof was not accepted and does not count. Remove it if it is listed, then upload it again.');
@@ -175,7 +179,10 @@ test.describe('hotel booking panel wording and structure', () => {
     await expect(page.getByLabel('Booking total agreed with the customer')).toHaveAccessibleDescription(/not the deal selling price/);
     await page.goto('/preview/booking-draft-ready-assignee');
     await expect(page.getByLabel('Booking total agreed with the customer')).toHaveCount(0);
-    const hiddenTotal = page.locator('#hotel-booking .field').filter({ hasText: 'Booking total agreed with the customer' });
+    const hiddenTotal = page
+      .getByRole('region', { name: 'Hotel booking', exact: true })
+      .getByText('Booking total agreed with the customer', { exact: true })
+      .locator('..');
     await expect(hiddenTotal).toContainText('Hidden for your role');
     await expect(hiddenTotal).not.toContainText('Not recorded yet');
     await expect(page.locator('main')).toContainText('The deal owner or a Sales Manager for this branch can.');
@@ -281,7 +288,7 @@ test.describe('Purchase screens', () => {
     const main = page.locator('main');
     // The queue can hold supplier-confirmed tasks, so its line states the rule instead of "not booked yet" (DA-273).
     await expect(main).toContainText('Each counts as booked only after you record the supplier’s confirmation.');
-    await expect(main).toContainText('Customer prices and proof files are never shown here.');
+    // R3 (DM-17): the standing "never shown here" line is gone; the fence itself is checked below (no price, no proof).
     await expect(main).not.toContainText(/Selling/i);
     await expect(main).not.toContainText(/synthetic-acceptance|\.pdf|\.png|Download/i);
     await expect(page.getByRole('table', { name: '3 hotel tasks' })).toContainText('₹45,000.00');
@@ -466,8 +473,9 @@ test.describe('Phase 3.5: who acts next', () => {
   ] as const) {
     test(`Purchase task: one Next line names the current step: ${state}`, async ({ page }) => {
       await page.goto(`/preview/${state}`);
-      await expect(page.locator('main [data-slot="task-next"]')).toHaveCount(1);
-      await expect(page.locator('main [data-slot="task-next"]')).toContainText(next);
+      // R3: the shared record header holds the one Next line ("next-step"), same words.
+      await expect(page.locator('main [data-slot="next-step"]')).toHaveCount(1);
+      await expect(page.locator('main [data-slot="next-step"] p')).toContainText(next);
     });
   }
   for (const [state, role, current] of cases) {
@@ -478,7 +486,7 @@ test.describe('Phase 3.5: who acts next', () => {
       await expect(step).toHaveCount(1);
       await expect(step).toContainText(current);
       await expect(step).toContainText(role);
-      await expect(step.locator('.handoff-state')).toHaveText(/^(Now|Blocked):$/);
+      await expect(step.getByText(/^(Now|Blocked):$/)).toBeVisible();
     });
   }
 
@@ -487,8 +495,8 @@ test.describe('Phase 3.5: who acts next', () => {
     const step = page.locator('li[aria-current="step"]');
     await expect(step).toContainText('Blocked:');
     await expect(step).toContainText('Waiting for an admin');
-    const nextStep = page.locator('#hotel-booking [data-slot="next-line"]');
-    await expect(nextStep.locator('.role-tag', { hasText: 'Admin' })).toBeVisible();
+    const nextStep = page.getByRole('region', { name: 'Hotel booking', exact: true }).locator('[data-slot="next-line"]');
+    await expect(nextStep.getByText('Admin', { exact: true })).toBeVisible();
     await expect(nextStep).toContainText('An admin');
     await expect(page.getByRole('button', { name: 'Review and confirm' })).toHaveCount(0);
   });
@@ -500,7 +508,8 @@ test.describe('Phase 3.5: who acts next', () => {
       ['booking-confirmed-taken', 'Purchase'],
     ] as const) {
       await page.goto(`/preview/${state}`);
-      await expect(page.locator('#hotel-booking [data-slot="next-line"] .role-tag', { hasText: role }), state).toBeVisible();
+      const nextLine = page.getByRole('region', { name: 'Hotel booking', exact: true }).locator('[data-slot="next-line"]');
+      await expect(nextLine.getByText(role, { exact: true }), state).toBeVisible();
     }
     // Batch 4 (G-18, DA-262, DA-272, DA-273): Purchase list, Purchase task and System health say who acts in words.
     // Echo-B L3: the queue names who records the confirmation and shows who took each task.
@@ -509,10 +518,10 @@ test.describe('Phase 3.5: who acts next', () => {
     await expect(page.locator('main').getByRole('columnheader', { name: 'Taken by' })).toBeVisible();
     // An open task: Purchase takes it; the header says nobody has taken it yet.
     await page.goto('/preview/purchase-task-open');
-    await expect(page.locator('main [data-slot="task-next"]')).toContainText('Next: take this task');
+    await expect(page.locator('main [data-slot="next-step"] p')).toContainText('Next: take this task');
     await expect(page.locator('main')).toContainText('Taken by: Not taken yet');
     await page.goto('/preview/purchase-task-mine');
-    await expect(page.locator('main [data-slot="task-next"]')).toContainText('Next: record the supplier’s confirmation');
+    await expect(page.locator('main [data-slot="next-step"] p')).toContainText('Next: record the supplier’s confirmation');
     await page.goto('/preview/booking-health-off');
     await expect(page.locator('main [data-slot="health-next"]')).toContainText('Next: nothing here. Real bookings are switched on by the CRM team with the owner’s approval.');
     await page.goto('/preview/booking-confirmed-taken');
@@ -579,16 +588,17 @@ test.describe('Phase 3.5: long booking form on a phone', () => {
   test('sections show status words; finished sections fold with a recap', async ({ page }) => {
     await page.goto('/preview/booking-draft-ready');
     await page.waitForLoadState('networkidle');
-    const stay = page.locator('details.form-section', { has: page.locator('summary', { hasText: 'Stay' }) });
+    const section = (title: string) => page.locator('details', { has: page.locator('summary', { hasText: title }) });
+    const stay = section('Stay');
     await expect(stay).not.toHaveAttribute('open');
     await expect(stay.locator('summary')).toContainText('Done');
     await expect(stay.locator('summary')).toContainText('Synthetic Lakeside Hotel, Udaipur · 14 Nov → 17 Nov');
     await page.goto('/preview/booking-draft-needs-repair');
     await page.waitForLoadState('networkidle');
-    const needs = page.locator('details.form-section', { has: page.locator('summary', { hasText: 'Rooms and travellers' }) });
+    const needs = section('Rooms and travellers');
     await expect(needs).toHaveAttribute('open');
     await expect(needs.locator('summary')).toContainText('1 to add');
-    await expect(page.locator('details.form-section', { has: page.locator('summary', { hasText: 'Notes for Purchase' }) })).toHaveAttribute('open');
+    await expect(section('Notes for Purchase')).toHaveAttribute('open');
   });
 
   test('keyboard: Enter on a section summary opens it and the fields follow in order', async ({ page }) => {
@@ -614,7 +624,8 @@ test.describe('Phase 3.5: long booking form on a phone', () => {
   test('the save bar stays on screen while scrolling the form, and inputs use phone keyboards', async ({ page }) => {
     await page.goto('/preview/booking-draft-needs-repair');
     await page.waitForLoadState('networkidle');
-    const bar = page.locator('.sticky-actions');
+    // The save bar is the row that holds "Save booking details".
+    const bar = page.getByRole('button', { name: 'Save booking details' }).locator('..');
     await expect(bar).toHaveCSS('position', 'sticky');
     await page.getByLabel('Rooms', { exact: true }).scrollIntoViewIfNeeded();
     const box = await bar.boundingBox();
@@ -628,7 +639,7 @@ test.describe('Phase 3.5: long booking form on a phone', () => {
   test('typing announces unsaved changes once through a status region', async ({ page }) => {
     await page.goto('/preview/booking-draft-needs-repair');
     await page.waitForLoadState('networkidle');
-    const status = page.locator('.sticky-actions [role="status"]');
+    const status = page.getByRole('button', { name: 'Save booking details' }).locator('..').getByRole('status');
     await expect(status).toHaveText('Saving keeps this as a draft. Nothing is confirmed.');
     await page.getByLabel('City').fill('Jaipur');
     await expect(status).toHaveText('You have unsaved changes.');
@@ -711,7 +722,8 @@ test.describe('Phase 3.5: states', () => {
       const main = page.locator('main');
       await expect(main.getByRole('button')).toHaveCount(0);
       await expect(main.getByRole('checkbox')).toHaveCount(0);
-      await expect(main.locator('form')).toHaveCount(0);
+      // The Settings frame's area picker (R1) is navigation, not a control of this page.
+      await expect(main.locator(PAGE_FORM)).toHaveCount(0);
     }
   });
 

@@ -77,6 +77,12 @@ const BANK_VIEW: SupplierDetailView = {
   ],
 };
 
+/* UX redesign R3: the Bank details tab and the header states it drives. */
+const VERIFIED_ON_HOLD: SupplierMaster = { ...SUP_MASTER, verification: 'verified', verifiedAt: '2026-11-06T09:00:00Z', verifiedByName: 'Synthetic Manager Jodhpur', bankState: 'on_hold' };
+const VERIFIED_NO_BANK: SupplierMaster = { ...VERIFIED_ON_HOLD, bankState: 'none', bank: null };
+const BANK_VIEW_MANAGER: SupplierDetailView = { ...BANK_VIEW, canVerify: false, beneficiaries: BANK_VIEW.beneficiaries.map((b) => ({ ...b, canApprove: true })) };
+const BANK_VIEW_EMPTY_EDIT: SupplierDetailView = { ...BANK_VIEW, canEdit: true, beneficiaries: [] };
+
 function register(viewer: ShellViewer, body: ReactNode, path = '/app/purchase/suppliers') {
   return (
     <StaffShell viewer={viewer} currentPath={path}>
@@ -101,7 +107,7 @@ function purchaseRegister(over: Partial<Parameters<typeof SupplierRegisterView>[
   );
 }
 
-function page(viewer: ShellViewer, supplier: SupplierMaster, tab: SupplierTab, over: { actions?: SupplierFormActions | null; preview?: SupplierPagePreview; verify?: boolean; who?: 'purchase' | 'flight' | 'manager' } = {}) {
+function page(viewer: ShellViewer, supplier: SupplierMaster, tab: SupplierTab, over: { actions?: SupplierFormActions | null; preview?: SupplierPagePreview; verify?: boolean; who?: 'purchase' | 'flight' | 'manager'; bank?: SupplierDetailView } = {}) {
   const who = over.who ?? 'purchase';
   return register(
     viewer,
@@ -119,7 +125,7 @@ function page(viewer: ShellViewer, supplier: SupplierMaster, tab: SupplierTab, o
           </Button>
         ) : undefined
       }
-      bank={<SupplierBankSection supplier={BANK_VIEW} />}
+      bank={<SupplierBankSection supplier={over.bank ?? BANK_VIEW} />}
       preview={over.preview}
     />,
   );
@@ -181,6 +187,10 @@ const states: Record<string, () => ReactNode> = {
   'acc2-supplier-register-add-refused': () =>
     purchaseRegister({ createAction: act(A.acc2SupSaveExists), createInitialState: refusal('supplier_exists', 'A supplier with exactly this name already exists in this company. Open it instead, or use a different name.', 'name') }),
   'acc2-supplier-register-no-access': () => register(salesViewer, <SupplierRegisterNoAccess />),
+  'acc2-supplier-register-add-open': () => purchaseRegister({ createOpen: true }),
+  'acc2-supplier-register-state-chip': () => purchaseRegister({ filter: { bankState: 'on_hold' }, page: { items: [SUP_ROWS[1]!, SUP_ROWS[3]!], nextAfter: null, hasMore: false } }),
+  'acc2-supplier-register-accounts': () =>
+    register(accountsImporter, <SupplierRegisterView viewer="accounts" filter={{}} page={{ items: [...SUP_ROWS, ...FLIGHT_SUP_ROWS], nextAfter: null, hasMore: false }} states={GST_STATES} serviceTypes={['hotel', 'transfer', 'activity', 'flight']} />),
 
   /* Supplier page */
   'acc2-supplier-page': () => page(purchaseViewer, SUP_MASTER, 'details'),
@@ -202,6 +212,12 @@ const states: Record<string, () => ReactNode> = {
   'acc2-supplier-page-history': () => page(purchaseViewer, SUP_MASTER, 'history'),
   'acc2-supplier-page-history-empty': () => page(purchaseViewer, { ...SUP_MASTER, history: [] }, 'history'),
   'acc2-supplier-page-flight': () => page(flightViewer, SUP_MASTER_FLIGHT, 'details', { who: 'flight' }),
+  'acc2-supplier-page-bank': () => page(purchaseViewer, SUP_MASTER, 'bank'),
+  'acc2-supplier-page-on-hold': () => page(purchaseViewer, VERIFIED_ON_HOLD, 'details'),
+  'acc2-supplier-page-bank-manager': () => page(managerViewer, { ...VERIFIED_ON_HOLD, pan: 'ABCDE9876F', can: SUP_MASTER_MANAGER.can }, 'details', { actions: null, who: 'manager', bank: BANK_VIEW_MANAGER }),
+  'acc2-supplier-page-bank-manager-tab': () => page(managerViewer, { ...VERIFIED_ON_HOLD, pan: 'ABCDE9876F', can: SUP_MASTER_MANAGER.can }, 'bank', { actions: null, who: 'manager', bank: BANK_VIEW_MANAGER }),
+  'acc2-supplier-page-no-bank': () => page(purchaseViewer, VERIFIED_NO_BANK, 'details', { bank: BANK_VIEW_EMPTY_EDIT }),
+  'acc2-supplier-page-no-bank-tab': () => page(purchaseViewer, VERIFIED_NO_BANK, 'bank', { bank: BANK_VIEW_EMPTY_EDIT }),
   'acc2-supplier-page-loading': () => register(purchaseViewer, <SupplierPageLoading />),
   'acc2-supplier-page-error': () => register(purchaseViewer, <SupplierPageError />),
 

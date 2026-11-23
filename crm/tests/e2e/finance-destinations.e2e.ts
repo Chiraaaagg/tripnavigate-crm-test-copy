@@ -47,6 +47,20 @@ async function expandAll(page: Page) {
   });
 }
 
+async function closeDrawer(page: Page) {
+  if ((await page.getByRole('dialog').count()) === 0) return;
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+}
+
+/** R4: "Record a receipt" at the top of the deal page opens the existing receipt form in a drawer (a dialog). */
+async function recordDrawer(page: Page): Promise<Locator> {
+  await page.getByRole('button', { name: 'Record a receipt', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Record a receipt' });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
 function card(page: Page, name: string): Locator {
   return page.getByRole('list', { name: 'Company accounts' }).getByRole('listitem').filter({ has: page.getByRole('heading', { level: 3, name, exact: true }) });
 }
@@ -57,6 +71,8 @@ test.describe('Stage 2 previews: accessibility on desktop and 390 px', () => {
       await open(page, state);
       await expandAll(page);
       expect(await axe(page)).toEqual([]);
+      // An open drawer (refusal states) hides the page from assistive technology; close it to read the page.
+      await closeDrawer(page);
       expect(await page.getByRole('heading', { level: 1 }).count()).toBe(1);
       await expect(page.getByRole('main').getByText(DISCLAIMER)).toBeVisible();
     });
@@ -191,7 +207,11 @@ test.describe('Company accounts panel', () => {
     await open(page, 'finance-destinations-empty');
     const main = page.getByRole('main');
     await expect(main).toContainText('No company accounts yet');
-    const form = page.getByRole('form', { name: 'Add a company account' });
+    // R4 (A8): the add form opens from the header button in the side drawer.
+    await expect(page.getByRole('form', { name: 'Add a company account' })).toHaveCount(0);
+    await main.getByRole('button', { name: 'Add a company account' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Add a company account' });
+    const form = drawer.getByRole('form', { name: 'Add a company account' });
     await expect(form.getByLabel('Internal name')).toHaveAccessibleDescription(/Do not type account numbers or UPI IDs here/);
     await expect(form.getByLabel('Account number')).toHaveCount(0);
     await form.getByRole('radio', { name: 'UPI ID' }).check();
@@ -207,13 +227,16 @@ test.describe('Company accounts panel', () => {
     await expect(form.getByRole('alert')).toContainText('Design preview: nothing is saved.');
     await expect(form.getByLabel('Account number')).toHaveValue('000123456789');
     await expect(form.getByRole('radio', { name: 'Bank account' })).toBeChecked();
-    await expect(main.getByRole('status').filter({ hasText: 'Done:' })).toHaveCount(0);
+    await expect(drawer).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Done:' })).toHaveCount(0);
     expect(page.url()).not.toContain('000123456789');
   });
 
   test('add form refusal shows field issues next to the fields', async ({ page }) => {
     await open(page, 'finance-destinations-add-error');
-    const form = page.getByRole('form', { name: 'Add a company account' });
+    const drawer = page.getByRole('dialog', { name: 'Add a company account' });
+    await expect(drawer).toBeVisible();
+    const form = drawer.getByRole('form', { name: 'Add a company account' });
     await expect(form.getByRole('alert')).toContainText('Check the highlighted fields.');
     await expect(form.getByRole('group', { name: 'What kind of company account?' })).toContainText('Choose bank account or UPI ID.');
     await expect(form.getByLabel('Internal name')).toHaveAttribute('aria-invalid', 'true');
@@ -229,7 +252,7 @@ test.describe('Company accounts panel', () => {
 test.describe('Receipts and company accounts', () => {
   test('bank transfer needs a choice when several accounts exist; UPI with one is selected and says so; cash has none', async ({ page }) => {
     await open(page, 'finance-deal-detail--receipts');
-    const record = page.getByRole('region', { name: 'Record a receipt' });
+    const record = await recordDrawer(page);
     const select = record.getByLabel('Company account the money was paid into');
     await expect(select).toHaveValue('');
     await expect(select.locator('option')).toHaveText([
@@ -248,7 +271,7 @@ test.describe('Receipts and company accounts', () => {
 
   test('a stub refusal keeps the chosen account', async ({ page }) => {
     await open(page, 'finance-deal-detail--receipts');
-    const record = page.getByRole('region', { name: 'Record a receipt' });
+    const record = await recordDrawer(page);
     await record.getByLabel('Company account the money was paid into').selectOption({ label: 'Main current account · Synthetic Bank XXXX6789 · version 2' });
     await record.getByRole('button', { name: 'Record bank transfer receipt' }).click();
     await expect(record.getByRole('alert')).toContainText('Design preview: nothing is saved.');
@@ -257,7 +280,7 @@ test.describe('Receipts and company accounts', () => {
 
   test('no approved account: honest empty state, link, and no working record button', async ({ page }) => {
     await open(page, 'finance-deal-no-destination--receipts');
-    const record = page.getByRole('region', { name: 'Record a receipt' });
+    const record = await recordDrawer(page);
     await expect(record).toContainText(NO_ACCOUNT);
     // Said once, next to the selector; the button repeats it only as its description.
     await expect(record.getByRole('note').filter({ hasText: NO_ACCOUNT })).toHaveCount(1);
@@ -269,7 +292,7 @@ test.describe('Receipts and company accounts', () => {
 
   test('options read refused: says the list could not be loaded, not that none is approved', async ({ page }) => {
     await open(page, 'finance-deal-destinations-unavailable--receipts');
-    const record = page.getByRole('region', { name: 'Record a receipt' });
+    const record = await recordDrawer(page);
     await expect(record.getByRole('note').filter({ hasText: NOT_LOADED })).toHaveCount(1);
     await expect(record).not.toContainText('No approved company account');
     const button = record.getByRole('button', { name: 'Record receipt' });
@@ -281,7 +304,7 @@ test.describe('Receipts and company accounts', () => {
 
   test('destination_changed: typed values stay, the account must be chosen again (no silent replacement)', async ({ page }) => {
     await open(page, 'finance-deal-destination-changed--receipts');
-    const record = page.getByRole('region', { name: 'Record a receipt' });
+    const record = await recordDrawer(page);
     await record.getByLabel('Amount received (₹)').fill('750');
     await record.getByLabel('Payer name').fill('Synthetic Payer Q');
     const select = record.getByLabel('Company account the money was paid into');
@@ -310,22 +333,99 @@ test.describe('Receipts and company accounts', () => {
     expect(await page.content()).not.toContain('000123452222');
   });
 
-  test('receipt cards show the masked snapshot, "Unmapped" for older receipts, nothing for cash', async ({ page }) => {
+  test('receipt rows show the masked snapshot in their details, "Unmapped" for older receipts, nothing for cash', async ({ page }) => {
     await open(page, 'finance-deal-destinations--receipts');
-    const list = page.getByRole('list', { name: 'Receipts, newest first' });
-    const r1 = list.getByRole('listitem').filter({ hasText: 'R-2026-27-000001' }).first();
+    // R4: receipts are table rows; each row's facts sit in its folded Details.
+    for (const fold of await page.getByRole('main').locator('summary').filter({ hasText: /Details of receipt/ }).all()) await fold.click();
+    const table = page.getByRole('table', { name: /Customer receipts/ });
+    const row = (no: string) => table.locator('tbody').filter({ has: page.locator('td[data-label="Receipt"]', { hasText: no }) });
+    const r1 = row('R-2026-27-000001');
+    await expect(r1).toHaveCount(1);
     await expect(r1).toContainText('Paid into');
     await expect(r1).toContainText('Main current account · Bank account · Synthetic Bank XXXX6789 · version 2');
-    const r2 = list.getByRole('listitem').filter({ hasText: 'R-2026-27-000002' }).first();
-    await expect(r2).toContainText('Counter UPI · UPI ID · c***@synpay · version 1');
-    const r3 = list.getByRole('listitem').filter({ hasText: 'R-2026-27-000003' }).first();
-    await expect(r3).toContainText('Unmapped');
-    const r4 = list.getByRole('listitem').filter({ hasText: 'R-2026-27-000004' }).first();
+    await expect(row('R-2026-27-000002')).toContainText('Counter UPI · UPI ID · c***@synpay · version 1');
+    await expect(row('R-2026-27-000003')).toContainText('Unmapped');
+    const r4 = row('R-2026-27-000004');
+    await expect(r4).toHaveCount(1);
     await expect(r4).not.toContainText('Paid into');
   });
 
-  test('the Accounts queue links to company accounts', async ({ page }) => {
+  test('company accounts stay one click from Accounts: the menu section and its tab strip', async ({ page }) => {
+    // R4: the "Also in Accounts" links on To check are gone by design; the Cash and bank section holds Company accounts.
     await open(page, 'finance-queue');
-    await expect(page.getByRole('link', { name: /Open company accounts/ })).toHaveAttribute('href', '/app/accounts/destinations');
+    await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: /^Cash and bank/ })).toHaveAttribute('href', '/app/accounts/cash');
+    await open(page, 'finance-cash');
+    await expect(page.getByRole('navigation', { name: 'Cash and bank sections' }).getByRole('link', { name: /^Company accounts/ })).toHaveAttribute('href', '/app/accounts/destinations');
+  });
+});
+
+/*
+ * UX redesign R4, helper A4 (A8): Company accounts as a table at the top with
+ * one next step per account that jumps to its details, "Add a company
+ * account" in the side drawer. Preview gallery only; field names, actions and
+ * the two-person rule are unchanged and covered by the db and real suites.
+ */
+test.describe('R4 Company accounts table', () => {
+  test('one row per account: version in use (masked), status in words, next step', async ({ page }) => {
+    await open(page, 'finance-destinations');
+    const table = page.getByRole('table');
+    await expect(table.getByRole('columnheader')).toHaveText(['Account', 'Used by new receipts', 'Status', 'Next step']);
+    await expect(table.getByRole('row')).toHaveCount(8);
+    const row = (name: string) => table.getByRole('row').filter({ has: page.getByRole('link', { name, exact: true }) });
+    await expect(row('Main current account')).toContainText('Version 2 · Synthetic Bank XXXX6789');
+    await expect(row('Main current account')).toContainText('Account status: Approved, in use');
+    await expect(row('Main current account')).toContainText('Nothing to do');
+    await expect(row('New collections account')).toContainText('Not yet approved');
+    await expect(row('Old branch account')).toContainText('No, retired');
+    await expect(row('Office UPI').getByRole('link', { name: 'Submit a corrected version of Office UPI' })).toBeVisible();
+    await expect(row('Retired with a late version').getByRole('link', { name: 'Return version 2 of Retired with a late version' })).toBeVisible();
+    await expect(table).not.toContainText('000123452222');
+  });
+
+  test('"Approve or return" in the row moves focus to that account’s decision', async ({ page }) => {
+    await open(page, 'finance-destinations');
+    await page.getByRole('link', { name: 'Approve or return version 1 of New collections account' }).click();
+    const target = page.locator('#dest-next-c4000000-0000-4000-8000-000000000003');
+    await expect(target).toBeFocused();
+    await expect(target.getByRole('button', { name: 'Approve version 1 of New collections account' })).toBeVisible();
+  });
+
+  test('"Submit a corrected version" opens the fold and focuses it', async ({ page }) => {
+    await open(page, 'finance-destinations');
+    await page.getByRole('link', { name: 'Submit a corrected version of Office UPI' }).click();
+    const fold = page.locator('#dest-change-c4000000-0000-4000-8000-000000000004');
+    await expect(fold).toHaveAttribute('open', '');
+    await expect(fold).toBeFocused();
+  });
+
+  test('the maker is told who acts next instead of a button', async ({ page }) => {
+    await open(page, 'finance-destinations-own');
+    const table = page.getByRole('table');
+    const row = table.getByRole('row').filter({ has: page.getByRole('link', { name: 'New collections account', exact: true }) });
+    await expect(row).toContainText(OWN_REASON);
+    await expect(row.getByRole('link', { name: /Approve or return/ })).toHaveCount(0);
+  });
+
+  test('"Add a company account" opens the drawer; Escape closes it and focus returns to the button', async ({ page }) => {
+    await open(page, 'finance-destinations');
+    await expect(page.getByRole('form', { name: 'Add a company account' })).toHaveCount(0);
+    const button = page.getByRole('button', { name: 'Add a company account' });
+    await button.click();
+    const drawer = page.getByRole('dialog', { name: 'Add a company account' });
+    const form = drawer.getByRole('form', { name: 'Add a company account' });
+    for (const name of ['entityId', 'requestId', 'destinationKind', 'label']) await expect(form.locator(`[name="${name}"]`).first()).toBeAttached();
+    await page.keyboard.press('Escape');
+    await expect(drawer).toHaveCount(0);
+    await expect(button).toBeFocused();
+  });
+
+  test('200% zoom (640 px wide): no sideways page scroll', async ({ page }) => {
+    await page.setViewportSize({ width: 640, height: 430 });
+    await open(page, 'finance-destinations');
+    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
   });
 });

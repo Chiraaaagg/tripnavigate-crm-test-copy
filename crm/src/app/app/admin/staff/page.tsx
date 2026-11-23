@@ -1,24 +1,35 @@
 import type { Metadata } from 'next';
 import { getAppConfig } from '@/lib/config';
+import { parseTab } from '@/lib/parse-tab';
 import { administeredEntityIds } from '@/modules/access/policy';
 import { loadStaffAdmin } from '@/modules/access/server/admin-queries';
 import { requireStaff } from '@/modules/identity/server/session';
 import { loadBitrixDirectory } from '@/modules/integration/server/bitrix-admin';
-import { StaffAdminView } from '@/views/staff-views';
+import { STAFF_PAGE_TABS, STAFF_STATUS_FILTERS } from '@/modules/settings/contracts';
+import { PeopleNoPermissionView, RolesAndBranchesView, StaffAdminView } from '@/views/settings/people-views';
 
 export const metadata: Metadata = { title: 'People and access' };
 
-export default async function StaffAdminPage() {
+/**
+ * Settings · People and access › Staff (R1, audit S9 to S11): the staff list
+ * first as a queue (search by name or work e-mail, status chips; the rows the
+ * page already loads, not paged on the server), a row menu for each person's
+ * actions, "Invite staff" in a drawer. `?tab=roles` shows the same rows as the
+ * read-only Roles and branches list (D8 deferred). Every action is the server
+ * action it always was; the database decides each step.
+ */
+export default async function StaffAdminPage({ searchParams }: { searchParams: Promise<{ tab?: string | string[]; q?: string | string[]; status?: string | string[] }> }) {
   const staff = await requireStaff();
   if (administeredEntityIds(staff.access, 'staff.manage').length === 0) {
-    return (
-      <>
-        <h2>Staff</h2>
-        <p role="status">You do not have permission to administer staff.</p>
-      </>
-    );
+    return <PeopleNoPermissionView section="staff" />;
   }
+  const params = await searchParams;
+  const tab = parseTab(params.tab, STAFF_PAGE_TABS, 'staff');
+  const sectionLinks = { staff: true, access: administeredEntityIds(staff.access, 'access.grant').length > 0 };
   const data = await loadStaffAdmin(staff);
+  if (tab === 'roles') return <RolesAndBranchesView staff={data.staff} sectionLinks={sectionLinks} />;
+  const q = (Array.isArray(params.q) ? params.q[0] : params.q)?.trim().slice(0, 120) ?? '';
+  const status = parseTab(params.status, STAFF_STATUS_FILTERS, 'all');
   const bitrix = await loadBitrixAccess(staff);
   return (
     <StaffAdminView
@@ -29,7 +40,8 @@ export default async function StaffAdminPage() {
       security={data.security}
       verificationMethods={data.verificationMethods}
       bitrix={bitrix}
-      sectionLinks={{ staff: true, access: administeredEntityIds(staff.access, 'access.grant').length > 0 }}
+      sectionLinks={sectionLinks}
+      filter={{ q, status }}
     />
   );
 }

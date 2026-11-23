@@ -12,6 +12,15 @@ import { enforceProductionStylePolicy, trackViolations } from '../helpers/produc
 
 export const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
+/**
+ * The page's own forms and form controls, for "no control here" checks on
+ * read-only pages. The Settings frame's area picker (R1: a GET form with a
+ * select, shown on phones and at 200 % zoom, hidden but still in the page at
+ * desktop width) is navigation, not a control of the page, so it is left out.
+ */
+export const PAGE_FORM = 'form:not([data-slot="settings-area-picker"])';
+export const PAGE_CONTROLS = ':is(form, input, select, textarea):not([data-slot="settings-area-picker"], [data-slot="settings-area-picker"] *)';
+
 export async function open(page: Page, state: string) {
   const response = await page.goto(`/preview/${state}`, { waitUntil: 'networkidle' });
   expect(response?.status(), state).toBe(200);
@@ -37,8 +46,8 @@ export function accessibilitySuite(title: string, states: string[]) {
         await page.setViewportSize({ width: 1440, height: 900 });
         await open(page, state);
         expect(await axe(page), state).toEqual([]);
-        // A modal dialog hides the page (aria-modal), so its own title is the heading then.
-        if ((await page.getByRole('dialog').count()) === 0) expect(await page.getByRole('heading', { level: 1 }).count(), `${state}: h1 count`).toBe(1);
+        // A modal dialog or alert dialog (R1: the Bitrix confirm) hides the page (aria-modal), so its own title is the heading then.
+        if ((await page.getByRole('dialog').or(page.getByRole('alertdialog')).count()) === 0) expect(await page.getByRole('heading', { level: 1 }).count(), `${state}: h1 count`).toBe(1);
         else expect(await page.locator('h1').count(), `${state}: h1 in the page`).toBe(1);
         await page.setViewportSize({ width: 390, height: 844 });
         await open(page, state);

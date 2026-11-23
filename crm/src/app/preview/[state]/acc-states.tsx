@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/ui/page-header';
+import { SectionTabs } from '@/components/ui/section-tabs';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import { DealDuesCard } from '@/views/accounts-desk/deal-money';
 import { DuesLoading, DuesNoAccess, DuesPageView } from '@/views/accounts-desk/dues';
@@ -9,7 +10,8 @@ import { RecordsLoading, RecordsNoAccess, RecordsWorkspace } from '@/views/accou
 import type { LoadMoreAction } from '@/views/accounts-desk/records-table';
 import type { DeskRowActions } from '@/views/accounts-desk/row-actions';
 import { AccountsSettingsView } from '@/views/accounts-desk/settings';
-import { TallyLoading, TallyNoAccess, TallyPage } from '@/views/accounts-desk/tally';
+import { TallyLoading, TallyNoAccess, TallyPage, type TallyCsvView } from '@/views/accounts-desk/tally';
+import type { TallyMethod } from '@/views/accounts-desk/r4-address';
 import { TravellerIdProofsCard } from '@/views/b11/id-proofs-list';
 import { HomeView, NO_HOME_ROLES } from '@/views/home-view';
 import type { NoticeInbox, NoticesConfig } from '@/views/notices/types';
@@ -87,6 +89,20 @@ function dealPage(viewer: ShellViewer, card: ReactNode) {
   );
 }
 
+/* Tally (R4, D11): the CSV method; the Tally file method's states are in acc3-tally-states.tsx. */
+const TALLY_CSV: TallyCsvView = { exportEnabled: TALLY_VIEW.exportEnabled, entities: TALLY_VIEW.entities, branches: TALLY_VIEW.branches, exports: TALLY_VIEW.exports, daily: TALLY_VIEW.daily };
+function tally(over: { view?: Partial<TallyCsvView>; method?: TallyMethod | null; action?: unknown; initial?: DeskResult | null } = {}) {
+  const view = { ...TALLY_CSV, ...over.view };
+  return shell(
+    accountsViewer,
+    '/app/accounts/tally',
+    <TallyPage view={view} method={over.method === undefined ? 'csv' : over.method} fileOn={false} exportAction={act(over.action ?? A.accExportOk)} exportInitialState={over.initial} />,
+  );
+}
+
+/* Dues (R4, A9): the bare address shows Overdue plus Due today, under the Money in tab strip. */
+const MONEY_IN_TABS = (path: string, viewer: ShellViewer) => <SectionTabs section="money-in" currentHref={path} viewer={viewer} />;
+
 const MONEY_ACTIONS = { addTallyInvoice: act(A.accInvoiceAddOk), withdrawTallyInvoice: act(A.accInvoiceWithdrawOk) };
 
 const states: Record<string, () => ReactNode> = {
@@ -101,6 +117,27 @@ const states: Record<string, () => ReactNode> = {
   'acc-records-totals': () => shell(accountsViewer, '/app/accounts/records', records({ totals: TOTALS })),
   'acc-records-totals-error': () => shell(accountsViewer, '/app/accounts/records', records({ totals: 'error' })),
   'acc-records-missing-originals': () => shell(accountsViewer, '/app/accounts/records', records({ filter: { kinds: ['original'], originals: 'missing' }, page: { scope: { mode: 'accounts', readOnly: false }, items: [ROWS[1]!, ROWS[4]!], nextAfter: null, hasMore: false } })),
+  // R4 (A5): nothing waiting, so the daily check is one closed line.
+  'acc-records-daily-clear': () =>
+    shell(
+      accountsViewer,
+      '/app/accounts/records',
+      records({
+        daily: {
+          ...DAILY,
+          exceptionsOpen: { count: 0, oldestAt: null },
+          changedAfterExport: 0,
+          originalsMissing: 0,
+          receiptsAwaitingVerificationOverOneWorkingDay: 0,
+          paymentsApprovedNotRecordedOverOneWorkingDay: 0,
+          urgentNoticesUnopenedOverOneWorkingDay: [],
+          documentsToRelease: 0,
+          pdfFailed: 0,
+          refundPayoutsDueOverOneWorkingDay: 0,
+          supplierRefundsDue: 0,
+        },
+      }),
+    ),
   'acc-records-error': () => shell(accountsViewer, '/app/accounts/records', records({ page: 'error', daily: 'error' })),
   'acc-records-loading': () => shell(accountsViewer, '/app/accounts/records', <RecordsLoading />),
   'acc-records-no-access': () => shell(purchaseViewer, '/app/accounts/records', <RecordsNoAccess />),
@@ -117,6 +154,18 @@ const states: Record<string, () => ReactNode> = {
 
   /* Dues */
   'acc-dues': () => shell(accountsViewer, '/app/accounts/dues', <DuesPageView viewer={{ kind: 'accounts', entityName: 'Holiday Chacha Pvt LTD' }} filter={{}} page={{ scope: { mode: 'accounts', readOnly: false }, items: DUES_ROWS, nextAfter: 'x', hasMore: true }} branches={BRANCHES} owners={[{ id: 'a0000981-0000-4000-8000-000000000981', name: 'Synthetic Sales Jodhpur' }, { id: 'a0000982-0000-4000-8000-000000000982', name: 'Synthetic Sales Delhi A' }]} />),
+  'acc-dues-default': () =>
+    shell(
+      accountsViewer,
+      '/app/accounts/dues',
+      <DuesPageView viewer={{ kind: 'accounts', entityName: 'Holiday Chacha Pvt LTD' }} filter={{ status: ['overdue', 'due_now'] }} defaulted page={{ scope: { mode: 'accounts', readOnly: false }, items: DUES_ROWS.slice(0, 2), nextAfter: null, hasMore: false }} branches={BRANCHES} sectionTabs={MONEY_IN_TABS('/app/accounts/dues', accountsViewer)} />,
+    ),
+  'acc-dues-default-none': () =>
+    shell(
+      managerViewer,
+      '/app/accounts/dues',
+      <DuesPageView viewer={{ kind: 'manager', branchNames: ['Jodhpur'] }} filter={{ status: ['overdue', 'due_now'] }} defaulted page={{ scope: { mode: 'accounts', readOnly: false }, items: [], nextAfter: null, hasMore: false }} branches={[BRANCHES[0]!]} sectionTabs={MONEY_IN_TABS('/app/accounts/dues', managerViewer)} />,
+    ),
   'acc-dues-overdue': () => shell(accountsViewer, '/app/accounts/dues', <DuesPageView viewer={{ kind: 'accounts', entityName: 'Holiday Chacha Pvt LTD' }} filter={{ status: ['overdue', 'due_now'] }} page={{ scope: { mode: 'accounts', readOnly: false }, items: DUES_ROWS.slice(0, 2), nextAfter: null, hasMore: false }} branches={BRANCHES} />),
   'acc-dues-manager': () => shell(managerViewer, '/app/accounts/dues', <DuesPageView viewer={{ kind: 'manager', branchNames: ['Jodhpur'] }} filter={{}} page={{ scope: { mode: 'accounts', readOnly: false }, items: DUES_ROWS.slice(0, 5), nextAfter: null, hasMore: false }} branches={[BRANCHES[0]!]} />),
   'acc-dues-sales': () => shell(salesViewer, '/app/accounts/dues', <DuesPageView viewer={{ kind: 'sales' }} filter={{}} page={{ scope: { mode: 'accounts', readOnly: false }, items: DUES_ROWS.slice(0, 3), nextAfter: null, hasMore: false }} branches={[]} />),
@@ -139,23 +188,14 @@ const states: Record<string, () => ReactNode> = {
   'acc-deal-dues-error': () => dealPage(accountsViewer, <DealDuesCard dues="error" viewer="accounts" />),
 
   /* Tally */
-  'acc-tally': () => shell(accountsViewer, '/app/accounts/tally', <TallyPage view={TALLY_VIEW} exportAction={act(A.accExportOk)} rowActions={ROW_ACTIONS} loadMoreExceptions={LOAD_MORE} />),
+  'acc-tally': () => tally(),
   'acc-tally-result': () =>
-    shell(
-      accountsViewer,
-      '/app/accounts/tally',
-      <TallyPage
-        view={TALLY_VIEW}
-        exportAction={act(A.accExportOk)}
-        rowActions={ROW_ACTIONS}
-        loadMoreExceptions={LOAD_MORE}
-        exportInitialState={{ ok: true, message: 'Export TE-2026-000012: 340 rows (12 exported before).', data: { exportId: 'a0000853-0000-4000-8000-000000000853', exportNo: 'TE-2026-000012', rowCount: 340, alreadyExportedCount: 12, skippedCount: 0 } }}
-      />,
-    ),
-  'acc-tally-too-large': () =>
-    shell(accountsViewer, '/app/accounts/tally', <TallyPage view={TALLY_VIEW} exportAction={act(A.accExportTooLarge)} rowActions={ROW_ACTIONS} loadMoreExceptions={LOAD_MORE} exportInitialState={{ ok: false, code: 'export_too_large', message: DESK_REFUSAL_TEXT.export_too_large }} />),
-  'acc-tally-nothing': () => shell(accountsViewer, '/app/accounts/tally', <TallyPage view={{ ...TALLY_VIEW, exports: [], exceptions: [] }} exportAction={act(A.accExportNothing)} rowActions={ROW_ACTIONS} loadMoreExceptions={LOAD_MORE} />),
-  'acc-tally-off': () => shell(accountsViewer, '/app/accounts/tally', <TallyPage view={{ ...TALLY_VIEW, exportEnabled: false, daily: { ...DAILY, exceptionOwner: { userId: null, name: null, isYou: false, set: false } } }} exportAction={act(A.accExportOk)} rowActions={ROW_ACTIONS} loadMoreExceptions={LOAD_MORE} />),
+    tally({ initial: { ok: true, message: 'Export TE-2026-000012: 340 rows (12 exported before).', data: { exportId: 'a0000853-0000-4000-8000-000000000853', exportNo: 'TE-2026-000012', rowCount: 340, alreadyExportedCount: 12, skippedCount: 0 } } as DeskResult }),
+  'acc-tally-too-large': () => tally({ action: A.accExportTooLarge, initial: { ok: false, code: 'export_too_large', message: DESK_REFUSAL_TEXT.export_too_large } }),
+  'acc-tally-nothing': () => tally({ view: { exports: [], daily: { ...DAILY, exceptionsOpen: { count: 0, oldestAt: null } } }, action: A.accExportNothing }),
+  // Both methods switched off: says so; the earlier CSV exports stay in the closed fold.
+  'acc-tally-off': () => tally({ view: { exportEnabled: false, daily: { ...DAILY, exceptionOwner: { userId: null, name: null, isYou: false, set: false } } }, method: null }),
+  'acc-tally-off-no-daily': () => tally({ view: { exportEnabled: false, daily: null }, method: null }),
   'acc-tally-loading': () => shell(accountsViewer, '/app/accounts/tally', <TallyLoading />),
   'acc-tally-no-access': () => shell(managerViewer, '/app/accounts/tally', <TallyNoAccess />),
 

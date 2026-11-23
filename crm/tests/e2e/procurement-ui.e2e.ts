@@ -286,3 +286,199 @@ test.describe('Amendment A1: manager decisions, release and reassignment (previe
     await expect(page.getByRole('main')).toContainText('.eml files aren’t accepted');
   });
 });
+
+/*
+ * UX redesign R3, helper C3 (DM-20 to DM-24): Suppliers and Rate contracts in
+ * the queue pattern, the add forms in the side drawer, the supplier "Bank
+ * details" tab with the on-hold header link, rate lines as a table from
+ * 1280 px, and the rate-sheet upload inside the Suppliers area. Preview
+ * gallery only (synthetic props); the server actions, field names and
+ * permissions are unchanged and covered by the db and real-journey tests.
+ */
+const R3_STATES = [
+  'acc2-supplier-register',
+  'acc2-supplier-register-add-open',
+  'acc2-supplier-register-state-chip',
+  'acc2-supplier-register-accounts',
+  'acc2-supplier-page-bank',
+  'acc2-supplier-page-on-hold',
+  'acc2-supplier-page-bank-manager',
+  'acc2-supplier-page-bank-manager-tab',
+  'acc2-supplier-page-no-bank',
+  'acc2-supplier-page-no-bank-tab',
+  'acc3-rates-list-purchase',
+  'acc3-rates-list-add-open',
+  'acc3-rates-list-status-chip',
+  'acc3-rates-contract-draft',
+  'acc3-rates-import-area',
+  'acc3-rates-import-area-checked',
+  'acc3-rates-import-area-no-access',
+];
+
+test.describe('R3 Suppliers area: accessibility at 1280, 390 px and 200% zoom', () => {
+  for (const state of R3_STATES) {
+    test(`axe clean, one h1, no sideways scroll: ${state}`, async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await open(page, state);
+      expect(await axe(page)).toEqual([]);
+      // An "add" drawer open on load is modal (aria-modal) and hides the page, so the page's own h1 is counted in the markup then.
+      const dialogOpen = (await page.getByRole('dialog').or(page.getByRole('alertdialog')).count()) > 0;
+      expect(await (dialogOpen ? page.locator('h1') : page.getByRole('heading', { level: 1 })).count()).toBe(1);
+      await page.setViewportSize({ width: 390, height: 844 });
+      await open(page, state);
+      await noHorizontalScroll(page);
+      expect(await axe(page)).toEqual([]);
+      await page.setViewportSize({ width: 640, height: 430 });
+      await noHorizontalScroll(page);
+    });
+  }
+});
+
+test.describe('R3 Suppliers register (queue pattern, add in a drawer)', () => {
+  test('area tabs, one search form, state chips that are the old filter addresses', async ({ page }) => {
+    await open(page, 'acc2-supplier-register');
+    const tabs = page.getByRole('navigation', { name: 'Suppliers area' });
+    await expect(tabs.getByRole('link', { name: 'Suppliers' })).toHaveAttribute('aria-current', 'page');
+    await expect(tabs.getByRole('link', { name: 'Rate contracts' })).toHaveAttribute('href', '/app/purchase/rate-contracts');
+    await expect(page.getByRole('search', { name: 'Search and filter suppliers' })).toBeVisible();
+    const chips = page.getByRole('navigation', { name: 'Supplier state' });
+    await expect(chips.getByRole('link', { name: /^All suppliers/ })).toHaveAttribute('aria-current', 'page');
+    await expect(chips.getByRole('link', { name: /^Payments on hold/ })).toHaveAttribute('href', '/app/purchase/suppliers?bankState=on_hold');
+    await expect(chips.getByRole('link', { name: /^Not verified/ })).toHaveAttribute('href', '/app/purchase/suppliers?verification=unverified');
+    // GSTIN and PAN moved to the supplier page; a supplier without GSTIN keeps a small flag.
+    await expect(page.getByRole('columnheader', { name: 'GSTIN and PAN' })).toHaveCount(0);
+    // The add form is not on the page until the button opens it.
+    await expect(page.getByRole('form', { name: 'Add a supplier' })).toHaveCount(0);
+  });
+
+  test('the Manager approvals address marks the "Payments on hold" chip and status is words, not colour', async ({ page }) => {
+    await open(page, 'acc2-supplier-register-state-chip');
+    await expect(page.getByRole('navigation', { name: 'Supplier state' }).getByRole('link', { name: /^Payments on hold/ })).toHaveAttribute('aria-current', 'page');
+    // "Suppliers table" names the scrolling region around the table; the table itself is named by its caption.
+    await expect(page.getByRole('region', { name: 'Suppliers table' }).getByRole('table')).toContainText('Payments on hold');
+  });
+
+  test('"Add a supplier" opens the same form in a drawer; Escape closes it and focus returns to the button', async ({ page }) => {
+    await open(page, 'acc2-supplier-register');
+    const button = page.getByRole('button', { name: 'Add a supplier' });
+    await button.click();
+    const drawer = page.getByRole('dialog', { name: 'Add a supplier' });
+    await expect(drawer).toBeVisible();
+    const form = drawer.getByRole('form', { name: 'Add a supplier' });
+    // Same field names as before (Addendum L3).
+    for (const name of ['name', 'supplierKind', 'city', 'stateCode', 'gstin', 'pan']) await expect(form.locator(`[name="${name}"]`).first()).toBeAttached();
+    await expect(drawer.getByRole('button', { name: 'Add supplier' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(drawer).toHaveCount(0);
+    await expect(button).toBeFocused();
+  });
+
+  test('a refused add opens the drawer with the refusal and the field marked', async ({ page }) => {
+    await open(page, 'acc2-supplier-register-add-refused');
+    const drawer = page.getByRole('dialog', { name: 'Add a supplier' });
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toContainText('A supplier with exactly this name already exists in this company.');
+  });
+
+  test('Flight sees no Rate contracts tab (rate contracts are not Flight work)', async ({ page }) => {
+    await open(page, 'acc2-supplier-register-flight');
+    await expect(page.getByRole('navigation', { name: 'Suppliers area' })).toHaveCount(0);
+  });
+});
+
+test.describe('R3 supplier page (Bank details tab, on-hold header link)', () => {
+  test('tabs are Details, Bank details, Contacts, Hotels sold, History; Contacts and Hotels sold keep their counts', async ({ page }) => {
+    await open(page, 'acc2-supplier-page');
+    const tabs = page.getByRole('navigation', { name: 'Supplier sections' });
+    // R3 integration (lead): the counts come back from the record already loaded; the other tabs carry none.
+    await expect(tabs.getByRole('link')).toHaveText([/^Details$/, /^Bank details$/, /^Contacts, ?\d+$/, /^Hotels sold, ?\d+$/, /^History$/]);
+    await expect(tabs.getByRole('link', { name: 'Bank details' })).toHaveAttribute('href', /\?tab=bank$/);
+    // Bank details are no longer the last block of Details.
+    await expect(page.getByRole('list', { name: 'Bank detail revisions, newest first' })).toHaveCount(0);
+  });
+
+  test('on hold: the header status links to the Bank details tab, and Purchase is told who acts next', async ({ page }) => {
+    await open(page, 'acc2-supplier-page-on-hold');
+    const header = page.locator('[data-slot="record-header"]');
+    const hold = header.getByRole('link', { name: /Payments on hold: bank details not approved/ });
+    await expect(hold).toHaveAttribute('href', /\?tab=bank$/);
+    await expect(header.locator('[data-slot="next-step"]')).toContainText('Next: A Manager who did not record them approves the latest bank details.');
+    await expect(header.getByRole('link', { name: 'Open bank details' })).toHaveCount(0);
+  });
+
+  test('a Manager who may approve gets "Open bank details"; on the tab the approve button is on the revision', async ({ page }) => {
+    await open(page, 'acc2-supplier-page-bank-manager');
+    await expect(page.locator('[data-slot="record-header"]').getByRole('link', { name: 'Open bank details' })).toHaveAttribute('href', /\?tab=bank$/);
+    await open(page, 'acc2-supplier-page-bank-manager-tab');
+    await expect(page.getByRole('navigation', { name: 'Supplier sections' }).getByRole('link', { name: 'Bank details' })).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('list', { name: 'Bank detail revisions, newest first' }).getByRole('button', { name: /Approve these bank details/ })).toHaveCount(1);
+    await expect(page.getByRole('note').filter({ hasText: 'Payments to this supplier are on hold' })).toBeVisible();
+  });
+
+  test('no bank details: "Record bank details" opens the tab, then jumps to and focuses the record form', async ({ page }) => {
+    await open(page, 'acc2-supplier-page-no-bank');
+    await expect(page.locator('[data-slot="next-step"]').getByRole('link', { name: 'Record bank details' })).toHaveAttribute('href', /\?tab=bank$/);
+    await open(page, 'acc2-supplier-page-no-bank-tab');
+    await page.locator('[data-slot="next-step"]').getByRole('link', { name: 'Record bank details' }).click();
+    await expect(page.locator('#supplier-bank-record')).toBeFocused();
+    await expect(page.locator('details:has(#supplier-bank-record)')).toHaveAttribute('open', '');
+  });
+});
+
+test.describe('R3 rate contracts (queue pattern, drawer, lines table, upload inside the area)', () => {
+  test('area tabs and chips replace the preset tabs and the status select; the old addresses stay', async ({ page }) => {
+    await open(page, 'acc3-rates-list-manager');
+    await expect(page.getByRole('navigation', { name: 'Suppliers area' }).getByRole('link', { name: 'Rate contracts' })).toHaveAttribute('aria-current', 'page');
+    const chips = page.getByRole('navigation', { name: 'Rate contract lists' });
+    await expect(chips.getByRole('link', { name: /^To approve/ })).toHaveAttribute('href', '/app/purchase/rate-contracts?preset=to_approve');
+    await expect(chips.getByRole('link', { name: /^To approve/ })).toContainText('(1)');
+    await expect(page.getByRole('combobox', { name: 'Status' })).toHaveCount(0);
+  });
+
+  test('a status address marks its chip', async ({ page }) => {
+    await open(page, 'acc3-rates-list-status-chip');
+    await expect(page.getByRole('link', { name: /^Draft/, exact: false }).and(page.locator('[aria-current="page"]'))).toHaveCount(1);
+  });
+
+  test('"Add a contract" opens the same form in a drawer; "Upload a rate sheet" stays inside the area', async ({ page }) => {
+    await open(page, 'acc3-rates-list-purchase');
+    await expect(page.getByRole('link', { name: 'Upload a rate sheet' })).toHaveAttribute('href', '/app/purchase/rate-contracts/import');
+    await page.getByRole('button', { name: 'Add a contract' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Add a contract' });
+    await expect(drawer).toBeVisible();
+    for (const name of ['validFrom', 'validTo']) await expect(drawer.locator(`[name="${name}"]`)).toBeAttached();
+  });
+
+  test('the empty list links the rate-sheet upload', async ({ page }) => {
+    await open(page, 'acc3-rates-list-empty');
+    await expect(page.getByRole('main').getByRole('link', { name: 'Upload a rate sheet' })).toHaveCount(2);
+  });
+
+  test('contract page: record header, jump links, and rate lines as a table from 1280 px with usual dates', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, 'acc3-rates-contract-draft');
+    await expect(page.locator('[data-slot="record-header"]')).toContainText('Back to rate contracts');
+    const jumps = page.getByRole('navigation', { name: 'On this page' });
+    await expect(jumps.getByRole('link', { name: 'Rate lines' })).toHaveAttribute('href', '#rate-lines');
+    const form = page.getByRole('form', { name: 'Rate lines and blackout dates' });
+    await expect(form).not.toContainText(/\b20\d\d-\d\d-\d\d\b/);
+    // One row per line: the first line's season and weekend rate sit on one line.
+    const from = form.locator('[name="lines[0].seasonFrom"]');
+    const weekend = form.locator('[name="lines[0].weekendRateRupees"]');
+    const [a, b] = [await from.boundingBox(), await weekend.boundingBox()];
+    expect(Math.abs((a?.y ?? 0) - (b?.y ?? 999))).toBeLessThan(8);
+    // Each field keeps its own name for screen readers.
+    await expect(form.getByLabel('Line 1: Season from')).toBeAttached();
+  });
+
+  test('rate-sheet upload inside the area: back link, no Settings frame, plain column titles beside the names', async ({ page }) => {
+    await open(page, 'acc3-rates-import-area');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Upload a rate sheet');
+    await expect(page.getByRole('link', { name: 'Back to rate contracts' })).toHaveAttribute('href', '/app/purchase/rate-contracts');
+    await expect(page.getByRole('main')).not.toContainText('Changes here affect every branch');
+    const cols = page.getByRole('table', { name: 'Rate sheet columns' });
+    await expect(cols.getByRole('columnheader', { name: 'What it holds' })).toBeVisible();
+    await expect(cols).toContainText('Child without bed');
+    await expect(cols).toContainText('childWithoutBed');
+  });
+});

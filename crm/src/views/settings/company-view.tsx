@@ -1,12 +1,12 @@
-import { Building2, CircleCheck, CircleHelp, Lock, TriangleAlert } from 'lucide-react';
+import { Building2, CircleCheck, CircleHelp, TriangleAlert } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { Notice } from '@/components/ui/notice';
+import { StateBlock } from '@/components/ui/state-block';
 import { SummaryList, SummaryRow } from '@/components/ui/summary-list';
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { CompanyPageModel } from '@/modules/settings/server/queries';
 import { COMPANY_TEXT } from '@/modules/settings/text';
-import { SettingsSectionHeading } from './settings-frame';
 
 /*
  * Settings · Company and branches (DEC-50, DA-261). Read only: the company
@@ -16,18 +16,22 @@ import { SettingsSectionHeading } from './settings-frame';
  * GSTIN says what it blocks; a pilot that could not be read says so, never
  * "No". Look: corr Key Value List 25162 (SummaryList) and the originui dense
  * table (Table 89), as recorded in the 21st register.
+ *
+ * R1: the area heading and line come from the Settings frame; the page opens
+ * with one read-only line (StateBlock readOnly, C8) saying who changes it.
  */
+
+/** The read-only line (R1): who can change these details. */
+export const COMPANY_READ_ONLY_LINE = 'The CRM team changes them, using the details Accounts approved and the owner’s yes.';
 
 export function CompanyBranchesView({ model }: { model: CompanyPageModel }) {
   return (
     <>
-      <SettingsSectionHeading id="company-heading" description={model.line}>
-        {model.title}
-      </SettingsSectionHeading>
+      <StateBlock kind="readOnly" text="You can view these details." who={COMPANY_READ_ONLY_LINE} />
       <Card>
         <section aria-labelledby="company-details-heading">
           <CardHeader>
-            <CardTitle id="company-details-heading" level={3}>
+            <CardTitle id="company-details-heading" level={2}>
               <span className="inline-flex items-center gap-2">
                 <Building2 aria-hidden="true" className="size-4.5 text-faint" />
                 Company details
@@ -46,9 +50,9 @@ export function CompanyBranchesView({ model }: { model: CompanyPageModel }) {
         </section>
       </Card>
       <section aria-labelledby="branches-heading" className="flex flex-col gap-3">
-        <h3 id="branches-heading" className="m-0 text-lg font-semibold text-ink">
+        <h2 id="branches-heading" className="m-0 text-lg font-semibold text-ink">
           Branches
-        </h3>
+        </h2>
         <Table label="Branches" stackOnMobile>
           <TableCaption className="sr-only">Branches, their GSTIN and the Bitrix pilot branch</TableCaption>
           <TableHeader>
@@ -103,10 +107,6 @@ export function CompanyBranchesView({ model }: { model: CompanyPageModel }) {
           </Notice>
         ) : null}
       </section>
-      <p className="m-0 flex items-start gap-1.5 text-sm text-quiet">
-        <Lock aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-faint" />
-        <span>{model.footer}</span>
-      </p>
     </>
   );
 }
@@ -114,23 +114,17 @@ export function CompanyBranchesView({ model }: { model: CompanyPageModel }) {
 /** The page could not be built (the branch read failed): honest, nothing assumed. */
 export function CompanyBranchesErrorView() {
   return (
-    <>
-      <SettingsSectionHeading>{COMPANY_TEXT.title}</SettingsSectionHeading>
-      <Notice tone="danger" role="alert">
-        <p>{COMPANY_TEXT.loadFailed}</p>
-      </Notice>
-    </>
+    <Notice tone="danger" role="alert">
+      <p>{COMPANY_TEXT.loadFailed}</p>
+    </Notice>
   );
 }
 
 /** A person with no Settings right (the route's own check). */
 export function CompanyBranchesNoPermissionView() {
   return (
-    <>
-      <SettingsSectionHeading>{COMPANY_TEXT.title}</SettingsSectionHeading>
-      <Notice tone="restricted" role="status">
-        <p>{COMPANY_TEXT.noPermission}</p>
-      </Notice>
-    </>
+    <Notice tone="restricted" role="status">
+      <p>{COMPANY_TEXT.noPermission}</p>
+    </Notice>
   );
 }

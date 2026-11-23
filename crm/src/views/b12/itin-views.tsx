@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { StatusBadge } from '@/components/ui/badge';
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn, focusRing } from '@/components/ui/cn';
+import { Fold } from '@/components/ui/fold';
 import { Notice } from '@/components/ui/notice';
 import { PageHeader } from '@/components/ui/page-header';
 import type { AdapterRefusal, ItineraryDocumentView } from '@/modules/documents/contracts';
@@ -22,6 +23,11 @@ import { QuotePreviewFrame } from './quote-preview-check';
  * the next step and one primary action at the top; private source files;
  * facts; differences with the quotation or booking; document requests) and
  * the customer preview in the branded template.
+ *
+ * UX redesign R2 (SL-21): the optional "Existing itinerary" source file is a
+ * fold (C11), open on first load only when a file is attached. Folding the
+ * empty Transfers, Activities and Flights lists belongs to the facts form
+ * (itin-forms.tsx), outside this slice's files.
  */
 
 const textLink = cn('rounded-chip font-medium text-brand-strong underline underline-offset-4 hover:text-brand-deep', focusRing);
@@ -202,9 +208,19 @@ export function ItineraryScreen({ editor: e, actions, backHref, backLabel }: { e
             </CardBody>
           </Card>
 
-          <SectionCard id="sources" title="Existing itinerary (optional, private)" description="Attach it to copy facts from it. It is never sent.">
-            <SourceFiles editor={e} actions={actions} />
-          </SectionCard>
+          {/* R2 (SL-21): the optional source file sits in a fold, closed while nothing is attached, so the facts come first. */}
+          <Fold
+            summary="Existing itinerary (optional, private)"
+            meta={e.sources.length > 0 ? `${e.sources.length} attached` : 'Nothing attached'}
+            open={e.sources.length > 0}
+            id="sources-fold"
+            bodyClassName="px-4.5 py-4"
+          >
+            <section id="sources" aria-label="Existing itinerary (optional, private)" className="flex scroll-mt-24 flex-col gap-4">
+              <p className="m-0 text-sm text-quiet">Attach it to copy facts from it. It is never sent.</p>
+              <SourceFiles editor={e} actions={actions} />
+            </section>
+          </Fold>
 
           <SectionCard id="facts" title="Facts" description={`Trip details. Details copied from the ${basisWord} are marked. No prices or internal notes here.`}>
             <FactsForm editor={e} action={actions.saveFacts} reloadHref={reloadHref} />

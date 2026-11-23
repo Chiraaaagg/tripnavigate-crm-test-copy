@@ -27,14 +27,9 @@ import { AccountRecoveryView } from '@/views/recovery-views';
 import { DealsListLoading, DealsListScreen } from '@/views/deals-list-view';
 import { previewDealsProps } from './batch1-fixtures';
 import { StaffShell, type ShellViewer } from '@/views/StaffShell';
-import {
-  AccessGrantsView,
-  DealNotFoundView,
-  HomeView,
-  MyAccessView,
-  StaffAdminView,
-  type StaffLine,
-} from '@/views/staff-views';
+import { HomeView } from '@/views/home-view';
+import { DealNotFoundView, MyAccessView } from '@/views/staff-views';
+import { AccessGrantsView, StaffAdminView, type StaffLine } from '@/views/settings/people-views';
 import { FinishOnboardingView } from '@/views/status-views';
 import { NO_HOME_ROLES } from '@/views/home-view';
 import type { MyWorkCounts } from '@/modules/fulfilment/contracts';

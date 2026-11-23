@@ -5,8 +5,9 @@ import { accessibilitySuite, cspSuite, open } from './b11-helpers';
 /**
  * B1.2 switches, Batch 4: rows on Settings · Bitrix connection (Super
  * Admin), through the design preview states (synthetic props; stand-in
- * actions). State in words, unknown never shown as off, a reason and a review
- * that says what changes (with the owner's approval line) before the confirm.
+ * actions). State in words, Not known never shown as off, and one confirm
+ * dialog (UX redesign R1, C7) that says what changes (with the owner's
+ * approval line); the reason may be left empty (owner D9).
  * The online PDF maker is a read-only row on System health (batch4-settings).
  */
 
@@ -20,43 +21,55 @@ cspSuite('B1.2 switches: production style policy', STATES);
 const rows = (page: import('@playwright/test').Page) => page.locator('#bitrix-switches [data-slot="setting-row"]');
 
 test.describe('B1.2 switches', () => {
-  test('rows in words with an icon; the copy row says it is the only setting that writes to Bitrix after review', async ({ page }) => {
+  test('rows in words with an icon; the copy row says it is the only setting that writes to Bitrix', async ({ page }) => {
     await open(page, 'b12-admin-switches');
     await expect(rows(page)).toHaveCount(4);
     await expect(rows(page).nth(0)).toContainText('Read trip facts from Bitrix');
-    await expect(rows(page).nth(0)).toContainText('current state: On');
-    await expect(rows(page).nth(1)).toContainText('current state: Off');
+    await expect(rows(page).nth(0)).toContainText('State: On');
+    await expect(rows(page).nth(1)).toContainText('State: Off');
     await expect(rows(page).nth(2)).toContainText('Copy ID proofs to the Bitrix deal');
-    // The approval line is once per page (Settings frame) and inside every review, not on every row.
-    await expect(page.locator('main')).toContainText('Live changes need the owner’s APPROVE first; write it in the reason.');
+    // The approval line is once in Settings (R1: on the Overview, no longer repeated by the frame on each area page)
+    // and inside every confirm dialog (next test), never on every row.
+    await expect(page.locator('main')).not.toContainText('Live changes need the owner’s APPROVE first; write it in the reason.');
+    for (const row of await rows(page).all()) await expect(row).not.toContainText('APPROVE first');
+    await open(page, 'settings-overview');
+    await expect(page.locator('main')).toContainText('Changes here affect every branch. Live changes need the owner’s APPROVE first. Every change is recorded with the person and the time.');
   });
 
-  test('switching the copy on: reason required, then a review that says what changes and that open stops close', async ({ page }) => {
+  test('switching the copy on: one confirm dialog that says what changes and that open stops close; the reason may be left empty (owner, 18 Nov)', async ({ page }) => {
     await open(page, 'b12-admin-switches');
     const row = page.locator('[data-slot="setting-row"][data-key="bitrix_id_proof_copy"]');
-    await row.getByRole('button', { name: 'Change Copy ID proofs to the Bitrix deal' }).click();
-    const form = row.getByRole('form', { name: 'Change Copy ID proofs to the Bitrix deal' });
-    await expect(form.getByRole('radio', { name: 'On' })).toBeChecked();
-    await form.getByRole('button', { name: 'Review change' }).click();
-    await expect(form).toContainText('Not saved: say why, in 10 to 500 characters.');
-    await expect(form.getByRole('button', { name: 'Turn Copy ID proofs to the Bitrix deal on' })).toHaveCount(0);
-    await form.getByLabel('Why are you changing it?').fill('Owner approved the copy on 13 Oct (synthetic).');
-    await form.getByRole('button', { name: 'Review change' }).click();
-    await expect(form.getByRole('heading', { name: 'Review: turn Copy ID proofs to the Bitrix deal on' })).toBeFocused();
-    await expect(form).toContainText('This is the only setting that writes to Bitrix.');
-    await expect(form).toContainText('Switching on also closes 2 open automatic stops with your reason.');
-    await expect(form).toContainText('Changing this in the live CRM needs the owner’s APPROVE first. Write it in the reason.');
-    await form.getByRole('button', { name: 'Turn Copy ID proofs to the Bitrix deal on' }).click();
+    const change = row.getByRole('button', { name: 'Change Copy ID proofs to the Bitrix deal' });
+    await change.click();
+    const dialog = page.getByRole('alertdialog', { name: 'Turn Copy ID proofs to the Bitrix deal on?' });
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await expect(dialog).toContainText('This is the only setting that writes to Bitrix.');
+    await expect(dialog).toContainText('Switching on also closes 2 open automatic stops with your reason.');
+    await expect(dialog).toContainText('Changing this in the live CRM needs the owner’s APPROVE first. Write it in the reason.');
+    // Owner decision, 18 Nov: the reason is optional here too ("No reason given" when left empty).
+    await expect(dialog.getByLabel('Why are you changing it?')).toHaveAccessibleDescription(/Leave it empty, or write 10 to 500 characters/);
+    // Escape cancels and puts focus back on Change.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(change).toBeFocused();
+    await change.click();
+    await dialog.getByLabel('Why are you changing it?').fill('Owner approved the copy on 13 Oct (synthetic).');
+    await dialog.getByRole('button', { name: 'Turn Copy ID proofs to the Bitrix deal on' }).click();
+    await expect(dialog).toHaveCount(0);
     await expect(row.getByRole('status')).toContainText('Copy ID proofs to the Bitrix deal is now on. Recorded with your name and reason.');
   });
 
-  test('not a Super Admin, or a state that could not be read: no change control, and unknown is never off', async ({ page }) => {
+  test('not a Super Admin, or a state that could not be read: Change disabled with the reason, and Not known is never Off', async ({ page }) => {
     await open(page, 'b12-admin-switches-read-only');
-    await expect(rows(page).nth(2)).toContainText('current state: Unknown');
+    await expect(rows(page).nth(2)).toContainText('State: Not known');
     await expect(rows(page).nth(2)).toContainText('The CRM could not read this setting, so it shows as Unknown. Unknown is not Off.');
-    await expect(rows(page).nth(2)).not.toContainText('current state: Off');
+    await expect(rows(page).nth(2)).not.toContainText('State: Off');
     await expect(page.locator('#bitrix-switches')).toContainText('Only a Super Admin can change this.');
-    await expect(page.locator('#bitrix-switches').getByRole('button')).toHaveCount(0);
+    // Three switches show Change disabled with the reason; the won-only row is read only here (its own card changes it).
+    const buttons = page.locator('#bitrix-switches').getByRole('button', { name: 'Change', exact: true });
+    await expect(buttons).toHaveCount(3);
+    for (const b of await buttons.all()) await expect(b).toBeDisabled();
+    await expect(page.locator('#bitrix-switches').getByRole('button', { name: /^Change ./ })).toHaveCount(0);
     await expect(page.locator('#bitrix-switches').getByRole('radio')).toHaveCount(0);
   });
 });

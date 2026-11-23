@@ -27,8 +27,15 @@ const USER = 'a0000000-0000-4000-8000-000000000001';
 const E1 = 'e0000000-0000-4000-8000-000000000001';
 const PARTY = '22222222-2222-4222-8222-222222222222';
 const FILE = '44444444-4444-4444-8444-444444444444';
+// The list page also builds the Accounts section tabs (R4) from the same
+// menu rules as the frame, which read StaffContext.memberships as well.
 const as = (roles: string[]) =>
-  requireStaff.mockResolvedValue({ userId: USER, supabase: { rpc }, access: { userId: USER, memberships: roles.map((roleCode) => ({ legalEntityId: E1, branchId: 'b', roleCode })), rolePermissions: [], grants: [] } });
+  requireStaff.mockResolvedValue({
+    userId: USER,
+    supabase: { rpc },
+    memberships: roles.map((roleCode) => ({ legalEntityId: E1, legalEntityName: 'E1', branchId: 'b', branchName: 'B', isHeadOffice: false, roleCode, roleName: roleCode })),
+    access: { userId: USER, memberships: roles.map((roleCode) => ({ legalEntityId: E1, branchId: 'b', roleCode })), rolePermissions: [], grants: [] },
+  });
 
 beforeEach(() => {
   vi.clearAllMocks();

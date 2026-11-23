@@ -4,6 +4,11 @@ import { accountsRoleEntityIds, importEntityIds } from '@/modules/parties/import
 import type { ViewerAccess } from '@/modules/access/policy';
 import type { StaffContext } from '@/modules/identity/server/session';
 import type { ShellViewer } from '@/views/StaffShell';
+import { settingsTabsFor, type SettingsTabVM } from '@/modules/settings/contracts';
+import { loadFlightHomeCounts } from '@/modules/flight/server/queries';
+import { loadMyWorkCounts } from '@/modules/fulfilment/server/counts';
+import { loadSupplierMoneyHomeCounts } from '@/modules/supplier-money/server/queries';
+import { menuCountReads, menuCountsFrom, type MenuCountRoles, type MenuCounts } from './sections';
 
 /**
  * Settings · Features (carried Batch 4 Low N1): who may open the page and see
@@ -17,6 +22,21 @@ import type { ShellViewer } from '@/views/StaffShell';
 export function canOpenFeaturesSettings(access: ViewerAccess): boolean {
   if (administeredEntityIds(access, 'integration.manage').length === 0) return false;
   return !holdsPurchaseAnywhere(access) || access.memberships.some((m) => m.roleCode === 'super_admin');
+}
+
+/**
+ * The Settings areas this person may open: one rule for the Settings frame's
+ * area list (admin/layout.tsx) and the Overview page (admin/page.tsx), so the
+ * two never disagree. The shell flags decide the areas (settingsTabsFor), N1
+ * hides Features from someone that page would refuse, and R1 (D12) shows
+ * Customer messages only to a Super Admin, the only person its page answers
+ * (admin_customer_messages returns null for everyone else). Navigation
+ * convenience only: every page and database command still decides access.
+ */
+export function settingsAreasFor(staff: StaffContext, financeEntities: string[]): SettingsTabVM[] {
+  const features = canOpenFeaturesSettings(staff.access);
+  const canOpenCustomerMessages = staff.memberships.some((m) => m.roleCode === 'super_admin');
+  return settingsTabsFor({ ...shellPermissions(staff, financeEntities), canOpenCustomerMessages }).filter((t) => t.category !== 'features' || features);
 }
 
 /**
@@ -111,4 +131,41 @@ export function homeWorkRoles(staff: Pick<StaffContext, 'memberships' | 'access'
     visa: holds('visa'),
     accounts: canUseAccounts(staff.access, financeEntities),
   };
+}
+
+/**
+ * UX redesign R1 (build plan 2.4 N3): the menu counts, from the reads Home
+ * already makes (my_work_counts, supplier_money_home_counts,
+ * flight_home_counts) under the person's own session; no new read. Only the
+ * reads this person's roles need are made. Each read fails on its own to
+ * "count not known"; nothing is logged or rethrown, so the menu always
+ * renders. The frame does not wait for this: the promise streams to the
+ * menu (StaffShell passes it through), so the page shows at once.
+ */
+export async function loadMenuCounts(staff: StaffContext, financeEntities: string[]): Promise<MenuCounts> {
+  const work = homeWorkRoles(staff, financeEntities);
+  const roles: MenuCountRoles = {
+    bookings: work.bookings,
+    purchase: work.purchase,
+    flight: work.flight,
+    visa: work.visa,
+    accounts: work.accounts,
+    branchManager: work.branchManager,
+    quotations: canSeeQuotations(staff.access),
+  };
+  const reads = menuCountReads(roles);
+  const settle = async <T>(wanted: boolean, read: () => Promise<T | null>): Promise<T | 'failed' | undefined> => {
+    if (!wanted) return undefined;
+    try {
+      return (await read()) ?? 'failed';
+    } catch {
+      return 'failed';
+    }
+  };
+  const [myWork, supplierMoney, flight] = await Promise.all([
+    settle(reads.myWork, () => loadMyWorkCounts(staff)),
+    settle(reads.supplierMoney, () => loadSupplierMoneyHomeCounts(staff)),
+    settle(reads.flight, () => loadFlightHomeCounts(staff)),
+  ]);
+  return menuCountsFrom({ myWork, supplierMoney, flight }, roles);
 }

@@ -1,8 +1,11 @@
 import type { Metadata } from 'next';
+import { SectionTabs } from '@/components/ui/section-tabs';
 import { requireStaff } from '@/modules/identity/server/session';
 import { loadWriteOffMonthly } from '@/modules/write-offs/server/queries';
+import { WRITE_OFF_MONTHLY_PATH } from '@/views/write-offs/labels';
 import { WriteOffMonthlyView } from '@/views/write-offs/monthly';
 import { SmallBalancesNoAccess } from '@/views/write-offs/small-balances';
+import { accountsSectionViewer } from '../../section-viewer';
 
 export const metadata: Metadata = { title: 'Write-offs by month' };
 
@@ -21,8 +24,8 @@ function monthOf(value: string | string[] | undefined): string {
 export default async function WriteOffMonthlyRoute({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const staff = await requireStaff();
   const month = monthOf((await searchParams).month);
-  const data = await loadWriteOffMonthly(staff, month).catch(() => 'error' as const);
+  const [data, sectionViewer] = await Promise.all([loadWriteOffMonthly(staff, month).catch(() => 'error' as const), accountsSectionViewer(staff)]);
   if (data === null) return <SmallBalancesNoAccess />;
   const canSeeList = staff.memberships.some((m) => m.roleCode === 'accounts' || m.roleCode === 'manager');
-  return <WriteOffMonthlyView data={data} canSeeList={canSeeList} />;
+  return <WriteOffMonthlyView data={data} canSeeList={canSeeList} sectionTabs={<SectionTabs section="money-in" currentHref={WRITE_OFF_MONTHLY_PATH} viewer={sectionViewer} />} />;
 }

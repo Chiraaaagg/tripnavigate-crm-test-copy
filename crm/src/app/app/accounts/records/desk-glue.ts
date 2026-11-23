@@ -5,7 +5,8 @@ import type { RecordRow } from '@/views/accounts-desk/types';
 /*
  * Page-side glue for the Accounts desk routes (Documents and money, Dues,
  * Tally): who is reading (for the scope line) and the filter choices the
- * screens can offer from data already loaded. Display only; the database
+ * screens can offer from data already loaded. The section tab strip's flags
+ * come from ../section-viewer.ts. Display only; the database
  * decides every row (accounts_records / accounts_dues return null otherwise).
  */
 

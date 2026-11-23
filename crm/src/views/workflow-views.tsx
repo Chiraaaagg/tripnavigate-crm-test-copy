@@ -1,10 +1,12 @@
-import { CircleCheck, Info, Link2, Lock, MessageSquareText, ShieldAlert } from 'lucide-react';
+import { CircleCheck, Info, Link2, Lock, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
 import { StatusBadge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn, focusRing } from '@/components/ui/cn';
+import type { ConfirmResult } from '@/components/ui/confirm-change';
 import { Notice } from '@/components/ui/notice';
+import { SwitchRow, switchRowDescribedBy } from '@/components/ui/switch-row';
 import { ID_PROOF_COPY_TEXT, type IdProofCopyAlertsView } from '@/modules/fulfilment/contracts';
 import type { FeaturesPageModel } from '@/modules/settings/server/queries';
 import { SETTINGS_TEXT } from '@/modules/settings/text';
@@ -12,59 +14,133 @@ import { formatIst } from './deal-labels';
 import { CopyRetryForm } from './b11/id-proof-slot';
 import type { B11Action } from './b11/shapes';
 import { SettingsSectionHeading } from './settings/settings-frame';
-import { SettingsSectionView, type SettingSwitchActions } from './settings/setting-rows';
+import type { SettingKey } from '@/modules/settings/contracts';
+import { SettingsSectionView, type SettingRowPreview, type SettingSwitchActions } from './settings/setting-rows';
+import { ExistingActionChange, type ExistingSettingsAction } from './settings/setting-switch-form';
 
 /*
- * Settings · Features (Direction A R6; copy DA-251 to DA-258). The five
- * workflow switches as P-SETTING rows (state in words with an icon, what it
- * does, last change by whom and why, then Change → reason → review →
- * confirm on the shared HandForm), plus the read-only rows the CRM team sets
- * (real bookings, supplier confirmation). Every key is always shown (Terra's
- * featureRows is exhaustive), so a switch the database did not return is
- * Unknown with no form, never Off. The approval line is once per page (the
- * Settings frame, DA-251) and inside every review; the old banner, which said
- * switching off "restores the previous behaviour" (not true for Referral
- * drafts, DEC-54), is gone. The Bitrix switches, ID-proof copies and the
- * won-only rule moved to the Bitrix connection tab (lead ruling D3).
+ * Settings · Features, UX redesign R1 (C6 switch rows, C7 confirm dialog,
+ * owner D9 and D12). One card of switches for every branch: the five
+ * workflow switches and the staff notices switch (the bell, moved here from
+ * Settings › Accounts, D12). Each row shows the state in words with an icon
+ * and "Change", which opens one confirm dialog with an optional reason
+ * ("No reason given" is saved when it is left empty; change, person and time
+ * stay recorded). Every key is always shown (featureRows is exhaustive), so a
+ * switch the database did not return is Not known with its Change disabled,
+ * never Off. A second card, "Big switches", shows real bookings and supplier
+ * confirmation read only: the CRM team changes them with the owner's
+ * approval. One closing line links Money rules, Bitrix connection and
+ * Customer messages.
  */
+
+export interface FeaturesNoticesModel {
+  /** null = could not be read. */
+  enabled: boolean | null;
+  /** setNoticesEnabledAction (fields enabled, reason). */
+  action: ExistingSettingsAction;
+}
+
+const NOTICES_ID = 'setting-staff_notices';
+const linkClass = cn('rounded-chip font-semibold text-brand-strong underline decoration-1 underline-offset-4 hover:text-brand-deep hover:decoration-2', focusRing);
+
+/** Staff notices (the bell) as a switch row (Super Admin only; D12). */
+export function NoticesSwitchRow({ notices, preview }: { notices: FeaturesNoticesModel; /** Preview gallery only. */ preview?: { open?: boolean; reason?: string; result?: ConfirmResult | null } }) {
+  const state = notices.enabled === null ? 'unknown' : notices.enabled ? 'on' : 'off';
+  const target = notices.enabled ? 'off' : 'on';
+  return (
+    <li className="m-0 border-b border-line last:border-b-0" data-slot="setting-row" data-key="staff_notices" data-state={state}>
+      <SwitchRow
+        id={NOTICES_ID}
+        className="border-b-0"
+        name={NOTICES_TITLE}
+        effect="The bell and its notices for every staff member. Work lists and Home counts never depend on it."
+        more={<p className="m-0">Affects: every staff member. While off, nothing is written and the bell is hidden for everyone.</p>}
+        state={state}
+        disabledReason={notices.enabled === null ? SETTINGS_TEXT.unknownOne : undefined}
+        change={
+          notices.enabled === null ? null : (
+            <ExistingActionChange
+              title={NOTICES_TITLE}
+              confirmLabel={`Turn ${NOTICES_TITLE} ${target}`}
+              effect={target === 'off' ? 'Nothing more is written and the bell is hidden for everyone. Work lists and Home counts stay as they are.' : 'Staff see the bell again and get a notice when work arrives for them.'}
+              affected="Every staff member."
+              tone={target === 'off' ? 'danger' : 'primary'}
+              action={notices.action}
+              hiddenFields={{ enabled: String(target === 'on') }}
+              reasonRule="optional"
+              okMessage={target === 'on' ? 'Staff notices are switched on.' : 'Staff notices are switched off.'}
+              describedBy={switchRowDescribedBy(NOTICES_ID)}
+              initialOpen={preview?.open}
+              initialReason={preview?.reason}
+              initialResult={preview?.result}
+            />
+          )
+        }
+      />
+    </li>
+  );
+}
+
+const NOTICES_TITLE = 'Staff notices (the bell)';
 
 export function FeaturesSettingsView({
   model,
   actions,
   bitrixHref,
   customerMessagesHref = null,
+  moneyRulesHref = null,
+  notices = null,
+  preview,
+  noticesPreview,
 }: {
   model: FeaturesPageModel;
   actions: SettingSwitchActions;
   /** Settings · Bitrix connection, when this person may open it (D3 link); null hides the link. */
   bitrixHref: string | null;
-  /** Accounts phase 3 (screen 15.4): Settings · Customer messages (Super Admin switches); null hides the link. */
+  /** Settings · Customer messages (Super Admin switches); null hides the link. */
   customerMessagesHref?: string | null;
+  /** Settings · Money rules (payment modes), when this person may open it; null hides the link. */
+  moneyRulesHref?: string | null;
+  /** The staff notices switch (Super Admin only, D12); null = not shown. */
+  notices?: FeaturesNoticesModel | null;
+  /** Preview gallery only: one row's dialog open. */
+  preview?: { key: SettingKey } & SettingRowPreview;
+  /** Preview gallery only: the staff notices dialog open. */
+  noticesPreview?: { open?: boolean; reason?: string; result?: ConfirmResult | null };
 }) {
+  const links = [
+    moneyRulesHref ? { href: moneyRulesHref, text: 'Open Money rules', what: 'payment modes' } : null,
+    bitrixHref ? { href: bitrixHref, text: 'Open Bitrix connection', what: 'the Bitrix switches, ID-proof copies and “Bring in deals only when won”' } : null,
+    customerMessagesHref ? { href: customerMessagesHref, text: 'Open Customer messages', what: 'the nine booking messages to customers' } : null,
+  ].filter((l): l is { href: string; text: string; what: string } => l !== null);
   return (
     <>
       <SettingsSectionHeading id="features-heading">Features</SettingsSectionHeading>
-      <SettingsSectionView id="feature-switches" title="Switches for every branch" section={model.features} actions={actions} />
-      <SettingsSectionView id="feature-read-only" title="Set by the CRM team" description="Shown here so you can see them; they have no switch on this page." section={model.live} />
-      {bitrixHref ? (
-        <Notice tone="info" icon={Link2}>
-          <p>{SETTINGS_TEXT.bitrixSwitchesElsewhere}</p>
-          <p>
-            <Link href={bitrixHref} className={cn('rounded-chip font-semibold text-brand-strong underline decoration-1 underline-offset-4 hover:text-brand-deep hover:decoration-2', focusRing)}>
-              Open Bitrix connection
-            </Link>
-          </p>
-        </Notice>
-      ) : null}
-      {customerMessagesHref ? (
-        <Notice tone="info" icon={MessageSquareText}>
-          <p>The nine booking messages to customers (e-mail and WhatsApp), the pilot list, the WhatsApp text approvals and the timer have their own page. Every message switch is Off until a Super Admin turns it on with a reason.</p>
-          <p>
-            <Link href={customerMessagesHref} className={cn('rounded-chip font-semibold text-brand-strong underline decoration-1 underline-offset-4 hover:text-brand-deep hover:decoration-2', focusRing)}>
-              Open Customer messages
-            </Link>
-          </p>
-        </Notice>
+      <SettingsSectionView
+        id="feature-switches"
+        title="Switches for every branch"
+        section={model.features}
+        actions={actions}
+        preview={preview}
+        extraRows={notices ? <NoticesSwitchRow notices={notices} preview={noticesPreview} /> : undefined}
+      />
+      <SettingsSectionView id="feature-read-only" title="Big switches" description="Set by the CRM team with the owner’s approval. Shown here so you can see them; they cannot be changed on this page." section={model.live} />
+      {links.length > 0 ? (
+        <p className="m-0 flex flex-wrap items-start gap-x-2 gap-y-1 text-sm text-copy" data-slot="features-elsewhere">
+          <Link2 aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-faint" />
+          <span className="min-w-0 flex-1">
+            Elsewhere:{' '}
+            {links.map((l, i) => (
+              <span key={l.href}>
+                {l.what} (
+                <Link href={l.href} className={linkClass}>
+                  {l.text}
+                </Link>
+                ){i < links.length - 1 ? '; ' : '.'}
+              </span>
+            ))}
+          </span>
+        </p>
       ) : null}
       {/* Echo-B L9: said only to people who can view but not change the switches (never under a Super Admin's Change buttons). */}
       {!model.features.canSwitch && model.features.rows.length > 0 && !model.features.sectionText ? (

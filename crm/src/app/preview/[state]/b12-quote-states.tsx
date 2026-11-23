@@ -126,6 +126,29 @@ const QUOTE_STATES: Record<string, () => ReactNode> = {
     d.version.prefill = prefillView({ notesHidden: true, bookingNotes: null }, { 'contacts.contactName': 'from_bitrix', 'trip.start': 'from_bitrix' });
     return screen(d);
   },
+  // Today's "From Bitrix" panel (prefill_auto_fill switch Off). These moved here on 17 November 2026
+  // (decision D2) from the removed Book now step screen; the booking form no longer shows the panel.
+  // Contact name came from Bitrix and is not checked; the other values can be used with one click.
+  'b12-quote-prefill-use': () => {
+    const d = QUOTE_SCREENS.draft();
+    d.version.prefill = prefillView({}, { 'contacts.contactName': 'from_bitrix' });
+    return screen(d);
+  },
+  // Every value already used: checked and changed states are words; hidden Booking Notes say so.
+  'b12-quote-prefill-checked': () => {
+    const d = QUOTE_SCREENS.draft();
+    d.version.prefill = prefillView(
+      { notesHidden: true, bookingNotes: null },
+      { 'trip.start': 'checked', 'trip.end': 'changed', requirementsNote: 'checked', 'contacts.contactName': 'checked', 'contacts.mobile': 'checked', 'contacts.bookingFor': 'checked' },
+    );
+    return screen(d);
+  },
+  // Switched off or not read yet.
+  'b12-quote-prefill-off': () => {
+    const d = QUOTE_SCREENS.draft();
+    d.version.prefill = prefillView({ available: false, fields: [], bookingNotes: null, customerTypeLabel: null, travellerTotal: null });
+    return screen(d);
+  },
   'b12-quote-sent': () => screen(QUOTE_SCREENS.sent()),
   'b12-quote-expired': () => screen(QUOTE_SCREENS.expired()),
   'b12-quote-declined': () => screen(QUOTE_SCREENS.declined()),
@@ -142,6 +165,13 @@ const QUOTE_STATES: Record<string, () => ReactNode> = {
   'b12-quote-preview-no-money': () => shell(<QuotationPreviewPage versionId={V2_ID} view={quoteDocumentView({ tiers: [] })} moneyVisible={false} />),
   'b12-quote-preview-blocked': () => shell(<QuotationPreviewPage versionId={V2_ID} view={quoteDocumentView({ includes: ['Daily breakfast', 'Best price in Bali'] })} moneyVisible />),
   'b12-quote-not-available': () => shell(<QuoteNotAvailableView />),
+  // UX redesign R2 (D1, owner Q3): the customer copy with "Print or save as PDF" and the existing "Mark as shared".
+  // Ready to share: both actions (the stand-in mark-as-shared refuses with a conflict, as on the editor).
+  'r2-quote-copy-ready': () => shell(<QuotationPreviewPage versionId={V2_ID} view={quoteDocumentView()} moneyVisible share={{ version: QUOTE_SCREENS.ready().version, action: GALLERY_ACTIONS.markSent }} />, '/app/quotations'),
+  // Already shared: the line says how and when; no Mark as shared.
+  'r2-quote-copy-shared': () => shell(<QuotationPreviewPage versionId={V2_ID} view={quoteDocumentView()} moneyVisible share={{ version: QUOTE_SCREENS.sent().version, action: GALLERY_ACTIONS.markSent }} />, '/app/quotations'),
+  // A draft: print is allowed; sharing waits for "Check and mark ready" on the quotation.
+  'r2-quote-copy-draft': () => shell(<QuotationPreviewPage versionId={V2_ID} view={quoteDocumentView()} moneyVisible share={{ version: QUOTE_SCREENS.draft().version, action: GALLERY_ACTIONS.markSent }} />, '/app/quotations'),
 };
 
 export const B12_QUOTE_STATES = Object.keys(QUOTE_STATES);

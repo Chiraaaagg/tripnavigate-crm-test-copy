@@ -43,13 +43,18 @@ const ws = (over: Omit<Partial<DealWorkspaceVM>, 'header'> & { header?: Partial<
       { tab: 'history', label: 'History', href: '/app/deals/x?tab=history', current: false },
     ],
     current: 'overview',
-    overview: { branchName: 'Jodhpur', createdOn: '2026-10-06', relation: 'assigned', team: [{ kindLabel: 'Purchase', isYou: false }], tripText: null, travellersText: null },
+    overview: { branchName: 'Jodhpur', createdOn: '2026-10-06', relation: 'assigned', team: [{ kindLabel: 'Purchase', isYou: false }], tripText: null, travellersText: null, services: [] },
     ...rest,
   };
 };
 const MONEY: DealMoneyVM = { dealValue: { state: 'shown', sellingTotal: '₹1,000.00', estimatedMargin: '₹100.00' } };
 const render = (props: Parameters<typeof DealWorkspaceView>[0]) => renderToStaticMarkup(createElement(DealWorkspaceView, props));
-const headerOf = (html: string) => html.match(/<header[\s\S]*?<\/header>/)?.[0] ?? '';
+/** R2: the Deal header block (record header, Next row, notices, folded Details), up to the tab strip. */
+const headerOf = (html: string) => {
+  const from = html.indexOf('data-slot="deal-header"');
+  const to = html.indexOf('aria-label="Deal sections"');
+  return from >= 0 && to > from ? html.slice(from, to) : '';
+};
 
 describe('dealOwnerText (book pages and intake keep the same rule)', () => {
   it('you, the named owner, another staff member, or null while waiting', () => {
@@ -80,7 +85,7 @@ describe('DealWorkspaceView header (P-HEADER)', () => {
     // DA-115: no "Stage:" label before the fallback, and "Details" names the disclosure.
     expect(html).toContain('Stage not recognised (code in Details)');
     expect(html).not.toContain('Stage:');
-    expect(html).toContain('Next:</span> finish 5 things');
+    expect(html).toContain('Next: </span>finish 5 things');
   });
 
   it('exactly one primary action; none when the viewer does not act next; Start booking is the route form', () => {
@@ -220,6 +225,44 @@ describe('DealWorkspaceView tabs and money per role', () => {
     });
     expect(html).toContain('href="/app/id-proofs/f1"');
     expect(html).toContain('ID proof · traveller 1');
+  });
+});
+
+describe('R2 Deal tabs in the view', () => {
+  it('Overview summary: services with their words; money lines only when the route built them, linked to Money', () => {
+    const services = [{ itemNo: 1, title: 'Synthetic hotel', departmentLabel: 'Purchase', statusWord: 'In progress', done: false }];
+    const base = { branchName: 'Jodhpur', createdOn: '2026-10-06', relation: 'owner' as const, team: [], tripText: null, travellersText: null, services, links: { services: '/app/deals/x?tab=services' } };
+    const desk = render({ workspace: ws({ overview: base }) });
+    expect(desk).toContain('Synthetic hotel');
+    expect(desk).toContain('In progress');
+    expect(desk).toContain('href="/app/deals/x?tab=services"');
+    expect(desk).not.toMatch(/₹|Final selling total|Still to pay|data-slot="overview-money"/);
+    expect(desk).not.toMatch(/closure|checklist/i);
+    const reader = render({ workspace: ws({ overview: { ...base, money: { sellingTotal: '₹2,000.00', stillToPay: null }, links: { ...base.links, money: '/app/deals/x?tab=money' } } }) });
+    expect(reader).toContain('₹2,000.00');
+    expect(reader).toContain('href="/app/deals/x?tab=money"');
+    expect(reader).toContain('Not known yet');
+  });
+
+  it('Money places the report control in its header and the dues and refunds cards after it; Documents and Messages show their slots', () => {
+    const money = render({
+      workspace: ws({ current: 'money', overview: undefined, money: MONEY }),
+      reportPayment: createElement('button', { 'data-test': 'report' }, 'Tell Accounts about a payment'),
+      moneyTab: createElement('p', { 'data-test': 'dues' }, 'dues'),
+    });
+    expect(money.indexOf('data-test="report"')).toBeGreaterThan(money.indexOf('id="deal-money-heading"'));
+    expect(money.indexOf('data-test="dues"')).toBeGreaterThan(money.indexOf('data-test="report"'));
+    const docs = render({ workspace: ws({ current: 'documents', overview: undefined }), documentsTab: createElement('p', null, 'quotations here') });
+    expect(docs).toContain('quotations here');
+    expect(docs).not.toContain('Documents did not load');
+    expect(render({ workspace: ws({ current: 'messages', overview: undefined }), messagesTab: createElement('p', null, 'messages here') })).toContain('messages here');
+    expect(render({ workspace: ws({ current: 'messages', overview: undefined }) })).toContain('Messages did not load. Nothing was changed.');
+  });
+
+  it('on Services and tasks, "See team tasks" jumps to the services list instead of reloading', () => {
+    const header = { primary: { kind: 'see_team_tasks' as const, label: 'See team tasks' as const, href: '/app/deals/x?tab=services' } };
+    expect(render({ workspace: ws({ header, current: 'services', overview: undefined }), servicesTab: createElement('p', null, 's') })).toContain('href="#services-sold"');
+    expect(render({ workspace: ws({ header }) })).toContain('href="/app/deals/x?tab=services"');
   });
 });
 

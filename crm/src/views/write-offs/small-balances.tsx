@@ -1,5 +1,6 @@
 import { CalendarRange, Check, CircleSlash, Eye, Scale, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { StatusBadge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
@@ -38,7 +39,10 @@ export function SmallBalancesView({
   limitPaise,
   after = null,
   preview,
+  sectionTabs,
 }: {
+  /** UX redesign R4 (D5): the Money in tab strip, rendered under the header. */
+  sectionTabs?: ReactNode;
   viewer: SmallBalancesViewer;
   filter: SmallBalanceFilter;
   page: SmallBalancePage | 'error';
@@ -64,6 +68,7 @@ export function SmallBalancesView({
           </Link>
         }
       />
+      {sectionTabs}
       <p className="m-0 max-w-prose">
         A small amount left after the trip ended can be written off: the customer no longer owes it, or the company keeps a small overpayment. Always the whole balance, at most {inr(limitPaise)} per Deal. No money moves; dues show the write-off line.
       </p>

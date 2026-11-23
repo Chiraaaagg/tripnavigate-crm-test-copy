@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight, CalendarRange, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { StatusBadge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -19,11 +20,21 @@ import type { DuesWriteOff, WriteOffMonthly } from './types';
  * line every Deal reader sees (Sales included) once a write-off exists.
  */
 
-export function WriteOffMonthlyView({ data, canSeeList = true }: { data: WriteOffMonthly | 'error'; canSeeList?: boolean }) {
+export function WriteOffMonthlyView({
+  data,
+  canSeeList = true,
+  sectionTabs,
+}: {
+  data: WriteOffMonthly | 'error';
+  canSeeList?: boolean;
+  /** UX redesign R4 (D5): the Money in tab strip (Small balances current), rendered under the header. */
+  sectionTabs?: ReactNode;
+}) {
   if (data === 'error')
     return (
       <div className="font-sans">
         <PageHeader eyebrow="Accounts" title="Write-offs by month" />
+        {sectionTabs}
         <Notice tone="warning" role="status" title="The totals did not load">
           <p>Nothing was changed. Reload the page.</p>
         </Notice>
@@ -45,6 +56,7 @@ export function WriteOffMonthlyView({ data, canSeeList = true }: { data: WriteOf
           ) : undefined
         }
       />
+      {sectionTabs}
       <nav aria-label="Choose the month" className="flex flex-wrap gap-2">
         <Link href={href(shiftMonth(data.month, -1))} className={buttonVariants({ variant: 'secondary', size: 'sm' })}>
           <ArrowLeft aria-hidden="true" />

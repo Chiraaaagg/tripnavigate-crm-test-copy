@@ -86,12 +86,14 @@ const PAGES: Array<{ name: string; who: UserKey; path: () => Promise<string>; he
   // The Deal page Refunds card as the Sales owner, on a fresh synthetic Deal with an approved cancellation and a refund
   // waiting for approval (SYN-PERF Deals are not visible on the Deal page to the E2E staff, and the Accounts deal page
   // cannot parse their seeded receipt snapshots).
-  { name: 'Deal refund card', who: 'sales', heading: 'Refunds', path: async () => `/app/deals/${await refundDeal()}?tab=services` },
+  // UX redesign R2: the refunds card is on the Deal's Money tab.
+  { name: 'Deal refund card', who: 'sales', heading: 'Refunds', path: async () => `/app/deals/${await refundDeal()}?tab=money` },
   { name: 'Approvals › Refunds', who: 'manager', path: async () => '/app/approvals', heading: /^Refunds to approve/ },
   { name: 'Accounts › Refunds', who: 'accA', path: async () => '/app/accounts/refunds', heading: 'Customer refunds to pay out' },
   // Accounts deal page on a seeded SYN-PERF Deal (documents and refunds cards), after the lead's seed fix (snapshot versionNo).
-  { name: 'Accounts deal page (SYN-PERF, Money tab)', who: 'accA', heading: 'Refunds', path: async () =>
-    `/app/accounts/deals/${(await q<{ id: string }>(`select deal_id as id from public.customer_refund_requests where ref_no like 'RF-2026-8%' limit 1`))[0]!.id}?tab=money` },
+  // R4: the refunds card moved from the Money (now Receipts) tab to the Refunds tab; the timed page is the same card.
+  { name: 'Accounts deal page (SYN-PERF, Refunds tab)', who: 'accA', heading: 'Refunds', path: async () =>
+    `/app/accounts/deals/${(await q<{ id: string }>(`select deal_id as id from public.customer_refund_requests where ref_no like 'RF-2026-8%' limit 1`))[0]!.id}?tab=refunds` },
   { name: 'Accounts deal page (SYN-PERF, Documents tab)', who: 'accA', heading: 'Customer documents', path: async () =>
     `/app/accounts/deals/${(await q<{ id: string }>(`select deal_id as id from public.customer_documents where number like 'SYN-PERF-%' limit 1`))[0]!.id}?tab=documents` },
 ];

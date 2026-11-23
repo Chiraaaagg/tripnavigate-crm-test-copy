@@ -13,7 +13,8 @@ import { SettingsSectionHeading } from './settings/settings-frame';
 import { SettingsSectionView } from './settings/setting-rows';
 
 /*
- * Settings · System health (Direction A R6; copy DA-262, S-36 to S-38).
+ * Settings · System health (Direction A R6; copy DA-262, S-36 to S-38; UX
+ * redesign R1: the area name as the heading, the facts as rows in one card).
  * Read only: every row is a fact with its state in words and an icon, never a
  * control (booking confirmation, the online PDF maker and email alerts are
  * changed by the CRM team with the owner's approval, DA-253). It never shows
@@ -49,7 +50,7 @@ function gateExplanation(health: BookingHealthView): string {
 /** One read-only fact row (System health): name, state word with an icon, one line, and the "not here" line. */
 function FactRow({ icon: Icon, title, state, children }: { icon: LucideIcon; title: string; state: ReactNode; children?: ReactNode }) {
   return (
-    <li className="m-0 flex flex-col gap-2 rounded-control border border-line bg-card px-4 py-3.5">
+    <li className="m-0 flex flex-col gap-2 border-b border-line px-4.5 py-3.5 last:border-b-0">
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <h4 className="m-0 flex min-w-0 flex-1 basis-56 items-center gap-2 text-base font-semibold text-ink">
           <Icon aria-hidden="true" className="size-4 shrink-0 text-faint" />
@@ -107,7 +108,7 @@ export function BookingHealthPage({
   return (
     <>
       <SettingsSectionHeading id="health-heading" description={SETTINGS_TEXT.frameReadOnly}>
-        Booking health
+        System health
       </SettingsSectionHeading>
       <Card>
         <section aria-labelledby="gate-heading">
@@ -164,7 +165,8 @@ export function BookingHealthPage({
           <h3 id="system-facts-heading" className="m-0 text-lg font-semibold text-ink">
             PDFs, email alerts and Bitrix updates
           </h3>
-          <ul className="m-0 flex list-none flex-col gap-3 p-0" aria-labelledby="system-facts-heading">
+          <Card>
+            <ul className="m-0 flex list-none flex-col p-0" aria-labelledby="system-facts-heading">
             {pdfMaker ? (
               <FactRow icon={FileText} title={READ_ONLY_WORDS.pdf_render_online.title} state={<OnOffUnknown on={pdfMaker.on} label="Online PDF maker" />}>
                 {pdfMaker.on === null ? <p className="m-0 text-sm text-copy">{SETTINGS_TEXT.unknownOne}</p> : null}
@@ -203,7 +205,8 @@ export function BookingHealthPage({
                 ) : null}
               </FactRow>
             ) : null}
-          </ul>
+            </ul>
+          </Card>
         </section>
       ) : null}
       {live ? <SettingsSectionView id="health-read-only" title="Set by the CRM team" section={live} /> : null}
@@ -214,7 +217,7 @@ export function BookingHealthPage({
 export function BookingHealthNoPermissionView() {
   return (
     <>
-      <SettingsSectionHeading>Booking health</SettingsSectionHeading>
+      <SettingsSectionHeading>System health</SettingsSectionHeading>
       <Notice tone="restricted" role="status">
         <p>You do not have permission to see booking health.</p>
       </Notice>

@@ -4,10 +4,12 @@ import { enforceProductionStylePolicy, LOCAL_NETWORK_ACCESS_OFF, trackViolations
 import { waitForHydration } from './hydration';
 
 /**
- * Staff app frame (Direction A R0, 19 October 2026): grouped sidebar with the
+ * Staff app frame (Direction A R0, 19 October 2026; UX redesign R1, 17
+ * November 2026): grouped, foldable sidebar with Settings pinned and the
  * account panel in its footer (desktop), a visible "Menu" button and slide-in
- * sheet under 1024px (no bottom bar), and the content-area loading and error
- * states, through the design preview states (synthetic props). Page content
+ * sheet under 1024px (no bottom bar), the quick search, and the content-area
+ * loading and error states, through the design preview states (synthetic
+ * props) and the R1 frame gallery (/preview/ui-gallery/menu). Page content
  * inside the frame is covered by the existing screen tests.
  */
 
@@ -102,21 +104,12 @@ test.describe('staff app frame: layout and behaviour', () => {
     await open(page, 'finance-queue');
     const nav = page.getByRole('navigation', { name: 'Main' });
     await expect(nav).toBeVisible();
-    await expect(nav.getByRole('group', { name: 'Work' }).getByRole('link')).toHaveText(['Home', 'Deals']);
-    await expect(nav.getByRole('group', { name: 'Accounts' }).getByRole('link')).toHaveText([
-      'To check',
-      // Voice-note batch: stored customers that Accounts checks.
-      'Customers to check',
-      'Reported payments',
-      // Purchase build: hotel commitments and supplier money, after Reported payments.
-      'Hotel go-ahead',
-      'Supplier payments',
-      'Supplier invoices',
-      'Company funding',
-      'Department costs',
-      'Branch cash',
-      'Company accounts',
-    ]);
+    // UX redesign R1 (C1, D5): Home and Deals without a heading (one link per group), then the Accounts sections.
+    await expect(nav.getByRole('link')).toHaveText(['Home', 'Deals', 'To check', 'Money out', 'Cash and bank']);
+    await expect(nav.getByRole('group', { name: 'Accounts' }).getByRole('link')).toHaveText(['To check', 'Money out', 'Cash and bank']);
+    await expect(nav.getByRole('button', { name: 'Accounts' })).toHaveAttribute('aria-expanded', 'true');
+    // The section's other pages are one click away: the page's own tab strip under its header (R4).
+    await expect(page.getByRole('navigation', { name: 'To check sections' }).getByRole('link')).toHaveText(['To check', 'Reported payments', 'Customers']);
     await expect(nav.getByRole('link', { name: 'To check', exact: true })).toHaveAttribute('aria-current', 'page');
     await expect(nav.locator('[aria-current="page"]')).toHaveCount(1);
     // My access left the menu (plan T5); it is in the account panel.
@@ -130,26 +123,30 @@ test.describe('staff app frame: layout and behaviour', () => {
     await expect(page.getByRole('note').filter({ hasText: 'Design preview' })).toBeVisible();
   });
 
-  test('Super Admin sees one Settings item (DA-250) whose tabs keep the six old addresses', async ({ page }) => {
+  test('Super Admin sees one Settings item (DA-250) that opens Overview, and the area list keeps every old address', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await open(page, 'home-super-admin');
     const settings = page.getByRole('navigation', { name: 'Main' }).getByRole('group', { name: 'Settings' });
     const links = settings.getByRole('link');
     await expect(links).toHaveText(['Settings']);
-    await expect(links).toHaveAttribute('href', '/app/admin/staff');
-    // The tabs inside Settings are links to today's addresses (L1), plus the new Company and branches page.
+    // R1 (S1): the Settings item opens the new Overview landing, the first area of anyone with an admin right.
+    await expect(links).toHaveAttribute('href', '/app/admin');
+    // The areas are links to today's addresses (L1), in area order, plus Overview (new) and Customer messages
+    // (its own area since R1, at its old address).
     await open(page, 'settings-features');
     const tabs = page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link');
     expect(await tabs.evaluateAll((all) => all.map((a) => a.getAttribute('href')))).toEqual([
+      '/app/admin',
       '/app/admin/staff',
       '/app/admin/company',
       '/app/admin/finance-policy',
-      // Accounts phase (contract 11.8): notices switch, Tally export switch and exception owner.
+      // Accounts phase (contract 11.8): Tally export switch and exception owner.
       '/app/admin/accounts',
       '/app/admin/integration',
+      '/app/admin/workflow',
+      '/app/admin/customer-messages',
       // Voice-note batch: Imports (the preview owner holds the import right).
       '/app/admin/imports',
-      '/app/admin/workflow',
       '/app/admin/bookings',
     ]);
   });
@@ -287,7 +284,10 @@ test.describe('staff app frame: layout and behaviour', () => {
     await expect(nav.getByRole('link')).toHaveText(expected);
     await expect(nav.getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
     await expect(nav.getByRole('link', { name: 'Home' })).toBeFocused();
-    // Every item, then the account items, are reachable by Tab inside the sheet.
+    // Every item, then the account items, are reachable by Tab inside the sheet. R1: the Sales group heading
+    // (Leads and Deals) is a fold button between Home and Leads.
+    await page.keyboard.press('Tab');
+    await expect(nav.getByRole('button', { name: 'Sales' })).toBeFocused();
     for (const name of expected.slice(1)) {
       await page.keyboard.press('Tab');
       await expect(nav.getByRole('link', { name, exact: true })).toBeFocused();
@@ -364,6 +364,8 @@ test.describe('staff app frame: old addresses keep working', () => {
     '/app/accounts/expenses',
     '/app/accounts/cash',
     '/app/accounts/destinations',
+    // R1: the Settings item now opens the Overview at /app/admin; the former first tab stays below.
+    '/app/admin',
     '/app/admin/staff',
     '/app/admin/access',
     '/app/admin/integration',
@@ -408,5 +410,285 @@ test.describe('staff app frame: production style policy', () => {
     expect(applied.length).toBeGreaterThanOrEqual(FRAME_STATES.length + 1);
     expect(violations).toEqual([]);
     await context.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UX redesign R1 (build plan 4.4): menu, pinned Settings, folds, counts, quick search
+// ---------------------------------------------------------------------------
+
+const MENU = '/preview/ui-gallery/menu';
+async function openMenu(page: Page, query: string) {
+  const response = await page.goto(`${MENU}?${query}`, { waitUntil: 'networkidle' });
+  expect(response?.status(), query).toBe(200);
+  await waitForHydration(page);
+}
+const mainNav = (page: Page) => page.getByRole('navigation', { name: 'Main' });
+const navScroll = (page: Page) => mainNav(page).locator('[data-slot="nav-scroll"]');
+const settingsLink = (page: Page) => mainNav(page).getByRole('group', { name: 'Settings' }).getByRole('link', { name: 'Settings', exact: true });
+
+test.describe('R1 menu: preview states at 768 and 900 px height', () => {
+  for (const person of ['accounts', 'admin-accounts', 'manager', 'four-roles']) {
+    for (const height of [768, 900]) {
+      test(`${person} at 1280x${height}: axe clean, Settings and the account panel in view, no sideways scroll`, async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height });
+        await openMenu(page, `person=${person}&counts=known`);
+        expect(await axe(page)).toEqual([]);
+        await noHorizontalScroll(page);
+        // Outside production the root layout shows the environment banner above the frame, so the sticky
+        // menu column starts lower until the page scrolls. Scroll to the end: the column then sits at the
+        // top of the window, as it always does in production (no banner).
+        await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await expect(accountSummary(page)).toBeInViewport({ ratio: 1 });
+        if (person !== 'manager') await expect(settingsLink(page)).toBeInViewport({ ratio: 1 });
+        // Record the list's own height (design plan 1.1 height table, re-measured here).
+        const sizes = await navScroll(page).evaluate((el) => ({ scroll: el.scrollHeight, client: el.clientHeight }));
+        test.info().annotations.push({ type: 'menu height', description: `${person} @${height}: list ${sizes.scroll}px in ${sizes.client}px` });
+      });
+    }
+  }
+
+  test('the Accounts menu fits without scrolling at 768 px height', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 768 });
+    await openMenu(page, 'person=accounts&counts=known');
+    const sizes = await navScroll(page).evaluate((el) => ({ scroll: el.scrollHeight, client: el.clientHeight }));
+    expect(sizes.scroll).toBeLessThanOrEqual(sizes.client);
+    await expect(mainNav(page).getByRole('group', { name: 'Accounts' }).getByRole('link')).toHaveText([
+      /^To check/,
+      /^Money in/,
+      /^Money out/,
+      /^Cash and bank/,
+      /^Records/,
+      /^Tally/,
+    ]);
+    for (const name of ['Home', 'Deals', 'Rate contracts', 'Tally']) await expect(mainNav(page).getByRole('link', { name: new RegExp(`^${name}`) })).toBeInViewport({ ratio: 1 });
+  });
+
+  test('Settings stays pinned while the list scrolls', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 560 });
+    await openMenu(page, 'person=four-roles&counts=known');
+    const sizes = await navScroll(page).evaluate((el) => ({ scroll: el.scrollHeight, client: el.clientHeight }));
+    expect(sizes.scroll, 'the list is taller than the column here').toBeGreaterThan(sizes.client);
+    const before = await settingsLink(page).boundingBox();
+    await navScroll(page).evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    await expect(settingsLink(page)).toBeInViewport({ ratio: 1 });
+    expect((await settingsLink(page).boundingBox())?.y).toBe(before?.y);
+    await expect(mainNav(page).getByRole('link', { name: /^Tally/ })).toBeInViewport();
+    await navScroll(page).evaluate((el) => el.scrollTo(0, 0));
+    await expect(settingsLink(page)).toBeInViewport({ ratio: 1 });
+    // The page itself scrolling does not move the sidebar either.
+    await page.evaluate(() => window.scrollTo(0, 400));
+    await expect(settingsLink(page)).toBeInViewport({ ratio: 1 });
+  });
+});
+
+test.describe('R1 menu: folds, current page and counts', () => {
+  test('fold and unfold by keyboard; the choice is remembered; the current page group opens on arrival', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openMenu(page, 'person=four-roles&path=/app/deals');
+    const desks = mainNav(page).getByRole('button', { name: /^Desks/ });
+    const purchase = mainNav(page).getByRole('link', { name: 'Purchase tasks' });
+    await expect(desks).toHaveAttribute('aria-expanded', 'true');
+    await expect(purchase).toBeVisible();
+    await desks.focus();
+    await page.keyboard.press('Enter');
+    await expect(desks).toHaveAttribute('aria-expanded', 'false');
+    await expect(purchase).toBeHidden();
+    await expect(desks).toBeFocused();
+    // Tab skips the folded links.
+    await page.keyboard.press('Tab');
+    await expect(mainNav(page).getByRole('button', { name: /^Accounts/ })).toBeFocused();
+    // Remembered on this device.
+    await openMenu(page, 'person=four-roles&path=/app/deals');
+    await expect(mainNav(page).getByRole('button', { name: /^Desks/ })).toHaveAttribute('aria-expanded', 'false');
+    // Fold the current page's group too, then open a page inside it: it opens on arrival.
+    await mainNav(page).getByRole('button', { name: /^Sales/ }).focus();
+    await page.keyboard.press(' ');
+    await expect(mainNav(page).getByRole('button', { name: /^Sales/ })).toHaveAttribute('aria-expanded', 'false');
+    await openMenu(page, 'person=four-roles&path=/app/deals');
+    await expect(mainNav(page).getByRole('button', { name: /^Sales/ })).toHaveAttribute('aria-expanded', 'true');
+    await expect(mainNav(page).getByRole('link', { name: 'Deals' })).toHaveAttribute('aria-current', 'page');
+    // Unfold Desks with Space: remembered as open.
+    await mainNav(page).getByRole('button', { name: /^Desks/ }).focus();
+    await page.keyboard.press(' ');
+    await expect(mainNav(page).getByRole('link', { name: 'Purchase tasks' })).toBeVisible();
+    await openMenu(page, 'person=four-roles&path=/app/approvals');
+    await expect(mainNav(page).getByRole('button', { name: /^Desks/ })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  test('a folded group shows its total; counts are read out with words', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openMenu(page, 'person=accounts&counts=known&path=/app');
+    const accounts = mainNav(page).getByRole('button', { name: /^Accounts/ });
+    // To check = 3 + 1, Money out = 4 + 2 (zeros show nothing). The ", 4 waiting" is screen-reader-only text;
+    // Chromium puts a space before it in the name, so names are matched with \W+.
+    await expect(mainNav(page).getByRole('link', { name: /^To check\W+4 waiting$/ })).toBeVisible();
+    await expect(mainNav(page).getByRole('link', { name: /^Money out\W+6 waiting$/ })).toBeVisible();
+    await expect(mainNav(page).getByRole('link', { name: 'Cash and bank', exact: true })).toBeVisible();
+    // Money out opens its first tab with something waiting.
+    await expect(mainNav(page).getByRole('link', { name: /^Money out/ })).toHaveAttribute('href', '/app/accounts/supplier-payments');
+    await accounts.click();
+    await expect(accounts).toHaveAccessibleName(/^Accounts\W+10 waiting$/);
+  });
+
+  test('a count that is not known shows a dash read out as "count not known", never 0', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openMenu(page, 'person=accounts&counts=unknown');
+    await expect(mainNav(page).getByRole('link', { name: /^To check\W+count not known$/ })).toBeVisible();
+    await expect(mainNav(page).getByRole('link', { name: /^Money out\W+count not known$/ })).toBeVisible();
+    await expect(mainNav(page).locator('[data-count="unknown"]').first()).toHaveText('–, count not known');
+    await expect(mainNav(page)).not.toContainText(/\b0\b/);
+    expect(await axe(page)).toEqual([]);
+  });
+
+  test('a Purchase person: no Accounts group, only the Purchase count', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openMenu(page, 'person=purchase&counts=known');
+    await expect(mainNav(page).getByRole('group', { name: 'Accounts' })).toHaveCount(0);
+    await expect(mainNav(page).getByRole('link')).toHaveText(['Home', 'Deals', /^Purchase tasks/, 'Payment requests', 'Suppliers', 'Rate contracts']);
+    await expect(mainNav(page).getByRole('link', { name: /^Purchase tasks\W+3 not taken yet$/ })).toHaveAttribute('aria-current', 'page');
+  });
+
+  test('Accounts list page: exactly one section tab strip, which marks the page; record pages have none', async ({ page }) => {
+    // R4: the page draws the strip under its own header; the frame draws none, so there is never a second one.
+    await open(page, 'pm-accounts-supplier-payments-to-approve');
+    const strip = page.getByRole('navigation', { name: 'Money out sections' });
+    await expect(strip).toHaveCount(1);
+    await expect(strip.getByRole('link', { name: /^Supplier payments/ })).toHaveAttribute('aria-current', 'page');
+    await expect(strip.getByRole('link')).toHaveCount(5);
+    await expect(page.getByRole('navigation', { name: /sections$/ })).toHaveCount(1);
+    // The frame alone, on the same Accounts list address: the menu marks the section, and no strip is added.
+    await openMenu(page, 'person=accounts&counts=known');
+    await expect(mainNav(page).getByRole('link', { name: /^Money out/ })).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('navigation', { name: /sections$/ })).toHaveCount(0);
+    await openMenu(page, 'person=accounts&path=/app/accounts/deals/BX-1');
+    await expect(page.getByRole('navigation', { name: /sections$/ })).toHaveCount(0);
+  });
+
+  test('phone: the Menu sheet has the same groups, a fold there folds the sidebar too', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openMenu(page, 'person=four-roles&counts=known');
+    await menuButton(page).click();
+    const sheet = page.getByRole('dialog');
+    const nav = sheet.getByRole('navigation', { name: 'Main' });
+    for (const name of ['Sales', 'Desks', 'Accounts']) await expect(nav.getByRole('group', { name })).toBeVisible();
+    await expect(nav.getByRole('group', { name: 'Settings' }).getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
+    await nav.getByRole('button', { name: /^Desks/ }).click();
+    await expect(nav.getByRole('link', { name: 'Purchase tasks' })).toBeHidden();
+    await noHorizontalScroll(page);
+    expect(await axe(page)).toEqual([]);
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(mainNav(page).getByRole('button', { name: /^Desks/ })).toHaveAttribute('aria-expanded', 'false');
+  });
+});
+
+test.describe('R1 quick search (C9)', () => {
+  test('"/" opens the search, but not while typing in a field', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openMenu(page, 'person=four-roles');
+    const field = page.getByLabel('A field on the page');
+    await field.click();
+    await page.keyboard.type('a/b');
+    await expect(field).toHaveValue('a/b');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.locator('main h1').click();
+    await page.keyboard.press('/');
+    const dialog = page.getByRole('dialog', { name: 'Find a Deal or Lead' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('combobox', { name: 'Find a Deal or Lead' })).toBeFocused();
+    await expect(dialog.getByRole('combobox')).toHaveValue('');
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    // The find box opens it too, and focus returns to it on close.
+    const box = page.getByRole('button', { name: 'Find a Deal or Lead' });
+    await box.click();
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(box).toBeFocused();
+  });
+
+  test('with results: Deals and Leads grouped, arrow keys and Enter open the match, the count is announced', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openMenu(page, 'person=four-roles&search=results');
+    const dialog = page.getByRole('dialog', { name: 'Find a Deal or Lead' });
+    const list = dialog.getByRole('listbox', { name: 'Matches' });
+    await expect(list.getByRole('group', { name: 'Deals' }).getByRole('option').first()).toBeVisible();
+    await expect(dialog.getByRole('status')).toHaveText(/\d+ matches shown\./);
+    const input = dialog.getByRole('combobox');
+    await expect(input).toHaveAttribute('aria-expanded', 'true');
+    const first = list.getByRole('option').first();
+    await expect(first).toHaveAttribute('aria-selected', 'true');
+    await input.press('ArrowDown');
+    await expect(list.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(input).toHaveAttribute('aria-activedescendant', (await list.getByRole('option').nth(1).getAttribute('id'))!);
+    const href = await list.getByRole('option').nth(1).getAttribute('data-href');
+    expect(href).toMatch(/^\/app\/(deals|leads)\//);
+    await page.route(/\/app\/(deals|leads)\//, (route) => route.abort());
+    await input.press('Enter');
+    await expect(dialog).toHaveCount(0);
+    // No money in the results: only references, customer and trip words and the branch.
+    await openMenu(page, 'person=four-roles&search=results');
+    await expect(page.getByRole('dialog')).not.toContainText('₹');
+    expect(await axe(page)).toEqual([]);
+  });
+
+  test('with no results: plain words, no list', async ({ page }) => {
+    await openMenu(page, 'person=four-roles&search=none');
+    const dialog = page.getByRole('dialog', { name: 'Find a Deal or Lead' });
+    await expect(dialog).toContainText('Nothing you can see matches “Nothing like this”.');
+    await expect(dialog.getByRole('option')).toHaveCount(0);
+    await expect(dialog.getByRole('status')).toHaveText('No matches.');
+    expect(await axe(page)).toEqual([]);
+  });
+
+  test('with an error: an alert that keeps the words and offers Try again', async ({ page }) => {
+    await openMenu(page, 'person=accounts&search=error');
+    const dialog = page.getByRole('dialog', { name: 'Find a Deal' });
+    await expect(dialog.getByRole('alert')).toContainText('Search did not finish');
+    await expect(dialog.getByRole('combobox')).toHaveValue('BX-43');
+    await expect(dialog.getByRole('button', { name: 'Try again' })).toBeVisible();
+    expect(await axe(page)).toEqual([]);
+  });
+
+  test('phone: the top bar search button opens the same dialog; no sideways scroll', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openMenu(page, 'person=four-roles');
+    await page.getByRole('banner').getByRole('button', { name: 'Find a Deal or Lead' }).click();
+    await expect(page.getByRole('dialog', { name: 'Find a Deal or Lead' })).toBeVisible();
+    await noHorizontalScroll(page);
+  });
+});
+
+test.describe('R1 frame: production style policy', () => {
+  test('menu with counts, a folded group, the Menu sheet and the quick search: zero CSP violations', async ({ browser }) => {
+    const context = await browser.newContext();
+    const applied: string[] = [];
+    await enforceProductionStylePolicy(context, applied, (url) => url.pathname === MENU);
+    const { violations } = await trackViolations(context);
+    const page = await context.newPage();
+    await page.setViewportSize({ width: 1280, height: 768 });
+    await openMenu(page, 'person=four-roles&counts=unknown&search=results');
+    const html = await (await page.request.get(`${MENU}?person=four-roles&counts=known`)).text();
+    expect(html, 'no server-rendered style attribute in the frame').not.toMatch(/<(aside|header|nav|summary|details|button|ul|div)\b[^>]*\sstyle="/i);
+    await page.keyboard.press('Escape');
+    await mainNav(page).getByRole('button', { name: /^Desks/ }).click();
+    await expect(mainNav(page).getByRole('button', { name: /^Desks/ })).toHaveAttribute('aria-expanded', 'false');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await menuButton(page).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    expect(applied.length).toBeGreaterThanOrEqual(1);
+    expect(violations).toEqual([]);
+    await context.close();
+  });
+});
+
+test.describe('R1 frame: reduced motion', () => {
+  test('folds and the quick search open without animation', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openMenu(page, 'person=four-roles&search=results');
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    expect(await dialog.evaluate((el) => getComputedStyle(el).animationDuration)).toBe('0s');
   });
 });

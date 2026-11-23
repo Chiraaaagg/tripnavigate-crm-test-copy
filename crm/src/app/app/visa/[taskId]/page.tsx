@@ -4,7 +4,7 @@ import { loadTaskIdProofs } from '@/modules/fulfilment/server/id-proofs';
 import { loadTaskHistory } from '@/modules/fulfilment/server/task-history';
 import { chooseVisaCancellationAction, setVisaCancellationFeeAction } from '@/modules/cancellations/server/actions';
 import { requireStaff } from '@/modules/identity/server/session';
-import { parseTaskTab, type TaskTab } from '@/modules/settings/contracts';
+import type { TaskTab } from '@/modules/settings/contracts';
 import {
   addVisaDocumentAction,
   applyVisaApplicationsAction,
@@ -24,6 +24,7 @@ import { uploadVisaDocumentFileAction, uploadVisaEvidenceAction } from '@/module
 import { loadVisaWorkspace } from '@/modules/visa/server/queries';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import { TravellerIdProofsCard } from '@/views/b11/id-proofs-list';
+import { taskTabFor } from '@/views/department/task-default-tab';
 import { toTaskHistoryVM } from '@/views/department/task-history-vm';
 import type { VisaWorkActions } from '@/views/visa/actions';
 import { VisaTaskNotAvailable, VisaTaskPage } from '@/views/visa/workspace';
@@ -69,7 +70,8 @@ export default async function VisaTaskRoute({ params, searchParams }: { params: 
   const staff = await requireStaff();
   const ws = await loadVisaWorkspace(staff, taskId);
   if (!ws) return <VisaTaskNotAvailable />;
-  const current = parseTaskTab(tab, TABS);
+  // D6: without ?tab=, the person who holds the task opens on Work; everyone else on Details. Every ?tab= keeps working.
+  const current = taskTabFor(tab, TABS, ws.assignee.isYou);
   const [idProofs, history] = await Promise.all([
     current === 'details' && ws.assignee.isYou ? loadTaskIdProofs(staff, ws.taskId).catch(() => 'error' as const) : Promise.resolve(null),
     current === 'history' ? loadTaskHistory(staff, ws.taskId).then((h) => toTaskHistoryVM(h, 'visa')) : Promise.resolve(undefined),

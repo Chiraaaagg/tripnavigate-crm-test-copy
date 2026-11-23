@@ -1,5 +1,6 @@
 import { FileSearch, FileText, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { StatusBadge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
@@ -12,6 +13,8 @@ import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn, focusRing } from '@/components/ui/cn';
+import type { DecisionAction } from '@/views/accounts/supplier-forms';
+import { DialogAction } from '@/views/accounts-desk/acc2-kit';
 import { dayText, inr } from '@/views/accounts-desk/labels';
 import { docFilterQuery, DOCS_PATH, isEmptyFilter } from './filter';
 import { autoStateWords, documentStatusLines, holdReasonWords, KIND_TITLE, PDF_STATE_WORDS, rowTone, STATUS_FILTER_LABEL } from './labels';
@@ -30,6 +33,17 @@ import type { DocListPage, DocListRow, DocsFilter, DocsListViewer } from './type
  * get the "Bills to check" quick view (held automatic drafts, oldest first,
  * each with its reasons) and an "Automatic drafts" filter. Without the prop
  * the page is exactly the Phase 2 page.
+ *
+ * UX redesign R4 (audit A10, design plan 2.3): one page title, "Customer
+ * documents", whatever quick view is open ("Bills to check" is a view of
+ * it); the Money in tab strip under the header (D5); and "Release" on the
+ * row of an automatic draft whose checks all passed, using the same release
+ * command and fields as the Deal page (documentId, expectedRowVersion,
+ * expectedContentSha256, dealId). The button never posts on its own: it
+ * opens a confirm that names the draft, the Deal and the amount and links to
+ * the draft's preview on the Deal page (R4 integration). The database
+ * re-checks every rule, the row version and the content hash; other drafts
+ * are released from the Deal page after their preview.
  */
 
 const QUICK: Array<{ id: string; label: string; filter: DocsFilter }> = [
@@ -49,6 +63,8 @@ export function DocumentsListView({
   branches = [],
   after = null,
   autoBills,
+  releaseAction,
+  sectionTabs,
 }: {
   viewer: DocsListViewer;
   filter: DocsFilter;
@@ -57,6 +73,10 @@ export function DocumentsListView({
   after?: string | null;
   /** Accounts phase 3: automatic bill drafts are on for the company (shows "Bills to check"). Absent = Phase 2 page. */
   autoBills?: boolean;
+  /** Accounts: the release command, for "Release" on ready rows. Absent = no row button. */
+  releaseAction?: DecisionAction | null;
+  /** R4 (D5): the Money in tab strip, rendered under the header. */
+  sectionTabs?: ReactNode;
 }) {
   const manager = viewer.kind === 'manager';
   const checking = !manager && filter.preset === 'toCheck';
@@ -67,7 +87,7 @@ export function DocumentsListView({
     <div className="flex flex-col gap-5 font-sans">
       <PageHeader
         eyebrow="Accounts"
-        title={checking ? 'Bills to check' : 'Customer documents'}
+        title="Customer documents"
         description={
           manager
             ? `Released documents of ${viewer.branchNames.join(', ') || 'your branches'}. View only: Accounts release, replace and cancel them.`
@@ -83,6 +103,7 @@ export function DocumentsListView({
           ) : null
         }
       />
+      {sectionTabs}
       <nav aria-label="Quick views">
         <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
           {QUICK.filter((q) => !(manager && (q.id === 'toRelease' || q.id === 'drafts' || q.id === 'toCheck')) && (q.id !== 'toCheck' || !!autoBills || checking)).map((q) => (
@@ -220,11 +241,16 @@ export function DocumentsListView({
                 <TableHead numeric>Total</TableHead>
                 <TableHead>Issued</TableHead>
                 <TableHead>PDF</TableHead>
+                {releaseAction && !manager ? (
+                  <TableHead>
+                    <span className="sr-only">Next step</span>
+                  </TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
               {page.items.map((d) => (
-                <DocRowView key={d.documentId} d={d} manager={manager} />
+                <DocRowView key={d.documentId} d={d} manager={manager} release={manager ? null : (releaseAction ?? null)} />
               ))}
             </TableBody>
           </Table>
@@ -248,7 +274,17 @@ export function DocumentsListView({
   );
 }
 
-function DocRowView({ d, manager }: { d: DocListRow; manager: boolean }) {
+/** The draft's preview on the Accounts Deal page (the draft heading in Customer documents, deal-card.tsx). */
+export function draftPreviewHref(d: Pick<DocListRow, 'dealId' | 'documentId'>): string {
+  return `/app/accounts/deals/${d.dealId}?tab=documents#draft-${d.documentId}`;
+}
+
+/** A row that may be released from the list: an automatic draft whose checks all passed, not out of date. */
+export function releasableFromList(d: DocListRow): boolean {
+  return d.status === 'draft' && d.autoState === 'ready' && !d.stale && d.can.release;
+}
+
+function DocRowView({ d, manager, release }: { d: DocListRow; manager: boolean; release: DecisionAction | null }) {
   const lines = documentStatusLines(d);
   const title = KIND_TITLE[d.kind];
   const autoWords = d.status === 'draft' ? autoStateWords(d) : null;
@@ -258,7 +294,7 @@ function DocRowView({ d, manager }: { d: DocListRow; manager: boolean }) {
       <TableCell label="Document">
         <span className="flex flex-col">
           <span className="text-sm text-quiet">{title}</span>
-          <Link href={manager ? `/app/deals/${d.dealId}?tab=services#customer-documents` : `/app/accounts/deals/${d.dealId}?tab=documents`} className="font-semibold wrap-anywhere text-brand-strong underline-offset-4 hover:underline">
+          <Link href={manager ? `/app/deals/${d.dealId}?tab=documents#customer-documents` : `/app/accounts/deals/${d.dealId}?tab=documents`} className="font-semibold wrap-anywhere text-brand-strong underline-offset-4 hover:underline">
             {d.number ?? `${title} draft`}
             <span className="sr-only"> — open on the Deal page</span>
           </Link>
@@ -324,6 +360,34 @@ function DocRowView({ d, manager }: { d: DocListRow; manager: boolean }) {
           </span>
         )}
       </TableCell>
+      {release ? (
+        <TableCell label="Next step">
+          {releasableFromList(d) ? (
+            <DialogAction
+              buttonLabel="Release"
+              buttonVariant="primary"
+              ariaLabel={`Release ${title} draft of ${d.dealReference}`}
+              title={`Release the ${title} draft of ${d.dealReference}?`}
+              description={
+                <>
+                  You are releasing the {title} draft of Deal {d.dealReference} ({d.branchName}) for {inr(d.totalPaise)}. Every automatic check passed. Releasing freezes the draft exactly as this list loaded it and gives it the next {title} number for this Deal; if the draft changed since then, nothing is released. A released document cannot be edited; a mistake is fixed by a replacement or a cancellation with a reason.{' '}
+                  <Link href={draftPreviewHref(d)} className="font-semibold text-brand-strong underline underline-offset-4">
+                    Read the preview of this {title} draft on the Deal page
+                  </Link>{' '}
+                  before you release it.
+                </>
+              }
+              primaryLabel="Release"
+              pendingLabel="Releasing…"
+              action={release}
+              fields={{ documentId: d.documentId, expectedRowVersion: d.rowVersion, expectedContentSha256: d.contentSha256, dealId: d.dealId }}
+              okTitle="Released"
+            />
+          ) : (
+            <span className="text-sm text-quiet">{d.status === 'draft' ? 'On the Deal page' : '—'}</span>
+          )}
+        </TableCell>
+      ) : null}
     </TableRow>
   );
 }

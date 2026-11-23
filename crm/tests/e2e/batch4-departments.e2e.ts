@@ -158,7 +158,9 @@ test.describe('Batch 4 department lists: Not taken · Mine · All', () => {
   test('tabs are links; the current one is marked in words and aria-current; counts from the rows shown', async ({ page }) => {
     await open(page, 'b4-purchase-queue');
     const filters = page.getByRole('navigation', { name: 'Purchase task filters' });
-    await expect(filters.getByRole('link')).toHaveCount(3);
+    // R3 (C1, DM-19): Payment requests is a fourth tab for Purchase.
+    await expect(filters.getByRole('link')).toHaveCount(4);
+    await expect(filters.getByRole('link', { name: 'Payment requests' })).toHaveAttribute('href', '/app/purchase/payments');
     await expect(filters.getByRole('link', { name: /^Not taken/ })).toHaveAttribute('aria-current', 'page');
     await expect(filters.getByRole('link', { name: /^Mine/ })).toHaveAttribute('href', '/app/purchase?show=mine');
     await expect(filters.getByRole('link', { name: /^All/ })).toContainText('4');
@@ -202,7 +204,8 @@ test.describe('Batch 4 department lists: Not taken · Mine · All', () => {
     await expect(main).toContainText('Desk state could not be read');
     await expect(main).not.toContainText('Not started yet');
     await expect(main).not.toContainText('Not launched yet');
-    await expect(main.getByRole('link', { name: /Visa · United Arab Emirates/ })).toBeVisible();
+    // R3: the row button ("Review and take Visa · …") names the same task; check the task's own name link.
+    await expect(main.getByRole('link', { name: /^Visa · United Arab Emirates/ })).toBeVisible();
   });
 });
 
@@ -210,17 +213,18 @@ test.describe('Batch 4 department task pages', () => {
   test('header: status word with icon, taken by, one Next line, one primary', async ({ page }) => {
     await open(page, 'b4-purchase-task-details');
     const main = page.locator('main');
-    await expect(main.locator('[data-slot="task-next"]')).toHaveText('Next: record the supplier’s confirmation');
+    // R3 (C4): the shared record header; its "Next:" line keeps the same words.
+    await expect(main.locator('[data-slot="next-step"] p')).toHaveText('Next: record the supplier’s confirmation');
     await expect(main).toContainText('Taken by: You');
-    // Purchase build: off the Work tab the header links there (the next step depends on the work).
-    await expect(main.getByRole('link', { name: 'Open the Work tab' })).toHaveAttribute('href', /\?tab=work$/);
+    // O6: off the Work tab the one primary opens Work at the matching control.
+    await expect(main.getByRole('link', { name: /^Record supplier confirmation/ })).toHaveAttribute('href', /\?tab=work#purchase-next-confirmation$/);
     await expect(main.getByRole('heading', { name: 'Traveller ID proofs' })).toBeVisible();
     await pillsHaveIconAndWord(page);
     // Who acts next / Next step cards are gone (G-18).
     await expect(main).not.toContainText('Who acts next');
     await open(page, 'b4-purchase-task-work');
-    // On Work the confirmation button is the one primary; the header link is not repeated.
-    await expect(page.locator('main').getByRole('link', { name: 'Open the Work tab' })).toHaveCount(0);
+    // O6: on Work the header button jumps to the confirmation control on the same page (no page load).
+    await expect(page.locator('main').getByRole('link', { name: /^Record supplier confirmation/ })).toHaveAttribute('href', '#purchase-next-confirmation');
     await expect(page.locator('main').getByRole('button', { name: 'Record supplier confirmation' })).toHaveCount(1);
     await expect(page.getByRole('region', { name: 'Rate negotiation' })).toContainText('₹45,000.00');
     // R13: the proof upload stays on Work, next to the confirmation.
@@ -234,7 +238,8 @@ test.describe('Batch 4 department task pages', () => {
       await open(page, state);
       const main = page.locator('main');
       await expect(main.getByRole('button', { name: 'Take this task' }), state).toHaveCount(1);
-      await expect(main.locator('[data-slot="task-next"]'), state).toHaveText('Next: take this task');
+      // R3: Purchase and Visa both use the shared record header ("next-step"), same words.
+      await expect(main.locator('[data-slot="next-step"] p'), state).toHaveText('Next: take this task');
     }
     await open(page, 'b4-flight-task-not-taken');
     const flight = page.locator('main');

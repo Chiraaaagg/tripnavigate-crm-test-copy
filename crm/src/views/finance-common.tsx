@@ -339,3 +339,52 @@ export function EvidenceList({
     </ul>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Accounts view of a Deal: tabs (UX redesign R4, design plan 2.3 "Accounts
+// view of a Deal")
+// ---------------------------------------------------------------------------
+
+/**
+ * The five tabs of the Accounts deal page, in screen order. The Batch 4 tab
+ * list in settings/contracts.ts (money, review, receipts, documents) stays as
+ * it is for the old contract tests; this list is what the page shows now.
+ */
+/**
+ * id of a receipt's Verify button, so the page header's "Next:" can jump to it.
+ * Here, not in the client form file: the server-rendered deal page calls it.
+ */
+export const verifyButtonId = (receiptId: string) => `verify-${receiptId}`;
+
+export const ACCOUNTS_DEAL_PAGE_TABS = ['receipts', 'dues', 'documents', 'refunds', 'review'] as const;
+export type AccountsDealPageTab = (typeof ACCOUNTS_DEAL_PAGE_TABS)[number];
+
+export const ACCOUNTS_DEAL_PAGE_TAB_LABEL: Record<AccountsDealPageTab, string> = {
+  receipts: 'Receipts',
+  dues: 'Dues and plan',
+  documents: 'Documents',
+  refunds: 'Refunds',
+  review: 'Review',
+};
+
+/**
+ * Old addresses keep working: `?tab=money` (Batch 4) held the money figures,
+ * the reported payments and the refunds. The figures and the reported
+ * payments now sit on Receipts, so it opens Receipts.
+ */
+export const ACCOUNTS_DEAL_TAB_ALIAS: Readonly<Record<string, AccountsDealPageTab>> = { money: 'receipts' };
+
+/**
+ * The open tab of the Accounts deal page: an allowed `?tab=` value, an old
+ * value through its alias, otherwise `fallback` (the tab of the next action).
+ * `fromAddress` is true only when the address already names the open tab
+ * exactly, so the page does not need to write it into the address.
+ */
+export function parseAccountsDealPageTab(raw: unknown, fallback: AccountsDealPageTab): { tab: AccountsDealPageTab; fromAddress: boolean } {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== 'string') return { tab: fallback, fromAddress: false };
+  if ((ACCOUNTS_DEAL_PAGE_TABS as readonly string[]).includes(value)) return { tab: value as AccountsDealPageTab, fromAddress: true };
+  // Own keys only: "constructor" or "toString" in the address must not reach the object's prototype.
+  const alias = Object.hasOwn(ACCOUNTS_DEAL_TAB_ALIAS, value) ? ACCOUNTS_DEAL_TAB_ALIAS[value] : undefined;
+  return { tab: alias ?? fallback, fromAddress: false };
+}

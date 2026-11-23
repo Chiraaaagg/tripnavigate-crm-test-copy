@@ -18,7 +18,7 @@ import { loadPurchaseWorkspace } from '@/modules/procurement/server/queries';
 import { acknowledgeBookingChangeAction, loadPurchaseBookingChange } from '@/modules/procurement/server/booking-change-actions';
 import { BookingChangeBanner } from '@/views/purchase/booking-change-banner';
 import { linkSupplierDocumentAction } from '@/modules/accounts-desk/server/actions';
-import { historyTabFor, parseTaskTab, taskTabsFor } from '@/modules/settings/contracts';
+import { historyTabFor, taskTabsFor } from '@/modules/settings/contracts';
 import {
   cancelPaymentRequestAction,
   createPaymentRequestAction,
@@ -30,6 +30,7 @@ import { loadPaymentContext } from '@/modules/supplier-money/server/queries';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import { DepartmentCostCard } from '@/views/b11/department-cost';
 import { TravellerIdProofsCard } from '@/views/b11/id-proofs-list';
+import { defaultTaskTab, taskTabFor } from '@/views/department/task-default-tab';
 import { toTaskHistoryVM } from '@/views/department/task-history-vm';
 import { SupplierDocumentsSection } from '@/views/purchase/supplier-documents';
 import { purchaseNextText, PurchaseWorkTab, WorkStack, type PurchaseWorkActions } from '@/views/purchase/work-tab';
@@ -159,7 +160,9 @@ export default async function PurchaseTaskRoute({ params, searchParams }: { para
   const work = !!workspace || !!workForm;
   const files = !!workspace || (idProofs !== null && idProofs !== 'error');
   const tabs = taskTabsFor({ work, files, history: historyTabFor(historyLoad, work || files) });
-  const current = parseTaskTab(tab, tabs);
+  // D6: without ?tab=, the person who holds the task opens on Work; everyone else on Details. Every ?tab= keeps working.
+  const holdsTask = !!workspace?.task.assignedToYou;
+  const current = taskTabFor(tab, tabs, holdsTask);
   const managerReadOnly = !!workspace && !workspace.canWork && !task.canClaim && staff.memberships.some((m) => m.roleCode === 'manager');
   // Supplier payments, invoices and credit notes: only on the Work and Files tabs, only with the workspace.
   const payments = workspace && (current === 'work' || current === 'files') ? await loadPaymentContext(staff, taskId).catch(() => 'error' as const) : null;
@@ -171,9 +174,12 @@ export default async function PurchaseTaskRoute({ params, searchParams }: { para
       <PurchaseTaskPage
         task={task}
         tabs={{ tabs, current }}
+        // D6: the tab the bare address opens keeps it; Details gets "?tab=details", so the holder can still reach it.
+        defaultTab={defaultTaskTab(tabs, holdsTask)}
         managerReadOnly={managerReadOnly}
         goAheadState={workspace?.goAhead.state ?? null}
         nextText={workspace ? purchaseNextText(workspace) : undefined}
+        chargesEntryShown={workspace?.cancellation ? workspace.cancellation.canEnter : undefined}
         idProofs={idProofs !== null ? <TravellerIdProofsCard state={idProofs} /> : undefined}
         work={
           current === 'work' && (workspace || workForm) ? (

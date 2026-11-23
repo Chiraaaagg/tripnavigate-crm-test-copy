@@ -13,13 +13,13 @@ import { accessibilitySuite, COMMERCIAL_WORDS, cspSuite, open } from './b11-help
 test.use(LOCAL_NETWORK_ACCESS_OFF);
 
 const STATES = [
-  'b12-book-id-proof',
-  'b12-book-id-proof-failed',
-  'b12-book-id-proof-limit',
-  'b12-book-id-proof-rejected',
-  'b12-book-id-proof-paused',
-  'b12-book-id-proof-locked',
-  'b12-book-id-proof-hidden',
+  'b12-submitted-id-proof',
+  'b12-submitted-id-proof-failed',
+  'b12-submitted-id-proof-limit',
+  'b12-submitted-id-proof-rejected',
+  'b12-submitted-id-proof-paused',
+  'b12-submitted-id-proof-locked',
+  'b12-submitted-id-proof-hidden',
   'b12-task-id-proofs',
   'b12-task-id-proofs-refused',
 ];
@@ -34,25 +34,27 @@ cspSuite('B1.2 three steps: production style policy', STATES);
 // Retired 22 October 2026 (Echo review B-L8): the "steps and sections" and "section saves" cases tested
 // the B1.2 step screens, which no route renders any more. The booking form's own steps, saves,
 // refusals and links are covered by bookform.e2e.ts (gallery) and bookform-journey.real.e2e.ts.
-// The identity-proof slot below is still the same component (now inside the passenger Details drawer).
+// The identity-proof slot below is the same component the submitted booking shows (BookOverviewScreen).
+// Removed 17 November 2026 (owner decision D2, with the October step screen): the "Full name" hint
+// about removing the ID proof and the "(chosen, not attached)" line of the step screen's unsaved
+// report; both lived only on that screen. The booking form's own ID proof dialog is covered by
+// bookform.e2e.ts.
 
 test.describe('B1.2 traveller identity proof', () => {
   test('each traveller row has its own slot: required for adults (blocks), optional for children, no ID number field', async ({ page }) => {
-    await open(page, 'b12-book-id-proof');
+    await open(page, 'b12-submitted-id-proof');
     const main = page.locator('main');
     await expect(main.getByRole('group', { name: /ID proof \(Aadhaar card or another ID\) · Sample Traveller A/ })).toBeVisible();
     await expect(main).toContainText('ID proof needed for Sample Traveller B');
     await expect(main).toContainText('No ID proof attached for Sample Child C (optional for a child).');
     await expect(main.getByLabel(/Aadhaar number|ID number/i)).toHaveCount(0);
-    await expect(main.getByRole('link', { name: /Open sample-id-front-1\.jpg/ })).toHaveAttribute('href', '/preview/b12-book-id-proof');
-    await expect(main.getByLabel('Full name').first()).toHaveAccessibleDescription(/Changing the name removes this traveller’s attached ID proof/);
+    await expect(main.getByRole('link', { name: /Open sample-id-front-1\.jpg/ })).toHaveAttribute('href', '/preview/b12-submitted-id-proof');
   });
 
   test('attaching without the consent tick is refused in words, nothing is sent, and the tick gets focus', async ({ page }) => {
-    await open(page, 'b12-book-id-proof');
+    await open(page, 'b12-submitted-id-proof');
     const slot = page.getByRole('form', { name: 'Attach ID proof for Sample Traveller B' });
     await slot.getByLabel('ID proof file').setInputFiles({ name: 'synthetic-id.jpg', mimeType: 'image/jpeg', buffer: Buffer.from([0xff, 0xd8, 0xff, 0xe0]) });
-    await expect(page.locator('main')).toContainText('ID proof of Sample Traveller B (chosen, not attached)');
     await slot.getByRole('button', { name: 'Attach ID proof for Sample Traveller B' }).click();
     await expect(slot.locator('[data-slot="error-summary"]')).toContainText('Tick the customer’s agreement first. Nothing was uploaded.');
     await expect(slot.getByLabel('Customer agreed to share this ID for this booking')).toBeFocused();
@@ -62,7 +64,7 @@ test.describe('B1.2 traveller identity proof', () => {
   });
 
   test('a refused file says why; failed files are listed; the limit hides Attach', async ({ page }) => {
-    await open(page, 'b12-book-id-proof-rejected');
+    await open(page, 'b12-submitted-id-proof-rejected');
     const slot = page.getByRole('form', { name: 'Attach ID proof for Sample Traveller B' });
     await slot.getByLabel('ID proof file').setInputFiles({ name: 'synthetic-id.jpg', mimeType: 'image/jpeg', buffer: Buffer.from([0xff, 0xd8, 0xff, 0xe0]) });
     await slot.getByLabel('Customer agreed to share this ID for this booking').check();
@@ -70,20 +72,20 @@ test.describe('B1.2 traveller identity proof', () => {
     await expect(slot.locator('[data-slot="error-summary"]')).toContainText('File not accepted: PDF, JPG, PNG or WebP up to 4 MB.', { timeout: 20_000 });
     // A file refusal never marks the consent tick as wrong.
     await expect(slot.getByLabel('Customer agreed to share this ID for this booking')).not.toHaveAttribute('aria-invalid', 'true');
-    await open(page, 'b12-book-id-proof-failed');
+    await open(page, 'b12-submitted-id-proof-failed');
     await expect(page.locator('main')).toContainText('Upload failed: remove it and upload again');
-    await open(page, 'b12-book-id-proof-limit');
+    await open(page, 'b12-submitted-id-proof-limit');
     await expect(page.locator('main')).toContainText('This traveller already has 4 identity-proof files. Remove one first.');
     await expect(page.getByRole('form', { name: 'Attach ID proof for Sample Traveller A' })).toHaveCount(0);
   });
 
   test('paused, locked and not-for-you states: no Attach, honest words, no slot at all when proofs are not sent', async ({ page }) => {
-    await open(page, 'b12-book-id-proof-paused');
+    await open(page, 'b12-submitted-id-proof-paused');
     await expect(page.locator('main')).toContainText('Attaching is paused for this booking. A wrong file can still be removed.');
     await expect(page.locator('main').getByRole('button', { name: /Remove sample-id-front-1\.jpg/ })).toBeVisible();
-    await open(page, 'b12-book-id-proof-locked');
+    await open(page, 'b12-submitted-id-proof-locked');
     await expect(page.locator('main').getByRole('button', { name: /^Remove sample-id/ })).toHaveCount(0);
-    await open(page, 'b12-book-id-proof-hidden');
+    await open(page, 'b12-submitted-id-proof-hidden');
     await expect(page.locator('main').getByRole('group', { name: /ID proof \(Aadhaar/ })).toHaveCount(0);
   });
 

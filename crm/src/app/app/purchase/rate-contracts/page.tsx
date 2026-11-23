@@ -43,7 +43,7 @@ export default async function RateContractsRoute({ searchParams }: { searchParam
       names={{ supplier: supplierName, hotel: hotelName }}
       suppliers={choices?.suppliers ?? []}
       createAction={viewer === 'purchase' ? (saveRateContractAction as unknown as DecisionAction) : null}
-      importHref={viewer === 'purchase' ? '/app/admin/imports?kind=rate_sheet' : null}
+      importHref={viewer === 'purchase' ? '/app/purchase/rate-contracts/import' : null}
     />
   );
 }

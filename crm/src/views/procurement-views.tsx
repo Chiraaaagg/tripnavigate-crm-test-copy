@@ -201,7 +201,8 @@ export function SupplierBankSection({ supplier }: { supplier: SupplierDetailView
         )}
         {supplier.canEdit ? (
           <details className="form-section work-form">
-            <summary>
+            {/* The supplier page header's "Record bank details" jumps here (opens the fold and focuses it). */}
+            <summary id="supplier-bank-record">
               <span className="form-section-title">Record new bank details</span>
             </summary>
             <AddBeneficiaryForm supplierId={supplier.supplierId} />

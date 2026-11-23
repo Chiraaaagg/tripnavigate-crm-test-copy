@@ -6,7 +6,9 @@ import { requireStaff } from '@/modules/identity/server/session';
 import { B11NotInstalledView } from '@/views/b11/book-views';
 import { AccountsExpensesView } from '@/views/b11/department-cost';
 import { FinanceNoAccessView, FinanceUnavailableView } from '@/views/finance-views';
+import { MoneyOutTabs } from '@/views/accounts/money-out-tabs';
 import { financeRead } from '../finance-page-support';
+import { accountsSectionViewer } from '../section-viewer';
 
 // A-20 / DA-276
 export const metadata: Metadata = { title: 'Department costs' };
@@ -27,5 +29,13 @@ export default async function AccountsExpensesPage({ searchParams }: { searchPar
   if (!page.value) return <B11NotInstalledView title="Department costs" text="Department costs are not available on this CRM yet." />;
   const hrefs = Object.fromEntries(ACCOUNTS_EXPENSE_FILTERS.map((f) => [f, `/app/accounts/expenses?filter=${f}`])) as Record<AccountsExpenseFilter, string>;
   const moreHref = page.value.nextAfter ? `/app/accounts/expenses?filter=${filter}&after=${encodeURIComponent(page.value.nextAfter)}` : null;
-  return <AccountsExpensesView page={page.value} filter={filter} hrefs={hrefs} moreHref={moreHref} acceptAction={acceptExpenseRecordAction} returnAction={returnExpenseRecordAction} />;
+  // Redesign R4 (D5): the Money out tab strip, with the menu's own flags (no new database read). The view (src/views/b11/department-cost.tsx) is a frozen form file, so the
+  // strip sits above its header instead of under it.
+  const sectionViewer = await accountsSectionViewer(staff);
+  return (
+    <>
+      <MoneyOutTabs viewer={sectionViewer} currentHref="/app/accounts/expenses" />
+      <AccountsExpensesView page={page.value} filter={filter} hrefs={hrefs} moreHref={moreHref} acceptAction={acceptExpenseRecordAction} returnAction={returnExpenseRecordAction} />
+    </>
+  );
 }

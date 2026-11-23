@@ -15,7 +15,8 @@ import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import { GST_STATES } from '@/views/b11/book-fields';
 import { VerifySupplierForm } from '@/views/procurement-forms';
 import { SupplierBankSection, SupplierNotFoundView } from '@/views/procurement-views';
-import { SUPPLIER_TABS, SupplierMasterPage, SupplierPageError, type SupplierTab } from '@/views/suppliers/supplier-page';
+import { SupplierMasterPage, SupplierPageError } from '@/views/suppliers/supplier-page';
+import { supplierTabFrom } from '@/views/suppliers/tabs';
 
 export const metadata: Metadata = { title: 'Supplier' };
 
@@ -36,8 +37,9 @@ function viewerOf(staff: StaffContext, flightSupplier: boolean): SupplierViewer 
  * hotels sold, history and possible duplicates. Readers per section 10
  * (Purchase non-flight, Flight flight suppliers, Managers, Accounts); the
  * read returns null for everyone else (same words as "does not exist").
- * Bank details keep the existing section from supplier_get when this viewer
- * may read it (Purchase, Managers); otherwise R-A2's revision summary.
+ * Bank details (UX redesign R3: their own tab, ?tab=bank) keep the existing
+ * section from supplier_get when this viewer may read it (Purchase,
+ * Managers); otherwise R-A2's revision summary. No read was added.
  */
 export default async function SupplierRoute({
   params,
@@ -49,8 +51,8 @@ export default async function SupplierRoute({
   const [{ supplierId }, query] = await Promise.all([params, searchParams]);
   const staff = await requireStaff();
   if (!UUID.test(supplierId)) return <SupplierNotFoundView />;
-  const rawTab = Array.isArray(query.tab) ? query.tab[0] : query.tab;
-  const tab: SupplierTab = (SUPPLIER_TABS as readonly string[]).includes(rawTab ?? '') ? (rawTab as SupplierTab) : 'details';
+  // Old addresses keep their tab (details, contacts, hotels, history); ?tab=bank is the new Bank details tab.
+  const tab = supplierTabFrom(query.tab);
   const fromFlight = (Array.isArray(query.from) ? query.from[0] : query.from) === 'flight';
   const [master, legacy] = await Promise.all([
     loadSupplierMaster(staff, supplierId).catch(() => 'error' as const),

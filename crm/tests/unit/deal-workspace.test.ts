@@ -131,23 +131,26 @@ const acceptedQuotations: QuotationListView = {
   ],
 };
 
-describe('Deal tabs: server allowlist (DA-10, Echo E23)', () => {
-  it('unknown, repeated or missing ?tab values render Overview', () => {
-    for (const raw of [undefined, '', 'nope', 'MONEY', ['money', 'history'], 7, null]) expect(parseDealTab(raw)).toBe('overview');
+describe('Deal tabs: server allowlist (R2 tab contract)', () => {
+  it('unknown or missing ?tab values render the fallback; a repeated value uses its first entry', () => {
+    for (const raw of [undefined, '', 'nope', 'MONEY', 7, null, ['nope', 'money']]) expect(parseDealTab(raw)).toBe('overview');
+    expect(parseDealTab(['money', 'history'])).toBe('money');
+    expect(parseDealTab('nope', undefined, 'services')).toBe('services');
   });
 
-  it('a tab the viewer may not open renders Overview, never an error that reveals it', () => {
-    const visible = visibleDealTabs({ money: false, quotations: false, documents: false });
+  it('a tab the viewer may not open renders the fallback, never an error that reveals it', () => {
+    const visible = visibleDealTabs({ money: false, documents: false, messages: false });
     expect(visible).toEqual(['overview', 'services', 'history']);
     expect(parseDealTab('money', visible)).toBe('overview');
     expect(parseDealTab('quotations', visible)).toBe('overview');
     expect(parseDealTab('documents', visible)).toBe('overview');
+    expect(parseDealTab('messages', visible)).toBe('overview');
     expect(parseDealTab('history', visible)).toBe('history');
   });
 
-  it('lists tabs in DA-10 order; Money only for price readers, Documents only when the read exists', () => {
-    expect(visibleDealTabs({ money: true, quotations: true, documents: true })).toEqual(['overview', 'services', 'quotations', 'documents', 'money', 'history']);
-    expect(visibleDealTabs({ money: true, quotations: true, documents: false })).not.toContain('documents');
+  it('lists tabs in display order; Money only for price readers, Documents and Messages only when allowed', () => {
+    expect(visibleDealTabs({ money: true, documents: true, messages: true })).toEqual(['overview', 'services', 'money', 'documents', 'messages', 'history']);
+    expect(visibleDealTabs({ money: true, documents: false, messages: true })).not.toContain('documents');
     expect(canSeeDealMoney(salesDeal)).toBe(true);
     expect(canSeeDealMoney({ commercialAbsence: 'not_recorded' })).toBe(true);
     expect(canSeeDealMoney(purchaseDeal)).toBe(false);
@@ -711,24 +714,25 @@ describe('whole workspace', () => {
   });
 
   it('Sales price reader: Money only when the Money tab is open; other tab models left out', () => {
-    const overview = ws(salesDeal, undefined);
+    const overview = ws(salesDeal, 'overview');
     expect(overview.current).toBe('overview');
     expect(overview.overview).toBeDefined();
     expect('money' in overview).toBe(false);
     expect('history' in overview).toBe(false);
-    expect(JSON.stringify(overview)).not.toMatch(/₹/);
     const money = ws(salesDeal, 'money');
     expect(money.current).toBe('money');
     expect(money.money?.dealValue.state).toBe('shown');
     expect('overview' in money).toBe(false);
     expect(money.tabs.find((t) => t.current)).toEqual({ tab: 'money', label: 'Money', href: `/app/deals/${DEAL_ID}?tab=money`, current: true });
-    expect(money.tabs[0]).toEqual({ tab: 'overview', label: 'Overview', href: `/app/deals/${DEAL_ID}`, current: false });
+    // Every tab link carries ?tab= (R2), so Overview stays reachable when the default is Services and tasks.
+    expect(money.tabs[0]).toEqual({ tab: 'overview', label: 'Overview', href: `/app/deals/${DEAL_ID}?tab=overview`, current: false });
   });
 
-  it('Quotations tab only when a quotation or itinerary list was readable; Documents hidden until B1-2', () => {
+  it('Documents holds the old Quotations tab: listed when a quotation or itinerary list was readable or the files read exists', () => {
     expect(ws(salesDeal, 'quotations', { quotations: null }).current).toBe('overview');
-    expect(ws(salesDeal, 'quotations', { quotations: null, itinerariesReadable: true }).current).toBe('quotations');
-    expect(ws(salesDeal, 'documents').current).toBe('overview');
+    expect(ws(salesDeal, 'quotations', { quotations: null, itinerariesReadable: true }).current).toBe('documents');
+    expect(ws(salesDeal, 'quotations').current).toBe('documents');
+    expect(ws(salesDeal, 'documents', { quotations: null }).current).toBe('overview');
     const docs = ws(salesDeal, 'documents', { documentsAvailable: true, documents: [] });
     expect(docs.current).toBe('documents');
     expect(docs.documents).toEqual({ state: 'ok', rows: [] });

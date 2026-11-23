@@ -91,14 +91,9 @@ const PREVIEW_LINKS = [
   {
     group: 'Direction A Batch 2 (Book now and quotation editing)',
     links: [
-      { label: 'Book now step 1 - From Bitrix inline (switch on): markers, Bitrix now says, section check', href: '/preview/b2-book-inline-travellers' },
-      { label: 'Book now step 2 - From Bitrix inline: date notice, details only change, hotel cards', href: '/preview/b2-book-inline-stay' },
-      { label: 'Book now step 1 - Older draft: Fill empty fields from Bitrix', href: '/preview/b2-book-inline-fill-empty' },
-      { label: 'Book now step 1 - Bitrix details not available', href: '/preview/b2-book-inline-unavailable' },
-      { label: 'Book now step 1 - Switch off: today\'s From Bitrix panel (restyled)', href: '/preview/b12-book-prefill-travellers' },
-      { label: 'Book now step 3 - Section list, first section to finish open', href: '/preview/b2-book-finish-to-finish' },
-      { label: 'Book now step 2 - Three hotel cards', href: '/preview/b2-book-stay-three-hotels' },
-      { label: 'Book now step 3 - Editor without price access (one line)', href: '/preview/b2-book-finish-no-price' },
+      { label: 'Book now step 1 - From Bitrix inline (switch on), filled on open', href: '/preview/bookform-auto--travellers' },
+      { label: 'Book now step 2 - From Bitrix inline (switch on), filled on open', href: '/preview/bookform-auto--stay' },
+      { label: 'Book now step 3 - Editor without price access', href: '/preview/bookform-no-price--finish' },
       { label: 'Quotation - untouched draft (Not started, nothing red)', href: '/preview/b2-quote-untouched' },
       { label: 'Quotation - draft: Check and mark ready, parts, Save prices', href: '/preview/b2-quote-draft-saving' },
       { label: 'Quotation - Save prices refused part way (honest report)', href: '/preview/b2-quote-prices-refused' },

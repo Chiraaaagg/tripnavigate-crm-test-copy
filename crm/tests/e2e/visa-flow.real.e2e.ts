@@ -351,6 +351,14 @@ async function stepRun(name: string, fn: () => Promise<void>) {
 const taskUrl = (taskId: string, tab = 'work') => `/app/visa/${taskId}?tab=${tab}`;
 /** The Passengers table row of a traveller (by name). */
 const paxRow = (page: Page, name: string) => page.getByRole('region', { name: /Passengers and documents/ }).first().getByRole('row').filter({ hasText: name }).first();
+/** O14 (R3): a row's Edit is one button, or one menu whose first item is "Edit details" when the row has other actions. */
+async function editRow(page: Page, row: Locator) {
+  const edit = row.getByRole('button', { name: /^Edit/ });
+  // Read this before the click: the open menu hides the page (this button included) from role queries.
+  const isMenu = (await edit.getAttribute('aria-haspopup')) === 'menu';
+  await edit.click();
+  if (isMenu) await page.getByRole('menuitem', { name: 'Edit details' }).click();
+}
 /** The Appointment table row of a traveller (by name). */
 const apptRow = (page: Page, name: string) => page.getByRole('region', { name: /^Appointment/ }).first().getByRole('row').filter({ hasText: name }).first();
 const dialog = (page: Page) => page.getByRole('dialog');
@@ -452,8 +460,12 @@ test.describe('Visa and Passport desk: real end-to-end flow (Visa build)', () =>
         // Traveller 1: keyboard path through the row edit (pencil -> first field ... Save -> focus back on the pencil).
         const row1 = paxRow(page, 'Synthetic Visa One');
         const pencil = row1.getByRole('button', { name: /^Edit/ });
+        // O14 (R3): with other row actions, Edit is one menu; Enter on its first item, "Edit details", opens the row.
+        // Read this before Enter: the open menu hides the page (pencil included) from role queries.
+        const isMenu = (await pencil.getAttribute('aria-haspopup')) === 'menu';
         await pencil.focus();
         await page.keyboard.press('Enter');
+        if (isMenu) await page.keyboard.press('Enter');
         const firstFocused = await page.evaluate(() => ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? ''));
         check('8 · keyboard · row edit focuses its first field', firstFocused, 'focus moved into the row');
         await row1.getByLabel(/Passport (no|number)/i).fill(DESK_PASSPORT);
@@ -471,14 +483,14 @@ test.describe('Visa and Passport desk: real end-to-end flow (Visa build)', () =>
         // Travellers 2-4: date + documents; traveller 2 also gets an "Other" document, received by an upload.
         for (const name of ['Synthetic Visa Two', 'Synthetic Visa Three', 'Synthetic Visa Four']) {
           const row = paxRow(page, name);
-          await row.getByRole('button', { name: /^Edit/ }).click();
+          await editRow(page, row);
           await row.getByLabel(/Appointment date|Appointment/i).first().fill(istToday(-1));
           for (const box of await row.getByRole('checkbox').all()) await box.check();
           await row.getByRole('button', { name: /^Save/ }).click();
           await expect(row.getByRole('button', { name: /^Edit/ })).toBeVisible({ timeout: 30_000 });
         }
         const row2 = paxRow(page, 'Synthetic Visa Two');
-        await row2.getByRole('button', { name: /^Edit/ }).click();
+        await editRow(page, row2);
         await row2.getByRole('button', { name: /^Add/ }).first().click();
         await selectByText(dialog(page).getByLabel(/Which document|Document/).first(), /Other/);
         await dialog(page).getByLabel('Document name').fill('Synthetic sponsor letter');
@@ -609,7 +621,7 @@ test.describe('Visa and Passport desk: real end-to-end flow (Visa build)', () =>
         await page.goto(taskUrl(b.evisa));
         for (const name of ['Synthetic Visa One', 'Synthetic Visa Two']) {
           const row = paxRow(page, name);
-          await row.getByRole('button', { name: /^Edit/ }).click();
+          await editRow(page, row);
           await selectByText(row.getByLabel(/Visa type|E-visa or sticker/i).first(), /E-visa/);
           for (const box of await row.getByRole('checkbox').all()) await box.check();
           await row.getByRole('button', { name: /^Save/ }).click();
@@ -640,7 +652,8 @@ test.describe('Visa and Passport desk: real end-to-end flow (Visa build)', () =>
         await page.reload();
         await expect(page.locator('main')).toContainText(`E-visa sent to ${EVISA_EMAIL}`);
         // Traveller 3 was never applied: Withdrawn by customer from the row.
-        await page.getByRole('button', { name: 'More for Synthetic Visa Three' }).click();
+        // O14 (R3): one row menu, "Edit" (or "Actions" when the row cannot be edited), instead of the pencil plus "More".
+        await page.getByRole('button', { name: /^(Edit|Actions) Synthetic Visa Three$/ }).click();
         await page.getByRole('menuitem', { name: 'Withdrawn by customer' }).click();
         const w = dialog(page);
         await w.getByLabel('Reason').fill('Synthetic: the customer is not travelling');
@@ -678,7 +691,7 @@ test.describe('Visa and Passport desk: real end-to-end flow (Visa build)', () =>
         const page = V.page;
         await page.goto(taskUrl(b.passport));
         const row = paxRow(page, 'Synthetic Visa One');
-        await row.getByRole('button', { name: /^Edit/ }).click();
+        await editRow(page, row);
         await row.getByRole('button', { name: /^Add/ }).first().click();
         await selectByText(dialog(page).getByLabel(/Which document|Document/).first(), /Old passports/);
         await dialog(page).getByLabel('Already received').check();
@@ -696,7 +709,7 @@ test.describe('Visa and Passport desk: real end-to-end flow (Visa build)', () =>
         if (kept !== 'received') {
           await page.reload();
           const again = paxRow(page, 'Synthetic Visa One');
-          await again.getByRole('button', { name: /^Edit/ }).click();
+          await editRow(page, again);
           for (const box of await again.getByRole('checkbox').all()) await box.check();
           await again.getByRole('button', { name: /^Save/ }).click();
           await expect.poll(docStatus, { timeout: 30_000 }).toBe('received');

@@ -183,7 +183,8 @@ test('2-11. package journey through notices, money, Tally, return block and Mana
   const rec = await asUser<{ id: string }>(USERS.accA.id, 'select public.receipt_record($1, $2::jsonb, $3) as r', [dealId, JSON.stringify({ mode: 'cash',
     amountPaise: '1000000', receivedOn: istToday(), branchId: jdh, collectorUserId: USERS.accA.id, payerName: 'Synthetic Cash Payer', payerPan: PAN }), randomUUID()]);
   await asUser(USERS.accB.id, 'select public.receipt_verify($1, $2) as r', [rec.id, randomUUID()]);
-  await accA.page.goto('/app/accounts/dues');
+  // R4 (A9): the bare Dues address opens on Overdue and Due today; every status is ?status=all.
+  await accA.page.goto('/app/accounts/dues?status=all');
   await expect(accA.page.getByText(`ACCPK-${stamp}`).first()).toBeVisible();
   // 6. Match, exception (owner notified), export + CSV.
   await accA.page.goto(`/app/accounts/records?q=ACCPK-${stamp}`);
@@ -197,7 +198,8 @@ test('2-11. package journey through notices, money, Tally, return block and Mana
   const rec2 = await asUser<{ id: string }>(USERS.accA.id, 'select public.receipt_record($1, $2::jsonb, $3) as r', [dealId, JSON.stringify({ mode: 'cash',
     amountPaise: '500000', receivedOn: istToday(), branchId: jdh, collectorUserId: USERS.accA.id, payerName: '=HYPERLINK("x")', payerPan: PAN }), randomUUID()]);
   await asUser(USERS.accB.id, 'select public.receipt_verify($1, $2) as r', [rec2.id, randomUUID()]);
-  await accA.page.goto('/app/accounts/tally');
+  // R4 (D11): the Tally page shows one method at a time; this step is the CSV export.
+  await accA.page.goto('/app/accounts/tally?method=csv');
   const before = (await q<{ t: string }>('select now()::text as t'))[0]!.t;
   await accA.page.getByRole('button', { name: /create export/i }).first().click();
   // The export this click made (earlier runs' exports stay listed): wait for its row, then download it through the CSV route.
@@ -231,13 +233,14 @@ test('2-11. package journey through notices, money, Tally, return block and Mana
   await mgr.page.goto('/app/accounts/records');
   await expect(mgr.page.getByText(/view only/i).first()).toBeVisible();
   await expect(mgr.page.getByRole('button', { name: 'Mark matched' })).toHaveCount(0);
-  await mgr.page.goto('/app/accounts/dues');
+  await mgr.page.goto('/app/accounts/dues?status=all');
   await expect(mgr.page.getByText(`ACCPK-${stamp}`).first()).toBeVisible();
   // 11. Purchase / Flight / Visa sessions never receive money data.
   const fl = await session(browser, 'flight');
   const vi = await session(browser, 'visa');
   for (const s of [pur, fl, vi]) {
-    for (const path of ['/app/accounts/records', '/app/accounts/dues', `/app/deals/${dealId}`]) await s.page.goto(path).catch(() => undefined);
+    // R4: ?status=all, so the fence is checked over every Dues row, not only the default overdue/due-today view.
+    for (const path of ['/app/accounts/records', '/app/accounts/dues?status=all', `/app/deals/${dealId}`]) await s.page.goto(path).catch(() => undefined);
     const text = s.bodies.join('\n');
     expect(text).not.toContain(SELLING);
     expect(text).not.toContain(PAN);

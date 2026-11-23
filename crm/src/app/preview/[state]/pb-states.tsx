@@ -4,10 +4,11 @@ import type { PurchaseQueueFlags, PurchaseWorkspaceView, QuoteView, SupplierEmai
 import type { DepartmentTaskTabsVM, TaskTab } from '@/modules/settings/contracts';
 import type { PaymentContextView, PurchasePaymentRequestView, SupplierDocumentView } from '@/modules/supplier-money/contracts';
 import { toTaskHistoryVM } from '@/views/department/task-history-vm';
-import { PurchasePaymentsPage, type PaymentsShow } from '@/views/purchase/payments-page';
+import { PurchasePaymentsPage, type PaymentsQuery, type PaymentsShow } from '@/views/purchase/payments-page';
 import { SupplierDocumentsSection } from '@/views/purchase/supplier-documents';
 import { purchaseNextText, PurchaseWorkTab } from '@/views/purchase/work-tab';
-import { PurchaseQueuePage, PurchaseTaskPage } from '@/views/purchase-views';
+import { PurchaseQueuePage, PurchaseTaskPage, type PurchaseQueueChip } from '@/views/purchase-views';
+import type { QueueQuery } from '@/views/department/queue-show';
 import { StaffShell, type ShellViewer } from '@/views/StaffShell';
 import { TripCancellationCard } from '@/views/purchase/trip-cancellation';
 import { HomeView, NO_HOME_ROLES } from '@/views/home-view';
@@ -367,6 +368,7 @@ function workPage(viewer: ShellViewer, ws: PurchaseWorkspaceView, pay: PaymentCo
       managerReadOnly={managerReadOnly}
       goAheadState={ws.goAhead.state}
       nextText={purchaseNextText(ws)}
+      chargesEntryShown={ws.cancellation ? ws.cancellation.canEnter : undefined}
       work={<PurchaseWorkTab ws={ws} payments={pay} actions={PB_ACTIONS} senderName={ME} />}
     />,
   );
@@ -404,7 +406,10 @@ const history = toTaskHistoryVM(
   'purchase',
 );
 
-const paymentsPage = (show: PaymentsShow, rows = payments) => shell(purchase, '/app/purchase/payments', <PurchasePaymentsPage rows={rows} show={show} />);
+const paymentsPage = (show: PaymentsShow, rows = payments, query?: PaymentsQuery, failed = false) =>
+  shell(purchase, '/app/purchase/payments', <PurchasePaymentsPage rows={rows} show={show} query={query} failed={failed} />);
+/** R3 (C1): the queue with a search, a chip or a sort, as the address would give them. */
+const queueQuery = (over: Partial<QueueQuery<PurchaseQueueChip>>): QueueQuery<PurchaseQueueChip> => ({ q: '', chip: null, sort: 'soonest', ...over });
 
 const NO_SM: SupplierMoneyHomeCounts = {
   flightFaresToApprove: null,
@@ -450,10 +455,22 @@ const states: Record<string, () => ReactNode> = {
     shell(manager, '/app', <HomeView displayName="Synthetic Manager Jodhpur" counts={deals} roles={{ ...NO_HOME_ROLES, branchManager: true }} supplierMoney={{ ...NO_SM, requestsToApprove: 5, managerApprovals: 5 }} />),
   'pb-queue': () => shell(purchase, '/app/purchase', <PurchaseQueuePage queue={{ tasks: queueTasks }} canTakeTasks show="all" flags={queueFlags} />),
   'pb-queue-mine': () => shell(purchase, '/app/purchase', <PurchaseQueuePage queue={{ tasks: queueTasks }} canTakeTasks show="mine" flags={queueFlags} />),
+  // R3 (C1): queue pattern states (search, chip, sort, nothing matches, the branch Manager following progress).
+  'pb-queue-not-taken': () => shell(purchase, '/app/purchase', <PurchaseQueuePage queue={{ tasks: queueTasks }} canTakeTasks flags={queueFlags} />),
+  'pb-queue-search': () =>
+    shell(purchase, '/app/purchase', <PurchaseQueuePage queue={{ tasks: queueTasks }} canTakeTasks show="all" flags={queueFlags} query={queueQuery({ q: 'Udaipur' })} />),
+  'pb-queue-chip': () =>
+    shell(purchase, '/app/purchase', <PurchaseQueuePage queue={{ tasks: queueTasks }} canTakeTasks show="all" flags={queueFlags} query={queueQuery({ chip: 'goahead', sort: 'deal' })} />),
+  'pb-queue-nothing-matches': () =>
+    shell(purchase, '/app/purchase', <PurchaseQueuePage queue={{ tasks: queueTasks }} canTakeTasks show="all" flags={queueFlags} query={queueQuery({ q: 'no such place' })} />),
+  'pb-queue-manager': () => shell(manager, '/app/purchase', <PurchaseQueuePage queue={{ tasks: queueTasks }} canTakeTasks={false} flags={queueFlags} query={queueQuery({ sort: 'latest' })} />),
   'pb-task-details': () =>
     shell(purchase, '/app/purchase', <PurchaseTaskPage task={hotelTask} tabs={tabsOf('details')} goAheadState="pending" nextText={purchaseNextText(waitingGoAhead)} />),
   'pb-task-details-no-breakup': () =>
     shell(purchase, '/app/purchase', <PurchaseTaskPage task={{ ...hotelTask, estimate: undefined, specialRequests: null }} tabs={tabsOf('details')} goAheadState="not_requested" />),
+  // R3 (C1, O6): off the Work tab the header's one primary opens Work at the control; the holder's page opens on Work (D6).
+  'pb-task-details-next': () =>
+    shell(purchase, '/app/purchase', <PurchaseTaskPage task={goAheadGiven.task} tabs={tabsOf('details')} defaultTab="work" goAheadState={goAheadGiven.goAhead.state} nextText={purchaseNextText(goAheadGiven)} />),
   'pb-task-details-transfer': () => shell(purchase, '/app/purchase', <PurchaseTaskPage task={transferTask} tabs={tabsOf('details')} goAheadState="not_needed" />),
   'pb-task-work-no-rates': () => workPage(purchase, noRates, ctx({ agreedCostPaise: null, costVersionNo: null, supplierId: null, supplierName: null, remainingPaise: '0', blockers: ['not_ready'] })),
   'pb-task-work-final-rate': () => workPage(purchase, finalChosen, ctx({ goAheadState: 'not_requested', goAheadValid: false, blockers: ['booking_request_not_sent', 'go_ahead_missing'] })),
@@ -513,6 +530,10 @@ const states: Record<string, () => ReactNode> = {
   'pb-payments-returned': () => paymentsPage('returned'),
   'pb-payments-all': () => paymentsPage('all'),
   'pb-payments-empty': () => paymentsPage('open', []),
+  // R3 (C1): search, sort, nothing matches and a failed read.
+  'pb-payments-search': () => paymentsPage('all', payments, { q: 'deposit', sort: 'newest' }),
+  'pb-payments-nothing-matches': () => paymentsPage('all', payments, { q: 'no such supplier', sort: 'due' }),
+  'pb-payments-error': () => paymentsPage('open', [], undefined, true),
 };
 
 export const PB_PREVIEW_STATES = Object.keys(states);

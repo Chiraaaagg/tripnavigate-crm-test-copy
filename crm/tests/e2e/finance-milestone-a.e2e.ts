@@ -68,8 +68,10 @@ test.describe('Milestone A §2: cash states', () => {
   });
 
   test('nothing unresolved only when every total is zero', async ({ page }) => {
-    await open(page, 'finance-cash');
+    // R4 (A8): the cash page shows one branch at a time (a tab per branch); Jodhpur is its own state.
+    await open(page, 'finance-cash-jodhpur');
     await expect(page.getByRole('region', { name: 'Jodhpur' })).toContainText('Nothing unresolved at this branch.');
+    await open(page, 'finance-cash');
     await expect(page.getByRole('region', { name: 'Delhi' })).not.toContainText('Nothing unresolved at this branch.');
   });
 });

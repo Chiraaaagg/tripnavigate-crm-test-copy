@@ -5,14 +5,15 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Notice } from '@/components/ui/notice';
 import { DeskResultLine, type DeskResult } from './desk-kit';
-import { AmountCell, DateCell, FilesCell, ReferenceCell, StatusCell, TallyCell, WhoCell } from './record-cells';
+import { AmountCell, DateCell, FilesCell, ReferenceCell, StatusLine, WhoCell } from './record-cells';
 import { RowActions, type DeskRowActions, type LinkTaskOption, type LoadLinkTargets } from './row-actions';
 import type { RecordRow, RecordsPage } from './types';
 
 /*
  * The workspace table (contract 11.1): Date · Type · Reference and Deal ·
  * Department and supplier · Amount · Status and review · Tally · Files and
- * originals · Actions (Accounts only). Under 640 px rows become labelled
+ * originals · Actions (Accounts only). R4 (audit A5): status and Tally on
+ * one line (record-cells.tsx StatusLine). Under 640 px rows become labelled
  * cards; otherwise the table scrolls inside its own labelled, focusable
  * region, never the page. "Show more" appends the next keyset page in place
  * (the address keeps the filters; without script the link opens that page).
@@ -28,8 +29,11 @@ export function RecordsTable({
   linkOptions,
   loadLinkTargets,
   previewOpen,
+  branches,
 }: {
   first: RecordsPage;
+  /** The page's branch choices: a cash record links to Branch cash on its own branch. */
+  branches?: ReadonlyArray<{ id: string; name: string }>;
   /** null = view only (branch Manager). */
   actions: DeskRowActions | null;
   loadMore: LoadMoreAction;
@@ -124,7 +128,7 @@ export function RecordsTable({
                 </TableCell>
                 <TableCell label="Record" className="align-top sm:min-w-44">
                   <div className="flex flex-col items-start gap-2">
-                    <ReferenceCell row={row} />
+                    <ReferenceCell row={row} branches={branches} />
                     {/* Actions sit next to the reference so they never scroll out of view (review item 7). */}
                     {showActions ? (
                       <RowActions
@@ -145,11 +149,8 @@ export function RecordsTable({
                 <TableCell label="Amount" numeric className="align-top">
                   <AmountCell row={row} />
                 </TableCell>
-                <TableCell label="Status" className="align-top">
-                  <div className="flex flex-col items-start gap-2">
-                    <StatusCell row={row} />
-                    <TallyCell row={row} showVoucher={showActions} />
-                  </div>
+                <TableCell label="Status" className="align-top sm:min-w-44">
+                  <StatusLine row={row} showVoucher={showActions} />
                 </TableCell>
                 <TableCell label="Files" className="align-top sm:min-w-44">
                   <FilesCell row={row} />

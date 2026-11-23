@@ -78,10 +78,13 @@ test('2. refund end to end', async ({ browser }) => {
   await asUser(USERS.manager.id, 'select public.deal_cancellation_decide($1, $2, $3, $4, $5) as r', [opened.cancellationId, 'approve', null, c2.row_version,
     randomUUID()]);
 
-  // Sales owner requests the payout on the Deal page Refund card (charge, original payer).
+  // Sales owner requests the payout on the Deal page Refund card (charge, original payer). UX redesign R2: the card is
+  // on the Money tab; the old Services address keeps a pointer to it.
   const so = await session(browser, 'sales', secrets);
   await stubNotifications(so.ctx, 'granted');
-  await so.page.goto(`/app/deals/${dealId}?tab=services`);
+  await so.page.goto(`/app/deals/${dealId}?tab=services#refunds`);
+  await expect(so.page.locator('[data-slot="deal-moved-cards"]').getByRole('link', { name: /^Refunds: Money/ })).toHaveAttribute('href', `/app/deals/${dealId}?tab=money#refunds`);
+  await so.page.goto(`/app/deals/${dealId}?tab=money`);
   const refundCard = so.page.locator('section', { has: so.page.getByRole('heading', { name: 'Refunds' }) }).first();
   await expect(refundCard.getByText(/Money held/i).first()).toBeVisible();
   await refundCard.getByRole('button', { name: 'Ask for a refund' }).click();
@@ -112,9 +115,9 @@ test('2. refund end to end', async ({ browser }) => {
   await expect.poll(async () => (await q<{ s: string }>('select status as s from public.customer_refund_requests where id = $1', [req!.id]))[0]!.s).toBe('approved');
   await mgr.ctx.close();
 
-  // Accounts pays out with proof (one person records and verifies, Q6) on the Accounts deal page, Money tab.
+  // Accounts pays out with proof (one person records and verifies, Q6) on the Accounts deal page, Refunds tab (R4).
   const accB = await session(browser, 'accB', secrets);
-  await accB.page.goto(`/app/accounts/deals/${dealId}?tab=money`);
+  await accB.page.goto(`/app/accounts/deals/${dealId}?tab=refunds`);
   await accB.page.getByRole('button', { name: `Pay out and verify ${req!.ref_no}` }).click();
   const pay = accB.page.getByRole('dialog');
   await pay.getByLabel('How it was paid').selectOption({ label: 'Bank transfer' });

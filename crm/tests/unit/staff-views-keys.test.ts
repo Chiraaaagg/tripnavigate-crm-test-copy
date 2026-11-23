@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { DealDetail } from '@/modules/deals/dto';
 import { DealOverviewTab } from '@/views/deal-workspace/overview';
-import { HomeView, type MembershipLine, MyAccessView } from '@/views/staff-views';
+import { HomeView } from '@/views/home-view';
+import { type MembershipLine, MyAccessView } from '@/views/staff-views';
 
 /** Every array of sibling elements in the (unrendered) tree must have unique keys. */
 function duplicateKeys(node: ReactNode, found: string[] = []): string[] {

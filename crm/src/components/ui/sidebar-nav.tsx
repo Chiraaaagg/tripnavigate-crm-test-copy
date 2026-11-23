@@ -101,3 +101,32 @@ export function Sidebar({
     </aside>
   );
 }
+
+/**
+ * UX redesign R1 (C1, N3): the count badge beside a menu link or a folded
+ * group heading. A number above 0 shows the number and is read out as
+ * ", 3 waiting" (the word names what is counted); 'unknown' (the count could
+ * not be read) shows a dash read out as ", count not known", never 0; 0 and
+ * null show nothing. Words, not colour, carry the meaning.
+ */
+export function NavCount({ count, word = 'waiting', className }: { count: number | 'unknown' | null | undefined; word?: string; className?: string }) {
+  if (count === 'unknown') {
+    return (
+      <span data-slot="nav-count" data-count="unknown" className={cn(NAV_COUNT, className)}>
+        <span aria-hidden="true">–</span>
+        <span className="sr-only">, count not known</span>
+      </span>
+    );
+  }
+  if (typeof count !== 'number' || count <= 0) return null;
+  return (
+    <span data-slot="nav-count" data-count={count} className={cn(NAV_COUNT, className)}>
+      <span className="sr-only">, </span>
+      {count > 99 ? '99+' : count}
+      <span className="sr-only"> {word}</span>
+    </span>
+  );
+}
+
+const NAV_COUNT =
+  'inline-flex min-w-6 shrink-0 justify-center rounded-full bg-wash px-1.5 text-xs leading-5 font-semibold text-ink tabular-nums group-aria-[current=page]/navlink:bg-card';

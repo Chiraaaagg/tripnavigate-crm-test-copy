@@ -202,6 +202,154 @@ test('the booking request result stays on the page after the drawer is gone', as
   await expect(flash).toContainText('Booking request recorded.');
 });
 
+// ---------------------------------------------------------------------------
+// R3 (C1): queue pattern, Payment requests as a tab, record header and O6.
+// ---------------------------------------------------------------------------
+
+test.describe('R3 Purchase queue pattern', () => {
+  test('one toolbar row: search, status chips with counts, sort; the tabs keep the search', async ({ page }) => {
+    await open(page, 'pb-queue-search');
+    const main = page.locator('main');
+    const toolbar = main.getByRole('search', { name: 'Search and filter Purchase tasks' });
+    await expect(toolbar.getByRole('searchbox', { name: 'Search Purchase tasks' })).toHaveValue('Udaipur');
+    await expect(toolbar).toContainText('Showing matches for “Udaipur”.');
+    await expect(toolbar.getByLabel('Sort by')).toHaveValue('soonest');
+    await expect(main.getByRole('table', { name: /^1 hotel task of 5 on this tab/ })).toContainText('Example Lake Palace, Udaipur');
+    const tabs = main.getByRole('navigation', { name: 'Purchase task filters' });
+    await expect(tabs.getByRole('link', { name: /^Mine/ })).toHaveAttribute('href', '/app/purchase?show=mine&q=Udaipur');
+    await expect(tabs.getByRole('link', { name: 'Payment requests' })).toHaveAttribute('href', '/app/purchase/payments');
+    await expect(tabs).toHaveAttribute('data-variant', 'pill');
+  });
+
+  test('a chip is a link that keeps the tab, search and sort; the current chip turns it off', async ({ page }) => {
+    await open(page, 'pb-queue-chip');
+    const chips = page.getByRole('navigation', { name: 'Filter by status' });
+    const current = chips.getByRole('link', { name: /^Waiting for go-ahead/ });
+    await expect(current).toHaveAttribute('aria-current', 'page');
+    await expect(current).toHaveAttribute('href', '/app/purchase?show=all&sort=deal');
+    await expect(page.getByRole('table', { name: /^1 hotel task of 5/ })).toContainText('Synthetic Fort Retreat, Jaisalmer');
+  });
+
+  test('nothing matches: says so and offers one way back', async ({ page }) => {
+    await open(page, 'pb-queue-nothing-matches');
+    const status = page.locator('main').getByRole('status').filter({ hasText: 'Nothing matches' });
+    await expect(status).toBeVisible();
+    await expect(status.getByRole('link', { name: 'Clear search and filter' })).toHaveAttribute('href', '/app/purchase?show=all');
+  });
+
+  test('rows: one status badge plus one plain fact, the Next step words and one row button', async ({ page }) => {
+    await open(page, 'pb-queue');
+    const table = page.getByRole('table', { name: /tasks/ });
+    await expect(table.getByRole('columnheader')).toHaveText(['What', 'Dates', 'Approved budget', 'Status', 'Next step', 'Taken by', 'Deal']);
+    const mine = table.getByRole('row').filter({ hasText: 'Synthetic Fort Retreat, Jaisalmer' });
+    await expect(mine).toContainText(/6–\u2060?8\sNov\s2026/);
+    await expect(mine).toContainText('2 nights · 4 rooms · 8 adults, 1 child');
+    await expect(mine).toContainText('Waiting for Accounts go-ahead');
+    await expect(mine.getByRole('link', { name: /^Continue/ })).toHaveCount(0);
+    const open1 = table.getByRole('row').filter({ hasText: 'Example Lake Palace, Udaipur' });
+    await expect(open1.getByRole('link', { name: 'Open to take Example Lake Palace, Udaipur' })).toBeVisible();
+    // One status badge per row: the go-ahead and trip facts are words, never a second badge.
+    for (const row of await table.getByRole('row').all()) expect(await row.locator('[data-kind]').count()).toBeLessThanOrEqual(1);
+  });
+
+  test('the branch Manager follows progress: no Mine tab, no Payment requests tab, no row buttons', async ({ page }) => {
+    await open(page, 'pb-queue-manager');
+    const main = page.locator('main');
+    await expect(main).toContainText('Purchase colleagues take these tasks. You can follow progress here.');
+    await expect(main.getByRole('navigation', { name: 'Purchase task filters' }).getByRole('link')).toHaveCount(2);
+    await expect(main.getByRole('link', { name: /^(Open to take|Continue)/ })).toHaveCount(0);
+  });
+});
+
+test.describe('R3 Payment requests tab', () => {
+  test('the task tabs with Payment requests open; Open · Returned · Paid · All are chips with the old ?show= values', async ({ page }) => {
+    await open(page, 'pb-payments-returned');
+    const main = page.locator('main');
+    const tabs = main.getByRole('navigation', { name: 'Purchase task filters' });
+    await expect(tabs.getByRole('link', { name: 'Payment requests' })).toHaveAttribute('aria-current', 'page');
+    const chips = main.getByRole('navigation', { name: 'Filter by state' });
+    await expect(chips.getByRole('link', { name: /^Returned/ })).toHaveAttribute('aria-current', 'page');
+    await expect(chips.getByRole('link', { name: /^Open/ })).toHaveAttribute('href', '/app/purchase/payments');
+    await expect(chips.getByRole('link', { name: /^All/ })).toHaveAttribute('href', '/app/purchase/payments?show=all');
+    const table = main.getByRole('table', { name: /request/ });
+    await expect(table.getByRole('columnheader')).toHaveText(['Request', 'Due by', 'Amount', 'Status', 'Next step', 'Deal']);
+    await expect(table.getByRole('link', { name: /^Change and send again/ })).toHaveAttribute('href', /\?tab=work$/);
+    // The ₹50,000 rule is said once, in the header line.
+    await expect(main.getByText(/₹50,000/)).toHaveCount(1);
+  });
+
+  test('search and sort; nothing matches; a failed read says so and is never "nothing here"', async ({ page }) => {
+    await open(page, 'pb-payments-search');
+    await expect(page.getByRole('search', { name: 'Search and filter payment requests' })).toContainText('Showing matches for “deposit”.');
+    await expect(page.getByRole('search').getByLabel('Sort by')).toHaveValue('newest');
+    await open(page, 'pb-payments-nothing-matches');
+    await expect(page.locator('main').getByRole('status').filter({ hasText: 'Nothing matches' }).getByRole('link', { name: 'Clear search' })).toHaveAttribute('href', '/app/purchase/payments?show=all');
+    await open(page, 'pb-payments-error');
+    await expect(page.locator('main').getByRole('alert')).toContainText('Payment requests could not be loaded just now');
+    await expect(page.locator('main')).not.toContainText('Nothing here');
+  });
+});
+
+test.describe('R3 Purchase task record header (C4, O6)', () => {
+  test('back link and Deal; title; status, go-ahead and Taken by; Next with one primary; the internal line is folded', async ({ page }) => {
+    await open(page, 'pb-task-details');
+    const header = page.locator('main [data-slot="record-header"]');
+    await expect(header.getByRole('link', { name: 'Back to Purchase tasks' })).toHaveAttribute('href', '/app/purchase');
+    await expect(header).toContainText('Hotel task · SYN-JOD-547');
+    await expect(header.getByRole('heading', { level: 1 })).toHaveText('Synthetic Fort Retreat, Jaisalmer');
+    await expect(header).toContainText('Taken by: You');
+    await expect(header.locator('[data-slot="next-step"] p')).toContainText('Next: wait for Accounts to give the go-ahead');
+    // A waiting step has no button: nothing for this viewer to press.
+    await expect(header.locator('[data-slot="next-step"]').getByRole('link')).toHaveCount(0);
+    await expect(header.locator('details')).not.toHaveAttribute('open', '');
+    await expect(header.locator('details')).toContainText('Internal task');
+  });
+
+  test('O6 from Details: the one primary opens Work at the control; the holder lands on Work, so Details keeps ?tab=details (D6)', async ({ page }) => {
+    await open(page, 'pb-task-details-next');
+    const main = page.locator('main');
+    const next = main.locator('[data-slot="next-step"]').getByRole('link');
+    await expect(next).toHaveCount(1);
+    await expect(next).toHaveAttribute('href', /^\/app\/purchase\/[0-9a-f-]+#purchase-next-[a-z-]+$/);
+    const tabs = main.getByRole('navigation', { name: 'Task sections' });
+    await expect(tabs.getByRole('link', { name: 'Details' })).toHaveAttribute('href', /\?tab=details$/);
+    await expect(tabs.getByRole('link', { name: 'Work' })).toHaveAttribute('href', /\/app\/purchase\/[0-9a-f-]+$/);
+    await expect(tabs).toHaveAttribute('data-variant', 'pill');
+  });
+
+  test('O6 on Work: the header button jumps to the control and moves focus there', async ({ page }) => {
+    // Needs helper F's target ids inside the Work form (purchase-next-<step>).
+    await open(page, 'pb-task-work-no-rates');
+    const jump = page.locator('main [data-slot="next-step"]').getByRole('link', { name: /^Add a rate/ });
+    await expect(jump).toHaveAttribute('href', '#purchase-next-add-rate');
+    await jump.click();
+    await expect(page.locator('#purchase-next-add-rate')).toBeFocused();
+  });
+
+  test('O6 from another tab: arriving on Work at #purchase-next-… moves focus to that control', async ({ page }) => {
+    // The header link from Details opens Work with the control's id in the address (FocusHashTarget on the Work tab).
+    await page.goto('/preview/pb-task-work-no-rates#purchase-next-add-rate');
+    await expect(page.locator('#purchase-next-add-rate')).toBeFocused();
+    await expect(page.locator('#purchase-next-add-rate')).toBeInViewport();
+  });
+
+  test('every Next line the Work form can show maps to a control or to no button, never to a wrong one', async ({ page }) => {
+    for (const [state, target] of [
+      ['pb-task-work-no-rates', 'purchase-next-add-rate'],
+      ['pb-task-work-final-rate', 'purchase-next-booking-request'],
+      ['pb-task-work-go-ahead-given', 'purchase-next-confirmation'],
+      ['pb-task-work-go-ahead-returned', 'purchase-next-booking-request'],
+      ['pb-task-work-waiting-go-ahead', null],
+      ['pb-task-work-over-budget', null],
+    ] as const) {
+      await open(page, state);
+      const link = page.locator('main [data-slot="next-step"]').getByRole('link');
+      if (target) await expect(link, state).toHaveAttribute('href', `#${target}`);
+      else await expect(link, state).toHaveCount(0);
+    }
+  });
+});
+
 test('one money rule (D4): a payment amount typed as "₹100" is refused, the typed text stays, and the refusal names the amount', async ({ page }) => {
   await open(page, 'pb-task-work-go-ahead-given');
   await page.getByRole('button', { name: 'Request advance payment' }).click();

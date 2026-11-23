@@ -105,6 +105,17 @@ test.describe('Accounts Phase 2 preview states', () => {
     });
   }
 
+  // R4 review P2-1: on the Accounts deal page ?tab=money opens Receipts, so the Refunds desk links to the Refunds tab.
+  test('Refunds desk: Deal links open the Accounts deal page on its Refunds tab, at the payout or supplier card', async ({ page }) => {
+    test.skip(!STATES.includes('acc2-refund-desk'), 'needs the acc2-refund-desk state');
+    expect(await open(page, 'acc2-refund-desk')).toBe(true);
+    const hrefs = await page.getByRole('main').locator('a[href^="/app/accounts/deals/"]').evaluateAll((links) => links.map((a) => a.getAttribute('href')));
+    expect(hrefs.length).toBeGreaterThan(0);
+    for (const href of hrefs) expect(href).toMatch(/^\/app\/accounts\/deals\/[0-9a-f-]{36}\?tab=refunds#refunds(-supplier)?$/);
+    expect(hrefs.some((h) => h!.endsWith('#refunds')), 'a payout links to the refund card').toBe(true);
+    expect(hrefs.some((h) => h!.endsWith('#refunds-supplier')), 'a supplier refund links to its lines').toBe(true);
+  });
+
   test('frozen words are text, never colour alone (section 11)', async ({ page }) => {
     const check = async (match: RegExp, words: RegExp) => {
       for (const s of STATES.filter((x) => match.test(x))) {

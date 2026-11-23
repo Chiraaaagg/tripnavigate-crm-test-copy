@@ -106,8 +106,12 @@ async function dealWithHistory(): Promise<string> {
 const PAGES: Array<{ name: string; who: UserKey; path: () => Promise<string>; heading: string | RegExp }> = [
   { name: 'Accounts › Small balances', who: 'accA', path: async () => ROUTES.smallBalances, heading: /Small balances/ },
   { name: 'Accounts › Bills to check', who: 'accA', path: async () => ROUTES.billsToCheck, heading: /Bills to check|Customer documents/ },
-  { name: 'Deal page with Messages to customer and History of changes', who: 'sales', path: async () => ROUTES.deal(await dealWithHistory()),
+  // UX redesign R2: Messages to customer has its own Deal tab; History of changes stays on Services and tasks. Same Deal,
+  // one measure per tab.
+  { name: 'Deal page Messages tab (Messages to customer)', who: 'sales', path: async () => ROUTES.deal(await dealWithHistory(), 'messages'),
     heading: /Messages to customer/ },
+  { name: 'Deal page Services tab (History of changes)', who: 'sales', path: async () => ROUTES.deal(await dealWithHistory(), 'services'),
+    heading: /History of changes/ },
   { name: 'Suppliers › Rate contracts', who: 'purchase', path: async () => ROUTES.rateContracts, heading: /Rate contracts/ },
   { name: 'Approvals (Manager: write-offs, change requests, rate contracts)', who: 'manager', path: async () => ROUTES.approvals, heading: /Approvals/ },
 ];

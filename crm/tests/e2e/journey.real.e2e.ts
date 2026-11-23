@@ -115,7 +115,7 @@ async function enrolTotpViaUi(page: Page, label: string): Promise<string> {
   await expect(page).toHaveURL(/\/mfa\/enroll/);
   await page.getByRole('button', { name: 'Set up authenticator app' }).click();
   await page.getByText('Cannot scan? Enter this setup key instead').click();
-  const secretText = await page.locator('p.secret').textContent();
+  const secretText = await page.getByLabel('Setup key').textContent();
   const secret = (secretText ?? '').trim();
   expect(secret, 'setup key shown on the enrollment page').toMatch(/^[A-Z2-7]+=*$/);
   await shot(page, `${label}-mfa-enroll-qr`);
@@ -169,21 +169,37 @@ async function confirmLinkFor(to: string, notIds: Set<string> = new Set()): Prom
 }
 
 function staffRow(page: Page, email: string): Locator {
-  return page.getByRole('row').filter({ hasText: email });
+  // R1: the Staff list is rows (list items), each with an "Actions" menu.
+  return page.locator('[data-slot="staff-row"]').filter({ hasText: email });
+}
+
+/** Any recovery item of the row menu (named for the next step). */
+const RECOVERY_ITEM = /Start authenticator recovery|Check the authenticator recovery|Retry the authenticator recovery|See the authenticator recovery|Confirm identity and restore access|Retry removing other authenticators/;
+
+/** R1: open a staff member's row menu, pick an item, and return the drawer it opens. */
+async function openStaffAction(page: Page, name: string, item: string | RegExp): Promise<Locator> {
+  await page.getByRole('button', { name: `Actions for ${name}` }).click();
+  await page.getByRole('menuitem', { name: item }).click();
+  const drawer = page.getByRole('dialog');
+  await expect(drawer).toBeVisible();
+  return drawer;
 }
 
 async function inviteViaUi(adminPage: Page, name: string, email: string) {
   await adminPage.goto('/app/admin/staff');
   // Batch 4: the Settings frame owns the one h1; each Settings page heading is an h2 (DA-251).
-  await expect(adminPage.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
+  // R1: the area name is the one h1; the list comes first and "Invite staff" opens the form in a drawer.
+  await expect(adminPage.getByRole('heading', { level: 1, name: 'People and access' })).toBeVisible();
   await expect(adminPage.getByRole('heading', { level: 2, name: 'Staff', exact: true })).toBeVisible();
-  const form = adminPage.locator('form').filter({ has: adminPage.getByRole('button', { name: 'Send invitation' }) });
+  await adminPage.getByRole('button', { name: 'Invite staff' }).click();
+  const form = adminPage.getByRole('dialog', { name: 'Invite staff' }).locator('form');
   await form.getByLabel('Full name').fill(name);
   await form.getByLabel('Work email').fill(email);
   await form.getByLabel('Branch', { exact: true }).selectOption({ label: 'Delhi' });
   await form.getByLabel('Role', { exact: true }).selectOption({ label: 'Sales' });
   await form.getByRole('button', { name: 'Send invitation' }).click();
-  await expect(form.getByRole('status').filter({ hasText: 'Done:' })).toBeVisible({ timeout: 30_000 });
+  // A save closes the drawer and says so once on the page.
+  await expect(adminPage.locator('[data-slot="people-result"]')).toContainText('Done:', { timeout: 30_000 });
 }
 
 /** Invitation link -> password -> TOTP -> finish setup, in a fresh browser context. */
@@ -301,11 +317,10 @@ test.describe('real stack browser journey (T15)', () => {
 
     await test.step('admin starts authenticator recovery while the person is signed in', async () => {
       await adminPage.goto('/app/admin/staff');
-      const row = staffRow(adminPage, first.email);
-      await row.getByText(`Actions for ${first.name}`).click();
-      await row.getByLabel('Reason for recovery').fill('Synthetic journey: lost phone, verified in person');
-      await row.getByRole('button', { name: 'Start authenticator recovery' }).click();
-      await expect(staffRow(adminPage, first.email)).toContainText(/Resetting their authenticator app — step [12] of 3: (removing|waiting)|Done:/, {
+      const drawer = await openStaffAction(adminPage, first.name, 'Start authenticator recovery');
+      await drawer.getByLabel('Reason for recovery').fill('Synthetic journey: lost phone, verified in person');
+      await drawer.getByRole('button', { name: 'Start authenticator recovery' }).click();
+      await expect(staffRow(adminPage, first.email).or(drawer).first()).toContainText(/Resetting their authenticator app — step [12] of 3: (removing|waiting)|Done:/, {
         timeout: 30_000,
       });
       await shot(adminPage, 'admin-recovery-started');
@@ -340,12 +355,12 @@ test.describe('real stack browser journey (T15)', () => {
       await adminPage.goto('/app/admin/staff');
       const row = staffRow(adminPage, first.email);
       await expect(row).toContainText('Resetting their authenticator app — step 3 of 3: waiting for your confirmation');
-      await row.getByText(`Actions for ${first.name}`).click();
-      await row.getByLabel('How you verified their identity').selectOption('SYNTHETIC_TEST_CALLBACK');
-      await row.getByLabel('Confirmation code').fill(confirmationCode);
-      await row.getByLabel('Note').fill('Synthetic journey: code read back over the synthetic callback');
+      const drawer = await openStaffAction(adminPage, first.name, 'Confirm identity and restore access');
+      await drawer.getByLabel('How you verified their identity').selectOption('SYNTHETIC_TEST_CALLBACK');
+      await drawer.getByLabel('Confirmation code').fill(confirmationCode);
+      await drawer.getByLabel('Note').fill('Synthetic journey: code read back over the synthetic callback');
       await shot(adminPage, 'admin-recovery-confirm-form');
-      await row.getByRole('button', { name: 'Confirm and restore access' }).click();
+      await drawer.getByRole('button', { name: 'Confirm and restore access' }).click();
       await expect(staffRow(adminPage, first.email)).toContainText('Authenticator app reset finished', { timeout: 30_000 });
       await shot(adminPage, 'admin-recovery-completed');
     });
@@ -372,10 +387,9 @@ test.describe('real stack browser journey (T15)', () => {
 
     await test.step('admin deactivates the second person while their session is open', async () => {
       await adminPage.goto('/app/admin/staff');
-      const row = staffRow(adminPage, second.email);
-      await row.getByText(`Actions for ${second.name}`).click();
-      await row.getByLabel('Reason for deactivation').fill('Synthetic journey: leaver deactivation check');
-      await row.getByRole('button', { name: 'Deactivate staff member' }).click();
+      const drawer = await openStaffAction(adminPage, second.name, 'Deactivate');
+      await drawer.getByLabel('Reason for deactivation').fill('Synthetic journey: leaver deactivation check');
+      await drawer.getByRole('button', { name: 'Deactivate staff member' }).click();
       await expect(staffRow(adminPage, second.email)).toContainText(/Deactivated|Done:/, { timeout: 30_000 });
       await shot(adminPage, 'admin-deactivated');
     });
@@ -424,15 +438,20 @@ test.describe('real stack browser journey (T15)', () => {
     await test.step('Purchase adds a supplier through the UI', async () => {
       await purchase.goto('/app/purchase/suppliers');
       await expect(purchase.getByRole('heading', { level: 1, name: 'Suppliers' })).toBeVisible();
-      const form = purchase.getByRole('form', { name: 'Add a supplier' });
+      // R3 (C3): "Add a supplier" opens the same form in a side drawer (modal dialog).
+      await purchase.getByRole('button', { name: 'Add a supplier' }).click();
+      const form = purchase.getByRole('dialog', { name: 'Add a supplier' }).getByRole('form', { name: 'Add a supplier' });
       // Accounts phase 2 (Track E supplier register): the field is "Name"; services are chosen explicitly (no default tick).
       await form.getByLabel('Name', { exact: true }).fill(supplierName);
       await form.getByLabel('City').fill('Synthetic City');
       await form.getByRole('checkbox', { name: 'Hotel' }).check();
       await form.getByRole('button', { name: 'Add supplier' }).click();
-      // Accounts phase 2: the register stays open (form cleared for the next supplier) with "Supplier added";
+      // Accounts phase 2: the form stays open (cleared for the next supplier) with "Supplier added";
       // the new supplier is opened from the register list.
       await expect(form.getByText('Supplier added').first()).toBeVisible({ timeout: 30_000 });
+      // The drawer is modal: close it before opening the new supplier from the list behind it.
+      await purchase.keyboard.press('Escape');
+      await expect(purchase.getByRole('dialog', { name: 'Add a supplier' })).toHaveCount(0);
       await purchase.getByRole('link', { name: supplierName }).first().click();
       await expect(purchase).toHaveURL(/\/app\/purchase\/suppliers\/[0-9a-f-]{36}/, { timeout: 30_000 });
       await expect(purchase.getByRole('heading', { level: 1 })).toHaveText(supplierName);
@@ -445,7 +464,8 @@ test.describe('real stack browser journey (T15)', () => {
       const row = purchase.getByRole('row').filter({ hasText: dealRef });
       // DA-271 status word.
       await expect(row).toContainText('Waiting to be taken');
-      await row.getByRole('link', { name: new RegExp(JOURNEY_HOTEL.replace(/[()]/g, '\\$&')) }).click();
+      // R3: the row also has an "Open to take …" button with the same address; open the task by its name link.
+      await row.getByRole('link', { name: new RegExp(`^${JOURNEY_HOTEL.replace(/[()]/g, '\\$&')}`) }).click();
       await expect(purchase).toHaveURL(new RegExp(`/app/purchase/${taskId}$`));
       await expect(purchase.getByRole('heading', { level: 1 })).toContainText(JOURNEY_HOTEL);
       await shot(purchase, 'purchase-task-open');
@@ -610,8 +630,9 @@ test.describe('real stack browser journey (T15)', () => {
         expect(html, `${path} raw HTML: cost in paise`).not.toContain(PURCHASE_COST_PAISE);
         await shot(sales, `sales-sees-status-${path.includes('deals') ? 'deal' : `task${path.includes('?tab=') ? `-${path.split('?tab=')[1]}` : ''}`}`);
       }
-      // The hidden Purchase facts are absent on every Deal tab, rendered and in the raw page HTML.
-      for (const tab of ['', '?tab=services', '?tab=quotations', '?tab=documents', '?tab=money', '?tab=history']) {
+      // The hidden Purchase facts are absent on every Deal tab, rendered and in the raw page HTML (R2 tabs; '' is the
+      // owner's default tab, ?tab=quotations the retired value that opens Documents).
+      for (const tab of ['', '?tab=overview', '?tab=services', '?tab=quotations', '?tab=documents', '?tab=money', '?tab=messages', '?tab=history']) {
         const path = `/app/deals/${dealId}${tab}`;
         await sales.goto(path);
         const main = sales.getByRole('main');
@@ -818,11 +839,10 @@ test.describe('real stack browser journey (T15)', () => {
         await enrolTotpViaUi(adminPage, 'cleanup-admin');
         await expect(adminPage).toHaveURL(/\/app$/);
       });
+      // R1: the recovery drawer, opened from the row menu (its item is named for the next step).
       const openActions = async () => {
         await adminPage.goto('/app/admin/staff');
-        const row = staffRow(adminPage, person.email);
-        await row.getByText(`Actions for ${person.name}`).click();
-        return row;
+        return openStaffAction(adminPage, person.name, RECOVERY_ITEM);
       };
 
       await test.step('provider result cannot be recorded: the case stays pending and the outcome is reported as unknown', async () => {
@@ -830,11 +850,11 @@ test.describe('real stack browser journey (T15)', () => {
         const row = await openActions();
         await row.getByLabel('Reason for recovery').fill('Synthetic journey: lost phone, result write fails');
         await row.getByRole('button', { name: 'Start authenticator recovery' }).click();
-        await expect(staffRow(adminPage, person.email)).toContainText('outcome is unknown', { timeout: 30_000 });
+        await expect(row).toContainText('outcome is unknown', { timeout: 30_000 });
         expect((await caseRow()).status).toBe('provider_pending');
         await fault(FAULTS.providerResult, false);
         const fresh = await openActions();
-        await expect(fresh).toContainText('Resetting their authenticator app — step 1 of 3: removing the old app');
+        await expect(staffRow(adminPage, person.email)).toContainText('Resetting their authenticator app — step 1 of 3: removing the old app');
         await expect(fresh.getByRole('button', { name: 'Start authenticator recovery' })).toHaveCount(0);
         await shot(adminPage, 'cleanup-provider-result-unknown');
       });
@@ -843,13 +863,12 @@ test.describe('real stack browser journey (T15)', () => {
       const stalePage = await adminContext.newPage();
       await test.step('a second admin tab shows the same pending-case control (it will go stale)', async () => {
         await stalePage.goto('/app/admin/staff');
-        const row = staffRow(stalePage, person.email);
-        await row.getByText(`Actions for ${person.name}`).click();
+        const row = await openStaffAction(stalePage, person.name, RECOVERY_ITEM);
         await expect(row.getByRole('button', { name: `Check and finish removing the old authenticator for ${person.name}` })).toBeVisible();
       });
 
       await test.step('admin checks and finishes the same case; it moves on without starting a new recovery', async () => {
-        const row = staffRow(adminPage, person.email);
+        const row = adminPage.getByRole('dialog');
         await row.getByRole('button', { name: `Check and finish removing the old authenticator for ${person.name}` }).click();
         await expect(staffRow(adminPage, person.email)).toContainText('Resetting their authenticator app — step 2 of 3: waiting for their new app', { timeout: 30_000 });
         const cases = await withDb(async (db) => (await db.query<{ n: number }>(
@@ -875,9 +894,9 @@ test.describe('real stack browser journey (T15)', () => {
         const factorsBefore = await withDb(async (db) => (await db.query<{ id: string }>(
           `select id from auth.mfa_factors where user_id = $1 and status = 'verified' order by id`, [userId])).rows);
         expect(factorsBefore, 'the newly enrolled authenticator').toHaveLength(1);
-        const row = staffRow(stalePage, person.email);
+        const row = stalePage.getByRole('dialog');
         await row.getByRole('button', { name: `Check and finish removing the old authenticator for ${person.name}` }).click();
-        await expect(staffRow(stalePage, person.email)).toContainText('moved on since the page loaded. Nothing was changed.', { timeout: 30_000 });
+        await expect(row).toContainText('moved on since the page loaded. Nothing was changed.', { timeout: 30_000 });
         const after = await withDb(async (db) => ({
           factors: (await db.query<{ id: string }>(
             `select id from auth.mfa_factors where user_id = $1 and status = 'verified' order by id`, [userId])).rows,
@@ -903,7 +922,7 @@ test.describe('real stack browser journey (T15)', () => {
         expect(c.status).toBe('completed');
         expect(c.cleanup_error).toMatch(/^plan_lookup/);
         const fresh = await openActions();
-        await expect(fresh).not.toContainText('Authenticator app reset finished');
+        await expect(staffRow(adminPage, person.email)).not.toContainText('Authenticator app reset finished');
         await expect(fresh.getByRole('button', { name: 'Start authenticator recovery' })).toHaveCount(0);
         await expect(fresh.getByLabel('Confirmation code')).toHaveCount(0);
         await expect(fresh.getByRole('button', { name: `Retry removing other authenticators for ${person.name}` })).toBeVisible();
@@ -925,7 +944,7 @@ test.describe('real stack browser journey (T15)', () => {
         await fault(FAULTS.cleanupResult, true);
         const row = await openActions();
         await row.getByRole('button', { name: `Retry removing other authenticators for ${person.name}` }).click();
-        await expect(staffRow(adminPage, person.email)).toContainText('outcome is unknown', { timeout: 30_000 });
+        await expect(row).toContainText('outcome is unknown', { timeout: 30_000 });
         await fault(FAULTS.cleanupResult, false);
         const c = await caseRow();
         expect(c.cleanup_error, 'the earlier failure is still the last recorded result').toMatch(/^plan_lookup/);

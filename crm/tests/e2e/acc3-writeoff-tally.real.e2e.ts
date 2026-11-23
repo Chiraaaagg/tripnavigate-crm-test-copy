@@ -96,7 +96,8 @@ test('3. write-off: small balance after the trip → proposed → approved by th
   expect((await q<{ n: number }>(`select count(*)::int as n from public.finance_journal_entries where deal_id = $1 and kind not like 'receipt_%'`,
     [writeOffDeal]))[0]!.n).toBe(0);
   const so = await session(browser, 'sales', secrets);
-  await so.page.goto(ROUTES.deal(writeOffDeal, 'services'));
+  // UX redesign R2: the dues card (with the write-off line) is on the Deal's Money tab.
+  await so.page.goto(ROUTES.deal(writeOffDeal, 'money'));
   await expect(so.page.getByText(/Written off ₹300(\.00)? by /).first()).toBeVisible();
 
   // Tally file carries the Journal (write_off_due mapping row; customer ledger from the party).

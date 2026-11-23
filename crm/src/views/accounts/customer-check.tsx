@@ -2,7 +2,7 @@
 
 import { ChevronLeft, CircleCheck, FileText, Pencil, UsersRound, Undo2 } from 'lucide-react';
 import Link from 'next/link';
-import { useRef, useState, useTransition, type FormEvent } from 'react';
+import { useRef, useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { StatusBadge, type StatusTone } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -45,17 +45,21 @@ export function CustomersToCheckView({
   items,
   filters,
   nextHref,
+  sectionTabs,
 }: {
   /** null = the list could not be read (never shown as empty). */
   items: PartyCheckRow[] | null;
   filters: Array<{ key: PartyCheckFilter; label: string; href: string; count: number | null; current: boolean }>;
   nextHref: string | null;
+  /** D5 (R4): the To check section tabs, placed under the page header (the page builds them for the viewer). */
+  sectionTabs?: ReactNode;
 }) {
   const current = filters.find((f) => f.current)?.key ?? 'not_checked';
   return (
     <div className="font-sans text-base text-copy">
       <PageHeader eyebrow="Accounts" title="Customers to check" description="Check new and imported customers before they are used for billing." className="mb-3" />
-      <Tabs label="Customer check status" className="mb-4" items={filters.map((f) => ({ href: f.href, label: f.label, current: f.current, count: f.count ?? undefined }))} />
+      {sectionTabs}
+      <Tabs variant="pill" label="Customer check status" className="mb-4" items={filters.map((f) => ({ href: f.href, label: f.label, current: f.current, count: f.count ?? undefined }))} />
       {items === null ? (
         <Notice tone="warning" title="The customer list could not be read">
           <p>Nothing was changed. Reload the page; if it keeps happening, tell a Super Admin.</p>

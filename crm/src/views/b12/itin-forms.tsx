@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { cn, focusRing } from '@/components/ui/cn';
 import { Field, fieldDescribedBy } from '@/components/ui/field';
 import { Fieldset } from '@/components/ui/fieldset';
+import { Fold } from '@/components/ui/fold';
 import { Input } from '@/components/ui/input';
 import {
   DIFFERENCE_CHOICE_LABEL,
@@ -321,6 +322,9 @@ function originHint(prov: Record<string, FactProvenance>, path: string, hint?: s
   );
 }
 
+/** Fold line for an optional list (SL-21): "None yet" or how many are filled in. */
+const listMeta = (n: number) => (n === 0 ? 'None yet' : `${n} added`);
+
 const lines = (text: string) =>
   text
     .split('\n')
@@ -331,6 +335,8 @@ export function FactsForm({ editor: e, action, reloadHref }: { editor: Itinerary
   const initial = factsToValues(e.facts, e.sourceFileId);
   const f = useSectionForm({ id: 'itin-facts', section: 'details', label: 'Itinerary facts', order: 1, action: asItinSyncAction(action), initial, versionBound: true, rowVersion: e.rowVersion });
   const { bindForm, bindResult } = f;
+  // R2 (SL-21): Transfers, Activities and Flights start folded when they were empty on load; never re-folded while typing.
+  const [listOpen] = useState(() => ({ transfers: initial.transfers.length > 0, activities: initial.activities.length > 0, flights: initial.flights.length > 0 }));
   const x = f.values;
   const editable = e.canEditFacts;
   const prov = x.provenance;
@@ -483,8 +489,7 @@ export function FactsForm({ editor: e, action, reloadHref }: { editor: Itinerary
         {addButton('days', 'Day', L.days)}
       </div>
 
-      <div className="flex flex-col gap-3">
-        <h3 className="m-0 text-base font-semibold text-ink">Transfers</h3>
+      <Fold summary="Transfers" meta={listMeta(x.transfers.length)} open={listOpen.transfers} flat id="itin-fold-transfers" bodyClassName="flex flex-col gap-3 px-0 pt-3 pb-0 border-t-0">
         {x.transfers.map((r, i) => (
           <Fieldset key={i} legend={`Transfer ${i + 1}`} columns={2} actions={removeButton('transfers', i, 'Transfer')}>
             <TextField {...rowField('transfers', i, IFIELD.transferFrom, 'from', r.from)} label="From" maxLength={L.transfer.place} />
@@ -494,10 +499,9 @@ export function FactsForm({ editor: e, action, reloadHref }: { editor: Itinerary
           </Fieldset>
         ))}
         {addButton('transfers', 'Transfer', L.transfers)}
-      </div>
+      </Fold>
 
-      <div className="flex flex-col gap-3">
-        <h3 className="m-0 text-base font-semibold text-ink">Activities</h3>
+      <Fold summary="Activities" meta={listMeta(x.activities.length)} open={listOpen.activities} flat id="itin-fold-activities" bodyClassName="flex flex-col gap-3 px-0 pt-3 pb-0 border-t-0">
         {x.activities.map((r, i) => (
           <Fieldset key={i} legend={`Activity ${i + 1}`} columns={2} actions={removeButton('activities', i, 'Activity')}>
             <TextField {...rowField('activities', i, IFIELD.activityName, 'name', r.name)} label="Activity" maxLength={L.activity.name} />
@@ -516,10 +520,9 @@ export function FactsForm({ editor: e, action, reloadHref }: { editor: Itinerary
           </Fieldset>
         ))}
         {addButton('activities', 'Activity', L.activities)}
-      </div>
+      </Fold>
 
-      <div className="flex flex-col gap-3">
-        <h3 className="m-0 text-base font-semibold text-ink">Flights</h3>
+      <Fold summary="Flights" meta={listMeta(x.flights.length)} open={listOpen.flights} flat id="itin-fold-flights" bodyClassName="flex flex-col gap-3 px-0 pt-3 pb-0 border-t-0">
         {x.flights.map((r, i) => (
           <Fieldset key={i} legend={`Flight ${i + 1}`} columns={3} actions={removeButton('flights', i, 'Flight')}>
             <TextField {...rowField('flights', i, IFIELD.flightFrom, 'from', r.from)} label="From" maxLength={L.flight.place} />
@@ -530,7 +533,7 @@ export function FactsForm({ editor: e, action, reloadHref }: { editor: Itinerary
           </Fieldset>
         ))}
         {addButton('flights', 'Flight', L.flights)}
-      </div>
+      </Fold>
 
       <div className="grid gap-4 md:grid-cols-2">
         <AreaField id={id('inclusions')} name="inclusionText" label="Included" hint={originHint(prov, 'inclusions', 'One per line.')} optional rows={5} value={x.inclusions} onChange={(v) => setTop('inclusions', 'inclusions', v)} error={listErr(IFIELD.inclusion, 'Included: at most 60 lines of up to 300 characters')} disabled={!editable} />

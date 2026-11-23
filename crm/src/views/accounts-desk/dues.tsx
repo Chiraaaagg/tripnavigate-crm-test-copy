@@ -1,5 +1,6 @@
 import { Ban, Check, Eye, FlagTriangleRight, CalendarClock } from 'lucide-react';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { StatusBadge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { cn, focusRing } from '@/components/ui/cn';
@@ -12,6 +13,7 @@ import { Select } from '@/components/ui/select';
 import { LoadingRegion, Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DUES_PATH, duesHref } from './address';
+import { duesEveryStatusHref, duesToggleHref } from './r4-address';
 import { basisText, CANCELLATION_TEXT, dayText, DUES_LABEL, DUES_TONE, inr, REPORTED_TEXT } from './labels';
 import { DUES_STATUSES, type DuesFilter, type DuesPage, type DuesRow, type DuesStatus } from './types';
 
@@ -22,6 +24,10 @@ import { DUES_STATUSES, type DuesFilter, type DuesPage, type DuesRow, type DuesS
  * never reduce dues. Accounts see the company, a branch Manager their
  * branches (view only), Sales their own Deals. Filters are links and a GET
  * form, so the address keeps them.
+ *
+ * UX redesign R4 (audit A9): the bare address opens on Overdue plus Due
+ * today (`defaulted`, see r4-address.ts); "Every status" is ?status=all. The
+ * Money in tab strip sits under the header (D5).
  */
 
 export type DuesViewerKind = { kind: 'accounts'; entityName: string } | { kind: 'manager'; branchNames: string[] } | { kind: 'sales' };
@@ -33,6 +39,8 @@ export function DuesPageView({
   branches,
   owners = [],
   after,
+  defaulted = false,
+  sectionTabs,
 }: {
   viewer: DuesViewerKind;
   filter: DuesFilter;
@@ -41,10 +49,14 @@ export function DuesPageView({
   /** Accounts and the Manager: owner filter choices (addendum B2). */
   owners?: Array<{ id: string; name: string }>;
   after?: string | null;
+  /** The bare address: the page shows Overdue plus Due today (r4-address.ts). */
+  defaulted?: boolean;
+  /** R4 (D5): the Money in tab strip, rendered under the header. */
+  sectionTabs?: ReactNode;
 }) {
   const scope = viewer.kind === 'accounts' ? `${viewer.entityName} · all branches` : viewer.kind === 'manager' ? `${viewer.branchNames.join(', ')} · view only` : 'Your deals';
   const statusSet = new Set(filter.status ?? []);
-  const toggle = (s: DuesStatus) => duesHref({ ...filter, status: statusSet.has(s) ? (filter.status ?? []).filter((x) => x !== s) : [...(filter.status ?? []), s] });
+  const toggle = (s: DuesStatus) => duesToggleHref(filter, s);
   return (
     <div className="font-sans text-base text-copy">
       <PageHeader
@@ -59,13 +71,14 @@ export function DuesPageView({
           ) : undefined
         }
       />
+      {sectionTabs}
       <p className="m-0 mb-4 max-w-prose text-copy">
         Dues follow the booking version Accounts approved and count only verified money. A reported payment is not money until Accounts records and verifies it. Overdue means the day after the due date.
       </p>
       <nav aria-label="Filter by status" className="mb-3">
         <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
           <li className="m-0">
-            <Link href={duesHref({ ...filter, status: undefined })} aria-current={statusSet.size === 0 ? 'page' : undefined} className={chip(statusSet.size === 0)}>
+            <Link href={duesEveryStatusHref(filter)} aria-current={statusSet.size === 0 ? 'page' : undefined} className={chip(statusSet.size === 0)}>
               {statusSet.size === 0 ? <Check aria-hidden="true" className="size-3.5" /> : null}
               Every status
             </Link>
@@ -87,7 +100,16 @@ export function DuesPageView({
           </li>
         </ul>
       </nav>
+      {defaulted ? (
+        <p className="m-0 mb-3 text-sm text-quiet">
+          Showing overdue and due today first.{' '}
+          <Link href={duesEveryStatusHref(filter)} className={cn('rounded-chip font-medium text-brand-strong underline underline-offset-4', focusRing)}>
+            Show every status
+          </Link>
+        </p>
+      ) : null}
       <form action={DUES_PATH} method="get" className="mb-5 flex flex-wrap items-end gap-3" aria-label="Find dues">
+        {/* The statuses shown are carried, the default (Overdue plus Due today) too, as the chip links do; "Every status" widens a search. */}
         {(filter.status ?? []).map((s) => (
           <input key={s} type="hidden" name="status" value={s} />
         ))}
@@ -139,7 +161,21 @@ export function DuesPageView({
           <p>Nothing was changed. Reload the page to try again.</p>
         </Notice>
       ) : page.items.length === 0 ? (
-        <EmptyState headingLevel={2} icon={CalendarClock} title="No deals match" description={Object.keys(filter).length ? 'Remove a filter above to see more deals.' : 'Deals with a confirmed booking show here.'} />
+        defaulted ? (
+          <EmptyState
+            headingLevel={2}
+            icon={CalendarClock}
+            title="Nothing overdue or due today"
+            description="No customer payment is overdue or due today."
+            action={
+              <Link href={duesEveryStatusHref(filter)} className={buttonVariants({ variant: 'secondary' })}>
+                Show every status
+              </Link>
+            }
+          />
+        ) : (
+          <EmptyState headingLevel={2} icon={CalendarClock} title="No deals match" description={Object.keys(filter).length ? 'Remove a filter above to see more deals.' : 'Deals with a confirmed booking show here.'} />
+        )
       ) : (
         <>
           {after ? (
@@ -221,7 +257,7 @@ function DuesTable({ rows, showOwner }: { rows: DuesRow[]; showOwner: boolean })
           <TableRow key={r.dealId}>
             <TableCell label="Deal" className="align-top">
               <span className="flex flex-col">
-                <Link href={`/app/deals/${r.dealId}?tab=services#dues`} className={cn('w-fit rounded-chip font-semibold text-brand-strong underline-offset-4 hover:underline', focusRing)}>
+                <Link href={`/app/deals/${r.dealId}?tab=money#dues`} className={cn('w-fit rounded-chip font-semibold text-brand-strong underline-offset-4 hover:underline', focusRing)}>
                   {r.dealReference}
                 </Link>
                 <span className="text-sm text-quiet">

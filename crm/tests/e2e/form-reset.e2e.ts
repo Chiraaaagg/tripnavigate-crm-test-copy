@@ -216,7 +216,7 @@ test.describe('choices stay as shown after a reply', () => {
   });
 
   test('Booking revision: the change type radio stays ticked after a save', async ({ page }) => {
-    await open(page, 'b11-revision-classify');
+    await open(page, 'bookform-revision--finish');
     const radio = page.locator('#bk-class-customer_material');
     await expect(radio).not.toBeChecked();
     await radio.check();
@@ -228,7 +228,7 @@ test.describe('choices stay as shown after a reply', () => {
   });
 
   test('Report a payment: "How they paid" stays chosen after a refusal', async ({ page }) => {
-    await open(page, 'b11-book-payment-claim-refused');
+    await open(page, 'b11-submitted-claim-refused');
     const form = page.getByRole('form', { name: 'Tell Accounts about a payment' });
     const mode = form.getByLabel('How they paid');
     await expect(mode).toHaveValue('bank_transfer');

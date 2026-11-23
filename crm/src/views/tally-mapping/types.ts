@@ -27,4 +27,6 @@ export interface TallyMappingPageView {
   history?: { mappingId: string; items: TallyMappingChange[] | 'error' | null };
   /** This page's address with the company (`?entity=`); History links add `history=<id>`, closing returns here. */
   baseHref?: string;
+  /** Sub-tabs of Settings › Accounts this person may open (Switches, Tally mapping); shown when two or more. */
+  tabs?: Array<{ href: string; label: string; current: boolean }>;
 }

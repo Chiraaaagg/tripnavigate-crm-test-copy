@@ -114,7 +114,9 @@ test.describe('Visa build preview states', () => {
       const main = page.locator('main');
       if (!/queue/.test(state)) await expect(main, state).toContainText('View only. The Visa desk does this work.');
       expect(await main.getByRole('button', { name: /^(Take this task|Save|Confirm applied|Mark as applied|Edit|Add document|Upload)/ }).count(), state).toBe(0);
-      expect(await main.locator('input:not([type=hidden]), select, textarea').count(), `${state}: form controls`).toBe(0);
+      // The queue's search and sort toolbar (UX redesign R3) only narrows the list; it changes no record.
+      expect(await main.locator(':is(input:not([type=hidden]), select, textarea):not([data-slot="queue-toolbar"] *)').count(), `${state}: form controls`).toBe(0);
+      if (/queue/.test(state)) expect(await main.getByRole('link', { name: /^(Review and take|Continue)\b/ }).count(), `${state}: row buttons`).toBe(0);
       expect((await pageText(page)), `${state}: passport number`).not.toMatch(/\b[A-Z]\d{7}\b/);
     }
   });
@@ -201,13 +203,20 @@ test.describe('Visa build preview states', () => {
     await expect(dialog.getByRole('button', { name: 'Confirm applied' })).toBeVisible();
   });
 
-  test('keyboard: the Edit pencil opens the row with focus on its first field and Cancel returns focus to the pencil', async ({ page }) => {
+  test('keyboard: Edit opens the row with focus on its first field and Cancel returns focus to the pencil', async ({ page }) => {
     test.skip(!has('visa-work'), 'No visa-work state.');
     await open(page, 'visa-work');
     const pencil = page.locator('main').getByRole('button', { name: /^Edit/ }).first();
     test.skip((await pencil.count()) === 0, 'No Edit button in visa-work.');
+    // O14 (R3): with another row action, Edit is one menu; its first item is "Edit details".
+    // Read this before Enter: the open menu hides the page (pencil included) from role queries.
+    const isMenu = (await pencil.getAttribute('aria-haspopup')) === 'menu';
     await pencil.focus();
     await page.keyboard.press('Enter');
+    if (isMenu) {
+      await expect(page.getByRole('menuitem').first()).toHaveText('Edit details');
+      await page.keyboard.press('Enter');
+    }
     const focused = await page.evaluate(() => document.activeElement?.tagName.toLowerCase());
     expect(['input', 'select', 'textarea']).toContain(focused);
     const cancel = page.locator('main').getByRole('button', { name: /^Cancel/ }).first();
@@ -227,5 +236,66 @@ test.describe('Visa build preview states', () => {
     await expect(dialog).toContainText('Type the government fee in rupees, more than ₹0.');
     await expect(fee).toHaveValue('₹100');
     await expect(fee).toHaveAttribute('aria-invalid', 'true');
+  });
+});
+
+/**
+ * UX redesign R3 (C2): the Visa and passport queue in the shared work-queue
+ * pattern (design plan 1.2), the same as the Flight and Purchase desks: a
+ * table instead of the card list, pill tabs with counts, one toolbar row,
+ * one row button, and `?show=` addresses unchanged.
+ */
+test.describe('Visa queue (R3 work-queue pattern)', () => {
+  const region = (page: Page) => page.getByRole('region', { name: 'Visa and passport tasks' });
+  const dealsInOrder = async (page: Page) => (await region(page).locator('tbody tr').allInnerTexts()).map((t) => /SYN-JOD-\d+/.exec(t)?.[0]);
+
+  test('columns, one row button where the viewer can act, and no passport number or money', async ({ page }) => {
+    test.skip(!has('visa-queue-all'), 'No visa-queue-all state.');
+    await open(page, 'visa-queue-all');
+    const table = region(page);
+    await expect(table.getByRole('columnheader')).toHaveText(['What', 'Dates', 'Status', 'Next step', 'Who', 'Deal']);
+    await expect(table.getByRole('row').filter({ hasText: 'SYN-JOD-701' }).getByRole('link', { name: /^Continue/ })).toHaveAttribute('href', /\/app\/visa\/[^?]+\?tab=work$/);
+    await expect(table.getByRole('row').filter({ hasText: 'SYN-JOD-702' }).getByRole('link', { name: /^Review and take/ })).toHaveCount(1);
+    const colleague = table.getByRole('row').filter({ hasText: 'SYN-JOD-703' });
+    await expect(colleague).toContainText('Synthetic Visa Two works on this task');
+    await expect(colleague.getByRole('link', { name: /^(Continue|Review and take)/ })).toHaveCount(0);
+    await expect(table.getByRole('row').filter({ hasText: 'SYN-JOD-699' })).toContainText('Nothing waiting');
+    for (const row of await table.locator('tbody tr').all()) await expect(row.locator('[data-slot="status-badge"]')).toHaveCount(1);
+    const text = await pageText(page);
+    expect(text).not.toMatch(/₹\s?\d/);
+    expect(text).not.toMatch(/\b[A-Z]\d{7}\b/);
+  });
+
+  test('old addresses: the tabs keep their exact links; chips toggle and keep the tab', async ({ page }) => {
+    test.skip(!has('visa-queue-chip'), 'No visa-queue-chip state.');
+    await open(page, 'visa-queue-mine');
+    const tabs = page.getByRole('navigation', { name: 'Visa and passport task filters' });
+    await expect(tabs.getByRole('link', { name: /^Not taken/ })).toHaveAttribute('href', '/app/visa');
+    await expect(tabs.getByRole('link', { name: /^Mine/ })).toHaveAttribute('href', '/app/visa?show=mine');
+    await expect(tabs.getByRole('link', { name: /^Mine/ })).toHaveAttribute('aria-current', 'page');
+    await open(page, 'visa-queue-chip');
+    const chip = page.getByRole('navigation', { name: 'Show only' }).getByRole('link', { name: /^Waiting for decision/ });
+    await expect(chip).toHaveAttribute('aria-current', 'page');
+    await expect(chip).toHaveAttribute('href', '/app/visa?show=all');
+    expect(await dealsInOrder(page)).toEqual(['SYN-JOD-703']);
+  });
+
+  test('search and sort narrow and order the rows already on the page', async ({ page }) => {
+    test.skip(!has('visa-queue-search'), 'No visa-queue-search state.');
+    await open(page, 'visa-queue-search');
+    expect(await dealsInOrder(page)).toEqual(['SYN-JOD-701']);
+    await expect(region(page)).toContainText('(of 4 on this tab)');
+    await open(page, 'visa-queue-all');
+    expect(await dealsInOrder(page)).toEqual(['SYN-JOD-699', 'SYN-JOD-702', 'SYN-JOD-701', 'SYN-JOD-703']);
+    await open(page, 'visa-queue-sort-latest');
+    expect(await dealsInOrder(page)).toEqual(['SYN-JOD-701', 'SYN-JOD-702', 'SYN-JOD-699', 'SYN-JOD-703']);
+  });
+
+  test('nothing matches: says so politely and offers the way back to the tab', async ({ page }) => {
+    test.skip(!has('visa-queue-no-match'), 'No visa-queue-no-match state.');
+    await open(page, 'visa-queue-no-match');
+    const status = page.locator('main').getByRole('status').filter({ hasText: 'Nothing matches' });
+    await expect(status).toBeVisible();
+    await expect(status.getByRole('link', { name: 'Clear search and filter' })).toHaveAttribute('href', '/app/visa?show=all');
   });
 });

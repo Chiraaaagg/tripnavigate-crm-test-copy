@@ -22,9 +22,11 @@ import { StatusBadge, type StatusTone } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { cn, focusRing } from '@/components/ui/cn';
 import { Notice } from '@/components/ui/notice';
-import { PageHeader } from '@/components/ui/page-header';
-import type { DealHeaderVM, DealPrimaryAction, DealStatusWord } from '@/modules/deals/workspace-contract';
-import { bitrixNameUnrecognised, formatIst } from '../deal-labels';
+import { Fold } from '@/components/ui/fold';
+import { JumpButton } from '@/components/ui/jump-links';
+import { RecordHeader } from '@/components/ui/record-header';
+import type { DealHeaderVM, DealPrimaryAction, DealStatusWord, DealTab } from '@/modules/deals/workspace-contract';
+import { bitrixNameUnrecognised, formatIst, recordOwnerText } from '../deal-labels';
 import { BitrixName, LateRecordNotice, OwnerValue } from '../list-parts';
 
 /*
@@ -68,32 +70,55 @@ export function DealStatusBadge({ word }: { word: DealStatusWord }) {
 }
 
 /** The one primary action as a link (every kind except Start booking, which is the route's server-action form). */
-function PrimaryLink({ action }: { action: Exclude<DealPrimaryAction, { kind: 'start_booking' }> }) {
+function PrimaryLink({ action, onServicesTab }: { action: Exclude<DealPrimaryAction, { kind: 'start_booking' }>; onServicesTab: boolean }) {
+  // On Services and tasks, "See team tasks" moves to the services list instead of reloading the page (R2).
+  if (action.kind === 'see_team_tasks' && onServicesTab) return <JumpButton targetId="services-sold">{action.label}</JumpButton>;
   return (
-    <Link href={action.href} className={buttonVariants({ variant: 'primary' })}>
+    <Link href={action.href} className={cn(buttonVariants({ variant: 'primary' }), 'h-auto min-h-10 max-w-full py-2 text-left whitespace-normal')}>
       {action.label}
     </Link>
   );
 }
 
-export function DealWorkspaceHeader({ header, startBookingForm, live }: { header: DealHeaderVM; startBookingForm?: ReactNode; live?: ReactNode }) {
+/**
+ * Deal record header (C4 RecordHeader, R2): line 1 back link and Deal
+ * reference; line 2 customer and trip (the one h1), booking status, services
+ * progress, owner, From lead; line 3 "Next:" with the ONE primary action (the
+ * Start booking form is the route's server-action form, so this row is drawn
+ * here with the RecordHeader look). System facts (Bitrix stage, live updates)
+ * are folded under Details. Never carries money.
+ */
+export function DealWorkspaceHeader({
+  header,
+  startBookingForm,
+  live,
+  currentTab,
+}: {
+  header: DealHeaderVM;
+  startBookingForm?: ReactNode;
+  live?: ReactNode;
+  currentTab?: DealTab;
+}) {
   const primary = header.primary;
-  const actions =
-    primary === null ? undefined : primary.kind === 'start_booking' ? (startBookingForm ?? undefined) : <PrimaryLink action={primary} />;
+  const action =
+    primary === null ? undefined : primary.kind === 'start_booking' ? (startBookingForm ?? undefined) : <PrimaryLink action={primary} onServicesTab={currentTab === 'services'} />;
   const actor = header.next.actor;
+  const owner = recordOwnerText(header.owner);
   return (
-    <>
-      <PageHeader
-        eyebrow={<span className="wrap-anywhere">{header.reference}</span>}
+    <div className="mb-4" data-slot="deal-header">
+      <RecordHeader
+        className="mb-0"
+        back={{ href: '/app/deals', label: 'Back to deals' }}
+        recordId={<span className="wrap-anywhere">{header.reference}</span>}
         title={<span className="block wrap-anywhere">{header.title}</span>}
+        owner={owner ?? undefined}
         status={
           <>
             {header.status ? <DealStatusBadge word={header.status.word} /> : null}
-            {header.stage ? (
-              <span className="inline-flex items-center gap-1 text-copy">
-                {/* DA-115: "Stage: {name}"; an unrecognised stage says so without the extra label. */}
-                {bitrixNameUnrecognised(header.stage) ? null : <span className="text-quiet">Stage:</span>}
-                <BitrixName name={header.stage} kind="stage" capitalDetails />
+            {header.servicesProgressText ? (
+              <span className="inline-flex items-center gap-1.5 text-copy">
+                <ListChecks aria-hidden="true" className="size-4 shrink-0 text-faint" />
+                {header.servicesProgressText}
               </span>
             ) : null}
             {header.testRecord ? (
@@ -101,7 +126,8 @@ export function DealWorkspaceHeader({ header, startBookingForm, live }: { header
                 Test record (not from Bitrix)
               </StatusBadge>
             ) : null}
-            <OwnerValue owner={header.owner} withLabel />
+            {/* Waiting for an owner is a status word with an icon (never a name). */}
+            {owner === null ? <OwnerValue owner={header.owner} /> : null}
             {header.leadLink ? (
               <span className="min-w-0 wrap-anywhere text-copy">
                 From lead{' '}
@@ -114,31 +140,33 @@ export function DealWorkspaceHeader({ header, startBookingForm, live }: { header
                 </Link>
               </span>
             ) : null}
-            {live ? <div className="[&_.live-indicator]:m-0">{live}</div> : null}
           </>
         }
-        actions={actions ? <div data-slot="deal-primary">{actions}</div> : undefined}
-        className="mb-3"
       />
-      <div className="mb-4 flex flex-col gap-2.5">
-        <p className="m-0 text-copy" data-slot="deal-next">
-          <span className="font-semibold text-ink">Next:</span> {header.next.text}
-          {actor ? <span className="text-quiet"> · {actor}</span> : null}
-        </p>
-        {primary?.kind === 'start_booking' ? <p className="m-0 text-sm text-quiet">Starts the booking form. Nothing is booked or paid.</p> : null}
-        {header.waitsForWon || header.servicesProgressText ? (
+      <div
+        className="mt-3 flex flex-col gap-2.5 rounded-control border border-line bg-card px-3.5 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+        data-slot="next-step"
+      >
+        <div className="flex min-w-0 flex-col gap-1">
+          <p className="m-0 text-base text-copy" data-slot="deal-next">
+            <span className="font-semibold text-ink">Next: </span>
+            {header.next.text}
+            {actor ? <span className="text-quiet"> · {actor}</span> : null}
+          </p>
+          {primary?.kind === 'start_booking' ? <p className="m-0 text-sm text-quiet">Starts the booking form. Nothing is booked or paid.</p> : null}
+        </div>
+        {action ? (
+          <div className="shrink-0 max-sm:[&>*]:w-full max-sm:[&_button]:w-full" data-slot="deal-primary">
+            {action}
+          </div>
+        ) : null}
+      </div>
+      <div className="mt-2.5 flex flex-col gap-2.5">
+        {header.waitsForWon ? (
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            {header.waitsForWon ? (
-              <StatusBadge tone="neutral" icon={Clock}>
-                Waiting for Won - Payment Received
-              </StatusBadge>
-            ) : null}
-            {header.servicesProgressText ? (
-              <span className="inline-flex items-center gap-1.5 text-copy">
-                <ListChecks aria-hidden="true" className="size-4 shrink-0 text-faint" />
-                {header.servicesProgressText}
-              </span>
-            ) : null}
+            <StatusBadge tone="neutral" icon={Clock}>
+              Waiting for Won - Payment Received
+            </StatusBadge>
           </div>
         ) : null}
         {header.returnNotice ? (
@@ -164,7 +192,18 @@ export function DealWorkspaceHeader({ header, startBookingForm, live }: { header
           </Notice>
         ) : null}
         {header.bitrixLate ? <LateRecordNotice thing="deal" /> : null}
+        {/* The live-update indicator (role="status") stays outside the fold, so an offline or paused state is seen and read out. */}
+        {live ? <div className="[&_.live-indicator]:m-0">{live}</div> : null}
+        {header.stage ? (
+          <Fold summary="Details" className="shadow-none" bodyClassName="flex flex-col gap-2" id="deal-system-details">
+            <p className="m-0 inline-flex flex-wrap items-center gap-1 text-copy">
+              {/* DA-115: "Stage: {name}"; an unrecognised stage says so without the extra label. */}
+              {bitrixNameUnrecognised(header.stage) ? null : <span className="text-quiet">Stage:</span>}
+              <BitrixName name={header.stage} kind="stage" capitalDetails />
+            </p>
+          </Fold>
+        ) : null}
       </div>
-    </>
+    </div>
   );
 }

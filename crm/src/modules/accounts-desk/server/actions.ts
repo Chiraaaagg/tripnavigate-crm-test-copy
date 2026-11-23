@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { asRpcClient } from '@/modules/fulfilment/commands';
 import { readUuid, rupeesToPaise } from '@/modules/fulfilment/forms';
 import { requireStaff } from '@/modules/identity/server/session';
+import { withOptionalReason } from '@/modules/settings/reason';
 import {
   documentLinkTask,
   documentSetCreditLink,
@@ -339,9 +340,14 @@ export async function setCreditNoteLinkAction(_prev: Prev<{ documentId: string }
 // Settings (T6-T7, policy manager)
 // ---------------------------------------------------------------------------
 
-/** Fields: entityId, userId (empty = clear), reason. */
-export async function setExceptionOwnerAction(_prev: Prev<{ changed: boolean }>, formData: FormData): Promise<AccountsDeskActionResult<{ changed: boolean }>> {
+/**
+ * Fields: entityId, userId (empty = clear), reason.
+ * D9 / Q1 (R1): who gets the exception notices is not a finance-mode switch, so the reason is
+ * optional; an empty one is saved as "No reason given" (modules/settings/reason.ts).
+ */
+export async function setExceptionOwnerAction(_prev: Prev<{ changed: boolean }>, input: FormData): Promise<AccountsDeskActionResult<{ changed: boolean }>> {
   const staff = await requireStaff();
+  const formData = withOptionalReason(input);
   const values = typed(formData, [F.userId, F.reason]);
   const entityId = readUuid(formData, F.entityId);
   const rawUser = str(formData, F.userId, 36);
@@ -363,7 +369,10 @@ export async function setExceptionOwnerAction(_prev: Prev<{ changed: boolean }>,
   }
 }
 
-/** Fields: entityId, enabled ('true'|'false'), reason. */
+/**
+ * Fields: entityId, enabled ('true'|'false'), reason.
+ * R1 (lead ruling on Q1): a finance-mode switch; the reason stays required (10 to 500).
+ */
 export async function setTallyExportEnabledAction(_prev: Prev<{ changed: boolean }>, formData: FormData): Promise<AccountsDeskActionResult<{ changed: boolean }>> {
   const staff = await requireStaff();
   const values = typed(formData, [F.reason]);

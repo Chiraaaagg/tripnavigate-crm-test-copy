@@ -24,7 +24,7 @@ import {
   toLeadListRow,
 } from '@/modules/deals/list-model';
 import type { LeadRow } from '@/modules/leads/dto';
-import { dealsHref } from '@/views/staff-views';
+import { dealsHref } from '@/views/deals-list-view';
 
 /* Batch 1 list models (LE-01, DE-01): query string, pager, chips, freshness, names, owner, rows. */
 

@@ -45,11 +45,11 @@ export function noticeHref(
     case 'workspace_row':
       return item.dealReference ? `/app/accounts/records?q=${encodeURIComponent(item.dealReference)}` : '/app/accounts/records';
     // Accounts phase 2 (8.6). Refund requests: the Manager's Approvals tab, the Accounts payout queue, else the
-    // Deal page refund card.
+    // Deal page refund card (UX redesign R2: on the Money tab).
     case 'refund':
       if (item.kind === 'refund_to_approve') return '/app/approvals?tab=refunds';
       if (item.kind === 'refund_payout_due') return '/app/accounts/refunds';
-      return item.dealId ? `/app/deals/${encodeURIComponent(item.dealId)}#refund` : null;
+      return item.dealId ? `/app/deals/${encodeURIComponent(item.dealId)}?tab=money#refunds` : null;
     case 'customer_document':
       return `/app/accounts/documents${dealRef(item)}`;
     case 'supplier_refund':
@@ -57,16 +57,18 @@ export function noticeHref(
     case 'cancellation':
       if (item.kind === 'cancellation_to_approve') return '/app/approvals';
       return item.dealId ? `/app/deals/${encodeURIComponent(item.dealId)}` : null;
-    // Accounts phase 3 (8.6): 40 the Deal documents card, 43 / 44 the Deal messages card (Services tab),
-    // 41 / 42 small balances, 46 Settings > Customer messages (timer state).
+    // Accounts phase 3 (8.6): 40 the Deal documents card (Documents tab since UX redesign R2), 43 / 44 the
+    // Deal messages card (Messages tab since R2), 41 / 42 small balances, 46 Settings > Customer messages
+    // (timer state). The older ?tab=services#... addresses still land on a "Moved to their own tabs" link.
     case 'deal_documents':
-      return `/app/deals/${id}?tab=services#customer-documents`;
+      return `/app/deals/${id}?tab=documents#customer-documents`;
     case 'deal_messages':
-      return `/app/deals/${id}?tab=services#customer-messages`;
+      return `/app/deals/${id}?tab=messages#customer-messages`;
     case 'small_balances':
       return item.kind === 'write_off_to_approve' ? '/app/accounts/small-balances?preset=to_approve' : '/app/accounts/small-balances';
     case 'timer':
-      return '/app/admin/customer-messages';
+      // UX redesign R1: the timer is on the Set-up sub-tab of Customer messages.
+      return '/app/admin/customer-messages?tab=setup';
     // Accounts phase 3, Release B (12): 51 / 54 (and 3 for Accounts) the Deal's changes card (Services tab);
     // 59 / 60 the rate contract.
     case 'deal_changes':

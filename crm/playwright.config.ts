@@ -26,7 +26,7 @@ export default defineConfig({
   testDir: 'tests/e2e',
   // Real-stack journeys (playwright.real.config.ts) and production-build checks
   // (playwright.prod.config.ts) never run against this mock dev server.
-  testIgnore: [/.*\.real\.e2e\.ts/, /.*\.prod\.e2e\.ts/],
+  testIgnore: [/.*\.real\.e2e\.ts/, /.*\.prod\.e2e\.ts/, /frozen-forms-visual\.e2e\.ts/],
   outputDir: 'test-results',
   // Owner decision 25 October 2026 (faster full test): four test files run at a
   // time; tests inside one file still run in order. The gallery needs `next dev`

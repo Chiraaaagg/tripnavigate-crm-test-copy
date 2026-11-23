@@ -385,9 +385,12 @@ export function FlightQueueLoading() {
       <p role="status" aria-live="polite" className="m-0 text-sm font-medium text-quiet">
         Loading flight tasks…
       </p>
+      {/* Same shape as the redesigned queue (R3): header, pill tabs, toolbar row, rows. */}
       <div aria-busy="true" className="flex flex-col gap-4">
         <Skeleton className="h-7 w-40 max-w-full" />
         <Skeleton className="h-4 w-full max-w-xl" />
+        <Skeleton className="h-11 w-72 max-w-full" />
+        <Skeleton className="h-10 w-full" />
         <div className="rounded-card border border-line bg-card shadow-card">
           {Array.from({ length: 4 }, (_, i) => (
             <div key={i} className="flex items-center gap-6 border-b border-line px-4.5 py-4 last:border-b-0 max-sm:flex-col max-sm:items-start max-sm:gap-2">

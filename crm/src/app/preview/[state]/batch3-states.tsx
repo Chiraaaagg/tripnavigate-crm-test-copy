@@ -10,7 +10,7 @@ import { QuotationPage } from '@/views/b12/quote-page';
 import { NewWorkScreen, ReferralDraftLoadErrorView, ReferralDraftNotAvailableView, ReferralDraftScreen, SubjectReferralDraftsSection } from '@/views/b12/referral-views';
 import type { ReferralActions } from '@/views/b12/referral-forms';
 import { ItinerariesListScreen, QuotationsListScreen, WorkListLoading } from '@/views/b12/work-lists';
-import { HomeView } from '@/views/staff-views';
+import { HomeView } from '@/views/home-view';
 import { GALLERY_ITIN_ACTIONS } from './b12-itin-states';
 import { itineraryEditor } from './b12-itin-fixtures';
 import { QUOTE_SCREENS } from './b12-quote-fixtures';
@@ -171,6 +171,12 @@ function afterUnlink(base: ReturnType<typeof draftVM>) {
 const STATES: Record<string, () => ReactNode> = {
   // Lists (QL, IL)
   'b3-quotations-list': () => shell(<QuotationsListScreen page={quotationListPage()} />),
+  // UX redesign R2: chip labels as the real view model writes them ("Open (5)"); the chip shows the count once.
+  'r2-quotations-vm-labels': () => {
+    const page = quotationListPage();
+    const chips = page.filters.chips.map((c) => (c.count === null ? c : { ...c, label: `${c.label} (${c.count})` }));
+    return shell(<QuotationsListScreen page={{ ...page, filters: { ...page.filters, chips } }} />);
+  },
   'b3-quotations-manager-all': () =>
     shell(<QuotationsListScreen page={quotationListPage({ scopeKey: 'all' })} />, '/app/quotations', manager),
   'b3-quotations-ready-to-book': () => shell(<QuotationsListScreen page={quotationListPage({ filter: 'ready_to_book', rows: [QUOTE_ROWS[0]!, READY_TO_BOOK_REFERRAL_ROW] })} />),

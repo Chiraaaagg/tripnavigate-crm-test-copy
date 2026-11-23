@@ -1,5 +1,6 @@
 import { CircleCheck, CircleX, FileWarning, Hourglass, ReceiptText } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
+import { parseTab } from '@/lib/parse-tab';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   DOCUMENT_KIND_LABEL,
@@ -9,25 +10,31 @@ import {
   type AccountsSupplierDocumentsView,
   type SupplierDocumentStatus,
 } from '@/modules/supplier-money/contracts';
-import { DecisionForm, type DecisionAction } from './supplier-forms';
+import type { DecisionAction } from './supplier-forms';
+import type { AccountsSectionViewer } from '@/views/accounts-desk/sections';
 import { CreditLinkButton } from '../accounts-desk/credit-link';
+import { RowDecision } from '../department/row-decision';
 import { formatPaise } from '@/modules/deals/dto';
 import { departmentWord, supplierMoneyFileHref } from './supplier-payments';
-import { AmountAside, byText, dateText, DecisionPanel, Facts, FileLink, ItemCard, ItemList, ListEmpty, ListTabs, Status, whenText } from './supplier-kit';
+import { AmountAside, byText, dateText, Facts, FileLink, ItemCard, ItemList, ListEmpty, ListTabs, Status, whenText } from './supplier-kit';
+import { MoneyOutTabs } from './money-out-tabs';
 
 /*
  * Accounts · Supplier invoices and credit notes (Purchase build). Purchase
  * uploads the supplier's original invoice or credit note on the task; a
  * different Accounts person accepts or returns it. "Missing" lists confirmed
  * services whose trip has ended with no invoice uploaded.
+ *
+ * Redesign R4 (A7): Money out tab strip under the header; one decision row
+ * per document ("Accept document", then "Return with reason" opening the
+ * shared reason dialog). Same action, fields and words.
  */
 
 export const DOCUMENT_TABS: readonly AccountsDocumentTab[] = ['to_review', 'missing', 'all'];
 const TAB_LABEL: Record<AccountsDocumentTab, string> = { to_review: 'To check', missing: 'Missing invoices', all: 'All' };
 
 export function parseDocumentTab(raw: string | string[] | undefined): AccountsDocumentTab {
-  const v = Array.isArray(raw) ? raw[0] : raw;
-  return (DOCUMENT_TABS as readonly string[]).includes(v ?? '') ? (v as AccountsDocumentTab) : 'to_review';
+  return parseTab(raw, DOCUMENT_TABS, 'to_review');
 }
 
 const LOOK: Record<SupplierDocumentStatus, { tone: 'warning' | 'success' | 'danger'; icon: typeof Hourglass }> = {
@@ -41,12 +48,15 @@ export function AccountsSupplierInvoicesPage({
   tab,
   reviewAction,
   creditLinkAction,
+  sectionViewer,
 }: {
   view: AccountsSupplierDocumentsView;
   tab: AccountsDocumentTab;
   reviewAction: DecisionAction;
   /** Accounts phase (contract 7.3 S3): link a credit note to its invoice; absent = not offered. */
   creditLinkAction?: DecisionAction;
+  /** The menu flags (Money out tab strip); absent: no strip. */
+  sectionViewer?: AccountsSectionViewer;
 }) {
   const docs = tab === 'missing' ? [] : view.documents;
   const missing = tab === 'to_review' ? [] : view.missingInvoices;
@@ -58,6 +68,7 @@ export function AccountsSupplierInvoicesPage({
         title="Supplier invoices"
         description="Original supplier invoices and credit notes that Purchase uploaded. Check the number, date and total against the file, then accept or return it."
       />
+      <MoneyOutTabs viewer={sectionViewer} currentHref="/app/accounts/supplier-invoices" />
       <ListTabs label="Supplier invoice filters" basePath="/app/accounts/supplier-invoices" current={tab} defaultTab="to_review" tabs={DOCUMENT_TABS.map((key) => ({ key, label: TAB_LABEL[key] }))} />
       {nothing ? (
         <ListEmpty
@@ -144,23 +155,24 @@ export function AccountsSupplierInvoicesPage({
                           .map((x) => ({ id: x.id, label: `${x.number} · ${formatPaise(x.totalPaise)} · ${x.dealReference}` }))}
                       />
                     ) : null}
-                    {d.canReview ? (
-                      <DecisionPanel title="Accept or return">
-                        <DecisionForm
-                          action={reviewAction}
-                          label={`Check ${DOCUMENT_KIND_LABEL[d.kind].toLowerCase()} ${d.number}`}
-                          fields={{ [SM_FIELD.documentId]: d.id, [SM_FIELD.expectedRowVersion]: d.rowVersion }}
-                          decisionField={SM_FIELD.decision}
-                          reasonField={SM_FIELD.reason}
-                          requestIdField={SM_FIELD.requestId}
-                          approveLabel="Accept document"
-                          approveValue="accept"
-                          returnLabel="Return to Purchase"
-                          approveHelp="Accept when the number, date, total and GST match the file."
-                        />
-                      </DecisionPanel>
-                    ) : d.status === 'uploaded' ? (
-                      <p className="m-0 text-sm text-quiet">Another Accounts colleague checks this. Nobody checks their own upload.</p>
+                    {d.canReview || d.status === 'uploaded' ? (
+                      <RowDecision
+                        recordName={`${DOCUMENT_KIND_LABEL[d.kind].toLowerCase()} ${d.number}`}
+                        action={reviewAction}
+                        fields={{ [SM_FIELD.documentId]: d.id, [SM_FIELD.expectedRowVersion]: d.rowVersion }}
+                        decisionField={SM_FIELD.decision}
+                        reasonField={SM_FIELD.reason}
+                        requestIdField={SM_FIELD.requestId}
+                        approveLabel="Accept document"
+                        approveValue="accept"
+                        help="Accept when the number, date, total and GST match the file."
+                        ret={{
+                          title: `Return ${DOCUMENT_KIND_LABEL[d.kind].toLowerCase()} ${d.number} to ${departmentWord(d.department)}?`,
+                          effect: `It goes back to ${d.uploadedByName ?? 'the colleague who uploaded it'} with your reason, to upload a corrected one.`,
+                          confirmLabel: `Return to ${departmentWord(d.department)}`,
+                        }}
+                        disabledReason={d.canReview ? undefined : 'Another Accounts colleague checks this. Nobody checks their own upload.'}
+                      />
                     ) : null}
                   </ItemCard>
                 );

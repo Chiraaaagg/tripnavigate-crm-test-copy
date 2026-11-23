@@ -6,11 +6,13 @@ import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/compon
 import { cn, focusRing } from '@/components/ui/cn';
 import { Notice } from '@/components/ui/notice';
 import { PageHeader } from '@/components/ui/page-header';
+import { RecordHeader } from '@/components/ui/record-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { DepartmentTaskTabsVM, TaskHistoryVM } from '@/modules/settings/contracts';
 import { VISA_TEXT } from '@/modules/visa/contracts';
 import { formatIst } from '../deal-labels';
-import { InternalTaskLine, TaskBackLink, TaskHistoryPanel, TaskNextLine, TaskTabsNav } from '../department/task-frame';
+import { defaultTaskTab } from '../department/task-default-tab';
+import { InternalTaskLine, TaskHistoryPanel, TaskTabsNav } from '../department/task-frame';
 import type { VisaWorkActions } from './actions';
 import { VisaStatusBadge } from './bits';
 import { ClaimTaskForm } from './claim';
@@ -216,27 +218,22 @@ export function VisaTaskPage({ ws, tabs, actions, history, idProofs, preview }: 
   const current = tabs.current;
   const passport = ws.serviceType === 'passport';
   const taken = ws.assignee.isYou ? 'You' : (ws.assignee.name ?? 'Not taken yet');
-  const primary = ws.canClaim ? (
-    <ClaimTaskForm taskId={ws.taskId} dealId={ws.dealId} action={actions.claim} initialState={preview?.claimState ?? null} />
-  ) : ws.canWork && ws.status.code === 'in_progress' && current !== 'work' ? (
-    <Link href={`${base}?tab=work`} className={buttonVariants({ variant: 'primary', size: 'lg' })}>
-      Continue the applications
-    </Link>
-  ) : null;
+  // UX redesign R3 (C4): "Take this task" stays the existing claim form (beside the title); "Continue the
+  // applications" is the record header's one primary button, with the same label and address as before.
+  const continueWork = ws.canWork && ws.status.code === 'in_progress' && current !== 'work';
   return (
     <div className="font-sans text-base text-copy">
-      <TaskBackLink href="/app/visa">Back to Visa and passport tasks</TaskBackLink>
-      <PageHeader
-        eyebrow={`${passport ? 'Passport task' : 'Visa task'} · ${ws.dealReference}`}
+      {/* UX redesign R3 (C4, owner Q6): the shared record header around the approved Work form. */}
+      <RecordHeader
+        back={{ href: '/app/visa', label: 'Back to Visa and passport tasks' }}
+        recordId={`${passport ? 'Passport task' : 'Visa task'} · ${ws.dealReference}`}
         title={<span className="block wrap-anywhere">{titleOf(ws)}</span>}
-        status={
-          <>
-            <VisaStatusBadge status={ws.status} />
-            <span className="text-copy">Taken by: {taken}</span>
-          </>
-        }
-        actions={primary ?? undefined}
-        className="mb-3"
+        status={<VisaStatusBadge status={ws.status} />}
+        owner={taken}
+        ownerLabel="Taken by"
+        actions={ws.canClaim ? <ClaimTaskForm taskId={ws.taskId} dealId={ws.dealId} action={actions.claim} initialState={preview?.claimState ?? null} /> : undefined}
+        next={{ text: visaNextText(ws), button: continueWork ? { label: 'Continue the applications', href: `${base}?tab=work` } : undefined }}
+        className="mb-4"
       />
       {ws.isManagerView ? (
         <Notice tone="locked" className="mb-4">
@@ -249,11 +246,12 @@ export function VisaTaskPage({ ws, tabs, actions, history, idProofs, preview }: 
           {VISA_TEXT.addedAfterCompletion.replace('{n}', String(ws.addedAfterCompletion)).replace(/^1 travellers added after completion have/, '1 traveller added after completion has')}.
         </Notice>
       ) : null}
-      <TaskNextLine text={visaNextText(ws)}>
+      <div className="mb-4">
         <InternalTaskLine>Internal task. The CRM does not send anything to the embassy or the customer; the desk records what it did.</InternalTaskLine>
-      </TaskNextLine>
+      </div>
       <SummaryCard ws={ws} />
-      <TaskTabsNav basePath={base} tabs={tabs} />
+      {/* D6: the bare address opens Work for the holder, so Details gets "?tab=details". */}
+      <TaskTabsNav basePath={base} tabs={tabs} defaultTab={defaultTaskTab(tabs.tabs, ws.assignee.isYou)} variant="pill" />
       {current === 'work' ? (
         <VisaWorkTab ws={ws} actions={actions} initialPopup={preview?.popup ?? null} initialEditId={preview?.editId ?? null} initialSelected={preview?.selected ?? []} initialSeed={preview?.seed} />
       ) : current === 'files' ? (

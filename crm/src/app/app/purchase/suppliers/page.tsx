@@ -11,6 +11,7 @@ import {
   type SupplierServiceType,
   type SupplierViewer,
 } from '@/modules/suppliers/contracts';
+import { importEntity } from '@/modules/parties/import-access';
 import { createSupplierAction } from '@/modules/suppliers/server/actions';
 import { loadSupplierRegister } from '@/modules/suppliers/server/queries';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
@@ -99,6 +100,10 @@ export default async function SuppliersRoute({ searchParams }: { searchParams: P
       serviceTypes={SERVICES[viewer]}
       entities={entities}
       createAction={entities.length > 0 ? (createSupplierAction as unknown as DecisionAction) : null}
+      // Area tab only (UX redesign R3): rate contracts are read by Purchase, Managers and Accounts; their page decides access.
+      rateContracts={staff.memberships.some((m) => m.roleCode === 'purchase' || m.roleCode === 'manager' || m.roleCode === 'accounts')}
+      // R3 (S14): the in-area import page, for whoever may import the list (application mirror; the database checks again).
+      canImport={importEntity(staff.access, 'supplier').ok}
     />
   );
 }

@@ -4,8 +4,8 @@ import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/ca
 import { cn, focusRing } from '@/components/ui/cn';
 import { EmptyState } from '@/components/ui/empty-state';
 import { formatIst } from '../deal-labels';
+import { RowDecision } from '../department/row-decision';
 import { FF, type ManagerFlightActions } from './actions';
-import { ApproveRejectForm } from './decide-forms';
 import { inr } from './format';
 import type { ManagerFlightFareRow } from './types';
 
@@ -13,8 +13,9 @@ import type { ManagerFlightFareRow } from './types';
  * Manager · Approvals: "Flight fares above budget" (contract 11.1, B6),
  * rows from manager_approvals().flightFares. One row per request: Deal,
  * flights, supplier, this batch's supplier cost, the Deal's flight cost
- * after it and the approved budget; Approve or Return with a reason. The
- * database refuses the requester and the Deal's Flight colleague.
+ * after it and the approved budget; Approve, or Return with a reason in the
+ * shared dialog (redesign R3: the Approvals row template). The database
+ * refuses the requester and the Deal's Flight colleague.
  */
 
 export function FlightFaresApprovals({ rows, actions }: { rows: ManagerFlightFareRow[]; actions: ManagerFlightActions }) {
@@ -23,7 +24,7 @@ export function FlightFaresApprovals({ rows, actions }: { rows: ManagerFlightFar
       <section aria-labelledby="flight-fares-heading">
         <CardHeader>
           <div className="min-w-0">
-            <CardTitle id="flight-fares-heading">Flight fares above budget</CardTitle>
+            <CardTitle id="flight-fares-heading" className="scroll-mt-18">Flight fares above budget</CardTitle>
             <CardDescription>Flight asks you to approve these exact fares before confirming the tickets.</CardDescription>
           </div>
           <Plane aria-hidden="true" className="size-4 text-faint" />
@@ -56,20 +57,22 @@ export function FlightFaresApprovals({ rows, actions }: { rows: ManagerFlightFar
                       {r.requestedByName ? ` by ${r.requestedByName}` : ''}
                     </dd>
                   </dl>
-                  {r.canApprove ? (
-                    <ApproveRejectForm
-                      action={actions.decideFares}
-                      fields={{ [FF.approvalId]: r.approvalId, [FF.expectedRowVersion]: r.rowVersion }}
-                      label={`Decide flight fares for ${r.dealReference}`}
-                      approveLabel="Approve these fares"
-                      rejectLabel="Return"
-                      rejectValue="return"
-                      reasonLabel="Reason for returning"
-                      reasonHint="10 to 500 characters. The Flight colleague reads it."
-                    />
-                  ) : (
-                    <p className="m-0 text-sm text-quiet">You asked for these fares or work on this Deal’s flights, so another Manager decides.</p>
-                  )}
+                  <RowDecision
+                    recordName={`for ${r.dealReference}`}
+                    action={actions.decideFares}
+                    fields={{ [FF.approvalId]: r.approvalId, [FF.expectedRowVersion]: r.rowVersion }}
+                    decisionField={FF.decision}
+                    reasonField={FF.reason}
+                    requestIdField={FF.requestId}
+                    approveLabel="Approve these fares"
+                    help="Approves exactly these fares for these tickets. Flight then confirms the tickets; nothing is paid here."
+                    ret={{
+                      title: `Return the flight fares for ${r.dealReference}?`,
+                      effect: `They go back to ${r.requestedByName ?? 'the Flight colleague'} with your reason. The tickets are not confirmed with these fares.`,
+                      confirmLabel: 'Return to Flight',
+                    }}
+                    disabledReason={r.canApprove ? undefined : 'You asked for these fares or work on this Deal’s flights, so another Manager decides.'}
+                  />
                 </li>
               );
             })}

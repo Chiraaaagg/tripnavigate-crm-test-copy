@@ -6,16 +6,26 @@ import type { DealTab } from '@/modules/deals/workspace-contract';
 import type { BookNowView } from '@/modules/fulfilment/contracts';
 import { StartBookNowForm } from '@/views/b11/book-entry-forms';
 import { SubjectQuotationsCard } from '@/views/b12/quote-page';
-import { DealServicesEmpty, DealServicesUnavailable } from '@/views/deal-services-view';
+import { DealChangesCard, RequestChangeHeaderAction } from '@/views/booking-changes/deal-card';
+import type { ChangeRequestActions } from '@/views/booking-changes/request-block';
+import type { DecisionAction } from '@/views/accounts/supplier-forms';
+import { DealCustomerMessagesCard } from '@/views/customer-messages/deal-card';
+import { DealServicesCard, DealServicesEmpty, DealServicesUnavailable } from '@/views/deal-services-view';
+import { ReportPaymentDialog } from '@/views/deal-workspace/claim-dialog';
+import { MovedCardsNote } from '@/views/deal-workspace/moved-cards';
 import { DealWorkspaceView } from '@/views/deal-workspace/workspace';
 import { StaffShell, type ShellViewer } from '@/views/StaffShell';
 import { previewServicesTabCard, previewServicesView } from './b1-states';
 import { CLAIMS_EMPTY, draftView } from './b11-fixtures';
-import { previewB11SavedAction } from './b11-preview-actions';
+import { previewB11ClaimDuplicateAction, previewB11SavedAction } from './b11-preview-actions';
 import { previewQuoteSavedAction } from './b12-preview-actions';
 import { quoteList } from './b12-quote-fixtures';
 import { PREVIEW_DOCUMENT_ROWS, previewBuiltDeal, previewWorkspaceFromDetail } from './batch1-fixtures';
 import { PreviewLiveIndicator } from './preview-live';
+import * as CF from './acc3-changes-fixtures';
+import * as CA from './acc3-changes-preview-actions';
+import { DEAL_MESSAGES } from './acc3-messages-fixtures';
+import * as MA from './acc3-messages-preview-actions';
 
 /*
  * Direction A Batch 1: Deal workspace (DE-02) review states. Every state is
@@ -31,7 +41,18 @@ import { PreviewLiveIndicator } from './preview-live';
  *   ws-deal-manager[-tab]   Branch Manager assigned to the deal (price reader).
  *   ws-deal-state-*         One state per primary action (DA-20 to DA-31).
  *   ws-deal-error-*         One tab that could not be loaded (SH-06).
+ *   ws-deal-sales-services-full  R2: the whole Services and tasks tab (booking
+ *                           card, services with "Request a change" in its
+ *                           header, changes, pointers to the moved cards).
+ *   ws-deal-sales-money-report-open  R2: the payment report dialog open.
+ * R2 tabs: Overview · Services and tasks · Money · Documents · Messages ·
+ * History. The old `-quotations` state names are kept and open Documents, as
+ * `?tab=quotations` does.
  */
+
+const act = (a: unknown) => a as DecisionAction;
+const CHANGE_ACTIONS: ChangeRequestActions = { create: act(CA.crCreateOk), createAdd: act(CA.crCreateOk), createRemove: act(CA.crCreateOk), resubmit: act(CA.crReasonOk), withdraw: act(CA.crReasonOk), openVersion: act(CA.crOpenVersionOk) };
+const MESSAGE_ACTIONS = { setPrefs: act(MA.cmsgPrefsOk), resend: act(MA.cmsgResendOk), restartWhatsapp: act(MA.cmsgRestartOk) };
 
 const sales: ShellViewer = { displayName: 'Synthetic Sales Delhi A', primaryRole: 'Sales', primaryBranch: 'Delhi', canAdministerStaff: false, canManageGrants: false, canSeeLeads: true };
 const purchase: ShellViewer = { ...sales, displayName: 'Synthetic Purchase Jodhpur', primaryRole: 'Purchase', primaryBranch: 'Jodhpur', canSeeLeads: false, canSeePurchaseTasks: true };
@@ -82,7 +103,12 @@ const NAMED = { state: 'on' as const, names: new Map([[bitrixNameKey(dealStageEn
 const realQuotations = (deal: DealDetail) => (
   <SubjectQuotationsCard list={quoteList({ subjectKind: 'deal', subjectId: deal.id })} subjectId={deal.id} defaultTitle={deal.title} createAction={previewQuoteSavedAction} createVariant="secondary" />
 );
-const startForm = <StartBookNowForm dealId={WS_DEAL_ID} action={previewB11SavedAction} continueHref="/preview/b11-book-travellers" label="Start booking" />;
+/** The Money tab's "Tell Accounts about a payment" (the existing claim panel in a dialog) with a stand-in action. */
+// The stand-in report action refuses as a duplicate reference, so the gallery shows a refusal that keeps the typed input.
+const reportDialog = (view: BookNowView, initialOpen = false) =>
+  view.claims ? <ReportPaymentDialog dealId={WS_DEAL_ID} claims={view.claims} reportAction={previewB11ClaimDuplicateAction} withdrawAction={previewB11SavedAction} initialOpen={initialOpen} /> : undefined;
+
+const startForm = <StartBookNowForm dealId={WS_DEAL_ID} action={previewB11SavedAction} continueHref="/preview/bookform-empty--travellers" label="Start booking" />;
 
 type Read = Omit<DealWorkspaceInput, 'tab' | 'dealId' | 'book' | 'legacyBooking' | 'services' | 'quotations' | 'itinerariesReadable' | 'leadLink'> &
   Partial<Pick<DealWorkspaceInput, 'book' | 'legacyBooking' | 'services' | 'quotations' | 'itinerariesReadable' | 'leadLink'>>;
@@ -92,7 +118,7 @@ const family = (): Record<string, { viewer: ShellViewer; read: Read; servicesFor
   'ws-deal-sales': {
     viewer: sales,
     servicesFor: 'sales-draft',
-    read: { deal: salesDeal, book: { state: 'ok', view: { ...salesDraft, progress: previewServicesView('sales-draft').progress } }, services: { ok: true, view: previewServicesView('sales-draft') }, quotations: quoteList({ subjectKind: 'deal', subjectId: WS_DEAL_ID }), itinerariesReadable: true, leadLink: LEAD_LINK, documents: PREVIEW_DOCUMENT_ROWS, documentsAvailable: true },
+    read: { deal: salesDeal, book: { state: 'ok', view: { ...salesDraft, progress: previewServicesView('sales-draft').progress } }, services: { ok: true, view: previewServicesView('sales-draft') }, quotations: quoteList({ subjectKind: 'deal', subjectId: WS_DEAL_ID }), itinerariesReadable: true, leadLink: LEAD_LINK, documents: PREVIEW_DOCUMENT_ROWS, documentsAvailable: true, messagesListed: true },
   },
   'ws-deal-purchase': {
     viewer: purchase,
@@ -117,6 +143,7 @@ const family = (): Record<string, { viewer: ShellViewer; read: Read; servicesFor
       leadLink: LEAD_LINK,
       documents: PREVIEW_DOCUMENT_ROWS,
       documentsAvailable: true,
+      messagesListed: true,
     },
   },
   'ws-deal-manager': {
@@ -132,16 +159,20 @@ const family = (): Record<string, { viewer: ShellViewer; read: Read; servicesFor
       names: NAMED,
       documents: PREVIEW_DOCUMENT_ROWS,
       documentsAvailable: true,
+      messagesListed: true,
     },
   },
 });
 
-const TABS: DealTab[] = ['overview', 'services', 'quotations', 'documents', 'money', 'history'];
+const TABS: DealTab[] = ['overview', 'services', 'money', 'documents', 'messages', 'history'];
+/** State-name suffixes: every tab, plus the retired `quotations`, which opens Documents (as `?tab=quotations` does). */
+const NAME_TABS = [...TABS, 'quotations'] as const;
 
 function familyState(state: string): ReactNode | null {
   for (const [stem, fam] of Object.entries(family())) {
-    const tab: DealTab | null = state === stem ? 'overview' : TABS.find((t) => state === `${stem}-${t}`) ?? null;
-    if (!tab) continue;
+    const suffix = state === stem ? 'overview' : NAME_TABS.find((t) => state === `${stem}-${t}`) ?? null;
+    if (!suffix) continue;
+    const tab: DealTab = suffix === 'quotations' ? 'documents' : suffix;
     // The builder parses the tab like the route: a tab this viewer may not open renders Overview.
     const ws = previewBuiltDeal({ ...fam.read, stem, tab });
     const current = ws.current;
@@ -151,7 +182,9 @@ function familyState(state: string): ReactNode | null {
           workspace={ws}
           live={<PreviewLiveIndicator />}
           servicesTab={current === 'services' ? previewServicesTabCard(fam.servicesFor) : undefined}
-          quotationsTab={current === 'quotations' ? realQuotations(fam.read.deal) : undefined}
+          documentsTab={current === 'documents' && fam.read.quotations ? realQuotations(fam.read.deal) : undefined}
+          reportPayment={current === 'money' && fam.read.book?.state === 'ok' && fam.read.book.view.claims?.canReport ? reportDialog(fam.read.book.view) : undefined}
+          messagesTab={current === 'messages' ? <DealCustomerMessagesCard data={{ ...DEAL_MESSAGES, dealId: WS_DEAL_ID }} actions={MESSAGE_ACTIONS} /> : undefined}
         />
       </StaffShell>
     );
@@ -215,7 +248,9 @@ const states = (): Record<string, Read> => ({
 
 /** Every state name of this file (a function: the fixtures it reads are built lazily). */
 export const dealWorkspacePreviewStates = (): string[] => [
-  ...['ws-deal-sales', 'ws-deal-purchase', 'ws-deal-noprice', 'ws-deal-manager'].flatMap((stem) => TABS.map((t) => (t === 'overview' ? stem : `${stem}-${t}`))),
+  ...['ws-deal-sales', 'ws-deal-purchase', 'ws-deal-noprice', 'ws-deal-manager'].flatMap((stem) => NAME_TABS.map((t) => (t === 'overview' ? stem : `${stem}-${t}`))),
+  'ws-deal-sales-services-full',
+  'ws-deal-sales-money-report-open',
   ...Object.keys(states()),
   'ws-deal-state-test-record-money',
   'ws-deal-error-history',
@@ -224,6 +259,8 @@ export const dealWorkspacePreviewStates = (): string[] => [
 ];
 
 export function renderDealWorkspaceState(state: string): ReactNode | null {
+  const r2 = r2State(state);
+  if (r2) return r2;
   const fam = familyState(state);
   if (fam) return fam;
   const moneyOf = /^(ws-deal-state-test-record)-money$/.exec(state);
@@ -285,4 +322,51 @@ export function LegacyDealPage({
   const tab = current ?? (services ? 'services' : 'overview');
   const ws = previewWorkspaceFromDetail(detail, { stem, current: tab, leadLink, servicesFirst: servicesFirst ?? Boolean(services), read });
   return <DealWorkspaceView workspace={ws} servicesTab={ws.current === 'services' ? (services ?? <DealServicesEmpty />) : undefined} live={<PreviewLiveIndicator />} />;
+}
+
+/**
+ * R2 composed states: the whole Services and tasks tab of a confirmed Deal
+ * whose owner may ask for a change (design plan SL-22: add a full-tab state
+ * first), and the Money tab with the payment report dialog open.
+ */
+function r2State(state: string): ReactNode | null {
+  const read = family()['ws-deal-sales']!.read;
+  if (state === 'ws-deal-sales-services-full') {
+    const ws = previewBuiltDeal({ ...read, stem: 'ws-deal-sales', tab: 'services' });
+    const changes = { ...CF.DEAL_PAST, dealId: WS_DEAL_ID };
+    const body = (
+      <>
+        <DealServicesCard
+          services={previewServicesView('sales')}
+          intakeHref="/preview/bookform-owner--travellers"
+          linkLabel="Open the booking"
+          headerAction={<RequestChangeHeaderAction changes={changes} actions={CHANGE_ACTIONS} />}
+        />
+        <DealChangesCard changes={changes} viewer="sales" actions={CHANGE_ACTIONS} askInServicesHeader={changes.canRequest} editHref={() => '/preview/acc3-changes-mode'} />
+        <MovedCardsNote
+          links={[
+            { anchor: 'dues', label: 'Customer dues', href: '/preview/ws-deal-sales-money#dues', tabLabel: 'Money' },
+            { anchor: 'refunds', label: 'Refunds', href: '/preview/ws-deal-sales-money#refunds', tabLabel: 'Money' },
+            { anchor: 'customer-documents', label: 'Customer documents', href: '/preview/ws-deal-sales-documents#customer-documents', tabLabel: 'Documents' },
+            { anchor: 'customer-messages', label: 'Messages to customer', href: '/preview/ws-deal-sales-messages#customer-messages', tabLabel: 'Messages' },
+          ]}
+        />
+      </>
+    );
+    return (
+      <StaffShell viewer={sales} currentPath="/app/deals">
+        <DealWorkspaceView workspace={ws} live={<PreviewLiveIndicator />} servicesTab={body} />
+      </StaffShell>
+    );
+  }
+  if (state === 'ws-deal-sales-money-report-open') {
+    const ws = previewBuiltDeal({ ...read, stem: 'ws-deal-sales', tab: 'money' });
+    const view = read.book?.state === 'ok' ? read.book.view : null;
+    return (
+      <StaffShell viewer={sales} currentPath="/app/deals">
+        <DealWorkspaceView workspace={ws} live={<PreviewLiveIndicator />} reportPayment={view ? reportDialog(view, true) : undefined} />
+      </StaffShell>
+    );
+  }
+  return null;
 }

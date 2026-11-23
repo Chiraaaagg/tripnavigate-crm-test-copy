@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
+import { SectionTabs } from '@/components/ui/section-tabs';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import { Acc3DailyCheckItems, type Acc3DailyCheckExtra } from '@/views/accounts-desk/acc3-daily-check';
-import { Acc3AccountsSettings, type Acc3AccountsSettingsActions, type Acc3AccountsSettingsEntity } from '@/views/accounts-desk/acc3-settings';
-import type { DeskResult } from '@/views/accounts-desk/desk-kit';
+import { Acc3AccountsSettings, type Acc3AccountsSettingsActions, type Acc3AccountsSettingsEntity, type Acc3RowKey } from '@/views/accounts-desk/acc3-settings';
+import type { ActionRowPreview } from '@/views/settings/setting-switch-form';
 import { DealCustomerDocumentsCard, type DocActions } from '@/views/customer-documents/deal-card';
 import { DocumentsListView, DocumentsNoAccess } from '@/views/customer-documents/list';
 import type { DealDocs, DocsFilter, DocListPage } from '@/views/customer-documents/types';
@@ -99,19 +100,28 @@ const BRANCHES = [
   { id: 'a0000012-0000-4000-8000-000000000012', name: 'Delhi' },
   { id: 'a0000013-0000-4000-8000-000000000013', name: 'Ahmedabad' },
 ];
-function list(viewer: ShellViewer, filter: DocsFilter, page: DocListPage | 'error', autoBills: boolean | undefined = true) {
-  return shell(viewer, '/app/accounts/documents', <DocumentsListView viewer={viewer === managerViewer ? { kind: 'manager', branchNames: ['Jodhpur'] } : ACCOUNTS} filter={filter} page={page} branches={BRANCHES} autoBills={autoBills} />);
+function list(viewer: ShellViewer, filter: DocsFilter, page: DocListPage | 'error', autoBills: boolean | undefined = true, release = false) {
+  return shell(
+    viewer,
+    '/app/accounts/documents',
+    <DocumentsListView
+      viewer={viewer === managerViewer ? { kind: 'manager', branchNames: ['Jodhpur'] } : ACCOUNTS}
+      filter={filter}
+      page={page}
+      branches={BRANCHES}
+      autoBills={autoBills}
+      releaseAction={release ? act(A.docReleaseOk) : undefined}
+      sectionTabs={release ? <SectionTabs section="money-in" currentHref="/app/accounts/documents" viewer={viewer} /> : undefined}
+    />,
+  );
 }
 
 const SETTINGS_ACTIONS: Acc3AccountsSettingsActions = { setAutoBills: act(A.autoBillsOk), setWriteOff: act(A.writeOffOk), setTallyXml: act(A.tallyXmlOk) };
-function settings(entities: Acc3AccountsSettingsEntity[], actions: Acc3AccountsSettingsActions = SETTINGS_ACTIONS, initial?: Partial<Record<'autoBills' | 'writeOff' | 'tallyXml', DeskResult>>) {
+function settings(entities: Acc3AccountsSettingsEntity[], actions: Acc3AccountsSettingsActions = SETTINGS_ACTIONS, initial?: Partial<Record<Acc3RowKey, ActionRowPreview>>) {
   return inSettings(
     settingsOwner,
     '/app/admin/accounts',
-    <>
-      <PageHeader title="Accounts settings" description="Automatic bills, write-offs and the Tally import file (Accounts phase 3). Each change needs a reason and is recorded." />
-      <Acc3AccountsSettings entities={entities} actions={actions} initial={initial} />
-    </>,
+    <Acc3AccountsSettings entities={entities} actions={actions} initial={initial} />,
   );
 }
 
@@ -121,7 +131,7 @@ function daily(extra: Acc3DailyCheckExtra | null) {
     accountsViewer,
     '/app/accounts/records',
     <div className="flex flex-col gap-5">
-      <PageHeader eyebrow="Accounts" title="Money records" />
+      <PageHeader eyebrow="Accounts" title="Documents and money" />
       <Card>
         <section aria-labelledby="daily-heading">
           <CardHeader>
@@ -142,8 +152,9 @@ function daily(extra: Acc3DailyCheckExtra | null) {
   );
 }
 
-const LIMIT_REFUSED = { ok: false, code: 'invalid_input', message: 'The limit must be between ₹1 and ₹5,000.', field: 'limitRupees' } as DeskResult;
-const NAME_REFUSED = { ok: false, code: 'invalid_input', message: 'Type the company name exactly as Tally shows it before switching the Tally file on.', field: 'companyName' } as DeskResult;
+// R1: the refusals as the confirm dialog shows them (open, typed reason kept, the named field marked).
+const LIMIT_REFUSED: ActionRowPreview = { open: true, reason: 'Owner approved a higher limit (synthetic).', result: { ok: false, message: 'The limit must be between ₹1 and ₹5,000.', fields: ['limitRupees'] } };
+const NAME_REFUSED: ActionRowPreview = { open: true, result: { ok: false, message: 'Type the company name exactly as Tally shows it before switching the Tally file on.', fields: ['companyName'] } };
 
 const states: Record<string, () => ReactNode> = {
   /* Deal page › Customer documents card */
@@ -163,6 +174,9 @@ const states: Record<string, () => ReactNode> = {
   'acc3-bills-list-auto': () => list(accountsViewer, {}, { items: LIST_AUTO_ROWS, nextAfter: null, hasMore: false }),
   'acc3-bills-list-auto-held': () => list(accountsViewer, { autoState: 'held' }, { items: TO_CHECK_ROWS.slice(0, 2), nextAfter: null, hasMore: false }),
   'acc3-bills-list-auto-off': () => list(accountsViewer, {}, { items: LIST_AUTO_ROWS.slice(2), nextAfter: null, hasMore: false }, false),
+  // UX redesign R4 (A10): "Release" on the ready row (checks passed), the Money in tab strip, one page title.
+  'acc3-bills-list-release': () => list(accountsViewer, {}, { items: LIST_AUTO_ROWS, nextAfter: null, hasMore: false }, true, true),
+  'acc3-bills-to-check-release': () => list(accountsViewer, { preset: 'toCheck' }, { items: TO_CHECK_ROWS, nextAfter: null, hasMore: false }, true, true),
   'acc3-bills-list-manager': () => list(managerViewer, {}, { items: LIST_AUTO_ROWS.filter((r) => r.status !== 'draft' && r.branchName === 'Jodhpur'), nextAfter: null, hasMore: false }),
   'acc3-bills-list-no-access': () => shell(purchaseViewer, '/app/accounts/documents', <DocumentsNoAccess />),
 
@@ -171,7 +185,7 @@ const states: Record<string, () => ReactNode> = {
   'acc3-bills-settings-on': () => settings([SETTINGS_ON]),
   'acc3-bills-settings-docs-off': () => settings([SETTINGS_DOCS_OFF]),
   'acc3-bills-settings-unknown': () => settings([SETTINGS_UNKNOWN]),
-  'acc3-bills-settings-saved': () => settings([SETTINGS_ON], SETTINGS_ACTIONS, { autoBills: { ok: true, message: 'Synthetic preview: automatic bills saved with your reason.' } }),
+  'acc3-bills-settings-saved': () => settings([SETTINGS_ON], SETTINGS_ACTIONS, { autoDrafts: { result: { ok: true, message: 'Synthetic preview: automatic bills saved with your reason.' } } }),
   'acc3-bills-settings-limit-refused': () => settings([SETTINGS_ON], { ...SETTINGS_ACTIONS, setWriteOff: act(A.writeOffLimitRefused) }, { writeOff: LIMIT_REFUSED }),
   'acc3-bills-settings-tally-refused': () => settings([SETTINGS_ENTITY], { ...SETTINGS_ACTIONS, setTallyXml: act(A.tallyXmlNoName) }, { tallyXml: NAME_REFUSED }),
 

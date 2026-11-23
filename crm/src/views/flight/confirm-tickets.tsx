@@ -28,6 +28,12 @@ import type { CrsType, FareApproval, FareApprovalSet, FlightFarePreview, FlightS
  * (flight_fare_preview); above budget the Manager approves this exact fare
  * set first. The whole draft lives outside the dialog, so closing it,
  * a refusal or a Manager round trip keeps what was typed.
+ *
+ * O10 (owner, 16 November 2026; design plan 2.4): while flights are ticked
+ * and the Confirm tickets block is out of view, a small bar stays at the
+ * bottom of the screen: "2 flights selected · Confirm tickets". Its button
+ * opens the same popup (or, when it cannot open, moves to the real button and
+ * its reason). The count is announced politely; nothing else changes.
  */
 
 type FareKey = 'basic' | 'k' | 'yq' | 'yr' | 'other' | 'markup' | 'discount';
@@ -80,6 +86,8 @@ export function ConfirmTicketsBar({
   const { selected, clear, replace } = useSelection();
   const reasonId = useId();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const [sectionInView, setSectionInView] = useState(false);
   const [open, setOpen] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
   // Draft (kept while the page is open).
@@ -95,6 +103,16 @@ export function ConfirmTicketsBar({
   const eligible = [...new Set(ticked.flatMap((s) => s.travellers.filter((t) => !t.ticket && !t.held).map((t) => t.seq)))].filter((seq) => travellers.has(seq)).sort((a, b) => a - b);
   const coverOf = (seq: number) => ticked.filter((s) => s.travellers.some((t) => t.seq === seq && !t.ticket && !t.held)).length;
   const reason = blockedReason ?? (ticked.length === 0 ? 'Tick at least one flight in the itinerary first.' : eligible.length === 0 ? 'Everyone on the ticked flights already has a ticket.' : null);
+  const tickedText = `${ticked.length} ${ticked.length === 1 ? 'flight' : 'flights'} selected`;
+
+  // O10: the bar shows only while the Confirm tickets block itself is out of view.
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver((entries) => setSectionInView(entries.some((e) => e.isIntersecting)));
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
   const openDialog = () => {
     setFlash(null);
@@ -134,7 +152,8 @@ export function ConfirmTicketsBar({
   };
 
   return (
-    <section aria-labelledby="confirm-tickets-heading" className="flex flex-col gap-2 rounded-card border border-line bg-card px-4.5 py-4">
+    <>
+    <section ref={sectionRef} id="confirm-tickets" aria-labelledby="confirm-tickets-heading" className="flex flex-col gap-2 rounded-card border border-line bg-card px-4.5 py-4">
       <h2 id="confirm-tickets-heading" className="m-0 text-lg font-semibold text-ink">
         Confirm tickets
       </h2>
@@ -214,6 +233,37 @@ export function ConfirmTicketsBar({
         ) : null}
       </Dialog>
     </section>
+    {/* O10: the count for screen readers, always in the page so each change is announced once. */}
+    <p role="status" aria-live="polite" className="sr-only">
+      {ticked.length > 0 ? tickedText : ''}
+    </p>
+    {ticked.length > 0 && !sectionInView ? (
+      <div data-slot="selection-bar" className="sticky bottom-3 z-30 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-card border border-line bg-card px-4 py-2.5 shadow-raised">
+        <p className="m-0 font-medium text-ink tabular-nums">
+          {tickedText}
+          <span aria-hidden="true" className="text-faint">
+            {' '}
+            ·
+          </span>
+        </p>
+        <Button
+          variant="primary"
+          onClick={() => {
+            if (reason) {
+              // Cannot open now: go to the real button, whose reason is read with it.
+              triggerRef.current?.scrollIntoView({ block: 'center', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+              triggerRef.current?.focus({ preventScroll: true });
+              return;
+            }
+            openDialog();
+          }}
+        >
+          <CheckCheck aria-hidden="true" />
+          Confirm tickets
+        </Button>
+      </div>
+    ) : null}
+    </>
   );
 }
 

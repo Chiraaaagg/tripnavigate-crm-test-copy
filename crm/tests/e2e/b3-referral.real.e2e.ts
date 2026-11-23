@@ -209,10 +209,13 @@ test.describe('Batch 3 referral draft journey (real local stack)', () => {
     const salesContext = await csp.track(browser, 'sales');
     const sales = await signInAndEnrol(salesContext, USERS.sales.email);
 
-    await test.step('sidebar: Quotations and Itineraries for Sales', async () => {
+    await test.step('sidebar: Quotations for Sales; Itineraries is a tab of that page (R2)', async () => {
       const nav = sales.getByRole('navigation', { name: 'Main' });
       await expect(nav.getByRole('link', { name: 'Quotations' })).toHaveAttribute('href', '/app/quotations');
-      await expect(nav.getByRole('link', { name: 'Itineraries' })).toHaveAttribute('href', '/app/itineraries');
+      await expect(nav.getByRole('link', { name: 'Itineraries' })).toHaveCount(0);
+      await sales.goto('/app/quotations');
+      const tabs = sales.locator('main').getByRole('navigation', { name: 'Quotations and itineraries' });
+      await expect(tabs.getByRole('link', { name: 'Itineraries' })).toHaveAttribute('href', '/app/itineraries');
     });
 
     const versionId = await test.step('New quotation → Referral (no Bitrix record yet): name, mobile, title → the editor', async () =>
@@ -296,10 +299,14 @@ test.describe('Batch 3 referral draft journey (real local stack)', () => {
       await expect(sales.locator('main').locator('[data-slot="referral-link"]').filter({ hasText: `Active link: Deal BX-${sourceDealId}` })).toHaveCount(1);
     });
 
-    await test.step('Deal page: "Referral drafts for this deal" lists the draft', async () => {
-      await sales.goto(`/app/deals/${dealId}?tab=quotations`);
-      // Echo-B H1(b): the section region carries the heading name (the table itself has none).
-      await expect(sales.getByRole('region', { name: 'Referral drafts for this deal' })).toContainText(draft.reference, { timeout: 30_000 });
+    await test.step('Deal page: "Referral drafts for this deal" lists the draft (Documents tab; the old Quotations address opens it too)', async () => {
+      // R2: the old Quotations tab is part of Documents; ?tab=quotations is the retired address and must still work.
+      for (const tab of ['documents', 'quotations']) {
+        await sales.goto(`/app/deals/${dealId}?tab=${tab}`);
+        await expect(sales.getByRole('navigation', { name: 'Deal sections' }).getByRole('link', { name: 'Documents' })).toHaveAttribute('aria-current', 'page');
+        // Echo-B H1(b): the section region carries the heading name (the table itself has none).
+        await expect(sales.getByRole('region', { name: 'Referral drafts for this deal' })).toContainText(draft.reference, { timeout: 30_000 });
+      }
     });
 
     await test.step('quotation: Start booking from this quotation binds to the linked deal, then opens the booking', async () => {

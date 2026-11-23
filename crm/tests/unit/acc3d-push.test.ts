@@ -83,12 +83,13 @@ describe('8.6 Release A kinds: text, links, tone', () => {
   });
   it('links open the right page', () => {
     const h = (kind: NoticeKind, link: NoticeLinkKind) => noticeHref({ ...item(kind, {}, link) });
-    expect(h('bill_held', 'deal_documents')).toBe(`/app/deals/${DEAL}?tab=services#customer-documents`);
-    expect(h('message_failed', 'deal_messages')).toBe(`/app/deals/${DEAL}?tab=services#customer-messages`);
+    // UX redesign R2: the documents and messages cards have their own Deal tabs.
+    expect(h('bill_held', 'deal_documents')).toBe(`/app/deals/${DEAL}?tab=documents#customer-documents`);
+    expect(h('message_failed', 'deal_messages')).toBe(`/app/deals/${DEAL}?tab=messages#customer-messages`);
     expect(h('write_off_to_approve', 'small_balances')).toBe('/app/accounts/small-balances?preset=to_approve');
     expect(h('write_off_decided', 'small_balances')).toBe('/app/accounts/small-balances');
     expect(h('boarding_pass_due', 'task')).toBe(`/app/flight/${DEAL}`);
-    expect(h('timer_stalled', 'timer')).toBe('/app/admin/customer-messages');
+    expect(h('timer_stalled', 'timer')).toBe('/app/admin/customer-messages?tab=setup');
   });
   it('urgent kinds pop up; 42 only when returned (stored urgent)', () => {
     expect(NOTICE_TONE.boarding_pass_due).toBe('urgent');

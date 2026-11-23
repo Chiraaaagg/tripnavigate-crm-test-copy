@@ -57,13 +57,14 @@ test.describe('B1 Home and Deals list: accessibility', () => {
 });
 
 // Direction A R0 (19 October 2026): the B1 "My work" counts are shown as Home "What needs you"
-// rows (one button each), only for the roles they apply to (plan T4).
+// rows (one button each), only for the roles they apply to (plan T4). UX redesign R2 (SL-1, SL-19):
+// each button is named for the count, and "What needs you" is the first thing under the greeting.
 const needs = (page: Page) => page.getByRole('region', { name: 'What needs you', exact: true });
 const rowLabels = (page: Page) => needs(page).locator('tbody tr td:first-child');
 const rowCounts = (page: Page) => needs(page).locator('tbody tr td:nth-child(2)');
 
 test.describe('B1 Home: What needs you (the My work counts)', () => {
-  test('Sales sees four rows after the deal counts, each with one button to an existing address', async ({ page }) => {
+  test('Sales sees four rows first, each with one button named for the count to an existing address', async ({ page }) => {
     await open(page, 'home-my-work-sales');
     await expect(rowLabels(page)).toHaveText([
       'Booking drafts you can continue',
@@ -72,16 +73,19 @@ test.describe('B1 Home: What needs you (the My work counts)', () => {
       'Confirmed deals needing a booking (your deals)',
     ]);
     await expect(rowCounts(page)).toHaveText(['3', '1', '2', '4']);
-    await expect(needs(page).getByRole('link', { name: /^Open deals/ })).toHaveCount(4);
+    // Visible words named for the count, then the screen-reader-only row label (text content reads both).
+    await expect(needs(page).getByRole('link')).toHaveText([
+      'Open 3 drafts: Booking drafts you can continue',
+      'Fix 1 booking: Returned by Accounts (your deals)',
+      'Complete 2 drafts: Booking drafts missing details (your deals)',
+      'Start 4 bookings: Confirmed deals needing a booking (your deals)',
+    ]);
     for (const href of await needs(page).getByRole('link').evaluateAll((links) => links.map((a) => a.getAttribute('href')))) {
       expect(href).toBe('/app/deals');
     }
-    const order = await page.evaluate(() => {
-      const deals = document.getElementById('deals-heading');
-      const mine = document.getElementById('needs-heading');
-      return deals && mine ? Boolean(deals.compareDocumentPosition(mine) & Node.DOCUMENT_POSITION_FOLLOWING) : null;
-    });
-    expect(order).toBe(true);
+    // DM-18, SL-19: no "Your deals" counts above the work; the work is the first section.
+    await expect(page.locator('#deals-heading')).toHaveCount(0);
+    expect(await page.locator('main section').first().getAttribute('aria-labelledby')).toBe('needs-heading');
   });
 
   test('Accounts gets "Receipts to verify" and no Sales-only rows; Purchase gets only its own queue', async ({ page }) => {
@@ -92,7 +96,7 @@ test.describe('B1 Home: What needs you (the My work counts)', () => {
     await expect(needs(page)).not.toContainText('missing details');
     await open(page, 'home-my-work-purchase');
     await expect(rowLabels(page)).toHaveText(['Purchase tasks not taken yet, or yours in progress']);
-    await expect(needs(page).getByRole('link', { name: /^Open Purchase tasks/ })).toHaveAttribute('href', '/app/purchase');
+    await expect(needs(page).getByRole('link', { name: /^Open 5 tasks\W+Purchase tasks/ })).toHaveAttribute('href', '/app/purchase');
   });
 
   test('a failed read says counts are unavailable instead of showing zeros', async ({ page }) => {

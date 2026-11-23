@@ -1,23 +1,20 @@
-import { CircleCheck, FlaskConical, ListEnd, Lock, SearchX } from 'lucide-react';
+import { CircleCheck, FlaskConical, ListEnd, Lock, ReceiptText, SearchX, Undo2 } from 'lucide-react';
 import Link from 'next/link';
 import { AccountsClaimsSection, type ClaimActions } from './b11/accounts-claims';
 import { AccountsPackageReview } from './b11/accounts-review';
 import type { ReactNode } from 'react';
 import { StatusBadge } from '@/components/ui/badge';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { cn, focusRing } from '@/components/ui/cn';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Input } from '@/components/ui/input';
+import { Fold } from '@/components/ui/fold';
 import { Notice } from '@/components/ui/notice';
+import { QueueToolbar } from '@/components/ui/queue-toolbar';
+import { RecordHeader, type NextButton } from '@/components/ui/record-header';
+import { StateBlock } from '@/components/ui/state-block';
 import { Tabs } from '@/components/ui/tabs';
-import {
-  ACCOUNTS_DEAL_TAB_LABEL,
-  ACCOUNTS_DEAL_TABS,
-  type AccountsDealTab,
-  accountsDealDefaultTab,
-  parseAccountsDealTab,
-} from '@/modules/settings/contracts';
+import { accountsDealDefaultTab } from '@/modules/settings/contracts';
 import {
   type AccountsDealDetail,
   type AccountsDealLookup,
@@ -32,6 +29,10 @@ import {
   REVIEW_RETURN_BLOCK_TEXT,
 } from '@/modules/finance/contracts';
 import {
+  ACCOUNTS_DEAL_PAGE_TAB_LABEL,
+  ACCOUNTS_DEAL_PAGE_TABS,
+  type AccountsDealPageTab,
+  BILLING_STATUS_LABEL,
   BillingPill,
   EvidenceList,
   FinanceDisclaimer,
@@ -39,11 +40,14 @@ import {
   finDate,
   finDateTime,
   formatInr,
+  isZero,
   maskedDestination,
   MoneyFigures,
+  parseAccountsDealPageTab,
   ReceiptStatusPill,
   REVIEW_STATUS_LABEL,
   ReviewPill,
+  verifyButtonId,
 } from './finance-common';
 import {
   ApproveReviewForm,
@@ -51,10 +55,10 @@ import {
   EvidenceUploadForm,
   type FinanceActions,
   ReceiptActionsPanel,
-  RecordReceiptForm,
   ReturnReviewForm,
   VerifyBillingForm,
 } from './finance-forms';
+import { ReceiptRowAction, RecordReceiptDrawer } from './finance-receipt-forms';
 import { KeepTabInAddress } from './finance-tab-address';
 import { SettingsSectionHeading } from './settings/settings-frame';
 
@@ -171,45 +175,33 @@ export type LookupOutcome = { reference: string; result: AccountsDealLookup | nu
 
 const LINK_CLASS = cn('rounded-chip font-semibold text-brand-strong underline decoration-1 underline-offset-4 hover:text-brand-deep hover:decoration-2', focusRing);
 
-function LookupPanel({ lookup }: { lookup: LookupOutcome }) {
+/**
+ * The result of the one search (R4): the queue's search box asks the server for
+ * the exact reference (accounts_deal_lookup), so a deal that is not in the list
+ * can still be opened, for example to record a receipt.
+ */
+function LookupResult({ lookup }: { lookup: LookupOutcome }) {
+  if (!lookup) return null;
   return (
-    <section className="mb-4 rounded-card border border-line bg-card px-4.5 py-4 font-sans shadow-card" aria-labelledby="fin-lookup-heading">
-      <h2 id="fin-lookup-heading" className="m-0 mb-2 text-lg font-semibold text-ink">
-        Find a deal by reference
-      </h2>
-      <form method="get" action="/app/accounts" role="search" aria-label="Find a deal by exact reference" className="flex flex-col gap-2 sm:flex-row sm:items-end">
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <label htmlFor="fin-lookup-ref" className="text-base font-semibold text-ink">
-            Deal reference
-          </label>
-          <span id="fin-lookup-hint" className="text-sm text-quiet">
-            Find a deal by its exact reference.
-          </span>
-          <Input id="fin-lookup-ref" name="ref" defaultValue={lookup?.reference ?? ''} maxLength={60} autoComplete="off" spellCheck={false} aria-describedby="fin-lookup-hint" required />
-        </div>
-        <Button type="submit" variant="secondary">
-          Find deal
-        </Button>
-      </form>
-      {lookup ? (
-        lookup.result ? (
-          <div className="mt-3" role="status">
-            <p className="m-0">
-              <Link href={`/app/accounts/deals/${lookup.result.dealId}`} className={LINK_CLASS}>
-                {lookup.result.dealReference} · {lookup.result.dealTitle}
-              </Link>
+    <div className="mb-4 rounded-control border border-line bg-card px-3.5 py-3 font-sans" role="status" data-slot="accounts-lookup">
+      {lookup.result ? (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="m-0 font-semibold text-ink wrap-anywhere">
+              {lookup.result.dealReference} · {lookup.result.dealTitle}
             </p>
             <p className="m-0 text-sm text-quiet">
               {lookup.result.branchName} · {lookup.result.hasConfirmedBooking ? 'Has a confirmed booking' : 'No confirmed booking yet; receipts can still be recorded'}
             </p>
           </div>
-        ) : (
-          <p className="m-0 mt-3" role="status">
-            No deal with the exact reference “{lookup.reference}” in your companies. Check the reference and try again.
-          </p>
-        )
-      ) : null}
-    </section>
+          <Link href={`/app/accounts/deals/${lookup.result.dealId}`} className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'shrink-0')}>
+            Open {lookup.result.dealReference}
+          </Link>
+        </div>
+      ) : (
+        <p className="m-0">No deal with the exact reference “{lookup.reference}” in your companies. Check the reference and try again.</p>
+      )}
+    </div>
   );
 }
 
@@ -223,34 +215,33 @@ export function accountsQueueHref(filter: AccountsQueueFilter, after: string | n
 }
 
 /**
- * DA-274: the tabs are filters of one queue, links with aria-current. The
- * count is shown on the open tab only (lead ruling D7: accounts_queue counts
- * the current filter; no extra read for the others).
+ * DA-274 and R4 (C2): the queue filters are chips of one toolbar with the one
+ * search. Every `?filter=` value is kept; the first four chips show and the
+ * rest sit under "More". The count shows on the open filter only (lead ruling
+ * D7: accounts_queue counts the current filter; no extra read for the others).
+ * The search is the exact-reference lookup (`?ref=`), as before.
  */
-function QueueTabs({ current, total }: { current: AccountsQueueFilter; total: number }) {
-  const secondary = QUEUE_FILTERS.filter((f) => !f.tab);
+function QueueBar({ current, total, reference }: { current: AccountsQueueFilter; total: number; reference: string }) {
   return (
-    <div className="mb-4 flex flex-col gap-2">
-      <Tabs
-        label="To check tabs"
-        items={QUEUE_FILTERS.filter((f) => f.tab).map((f) => ({
-          href: accountsQueueHref(f.value),
-          label: f.label,
-          current: f.value === current,
-          count: f.value === current ? total : undefined,
-        }))}
-      />
-      <nav aria-label="More filters" className="flex flex-wrap items-center gap-x-3 gap-y-1 font-sans text-sm text-quiet">
-        <span>More filters:</span>
-        {secondary.map((f) => (
-          <Link key={f.value} href={accountsQueueHref(f.value)} aria-current={f.value === current ? 'page' : undefined} className={cn(LINK_CLASS, 'font-medium aria-[current=page]:font-bold aria-[current=page]:text-ink')}>
-            {f.label}
-            {f.value === current ? <span className="tabular-nums"> ({total})</span> : null}
-          </Link>
-        ))}
-      </nav>
-    </div>
+    <QueueToolbar
+      action="/app/accounts"
+      label="Find a deal to check"
+      chipsLabel="To check filters"
+      search={{ name: 'ref', value: reference, label: 'Find a deal by its exact reference', placeholder: 'Exact deal reference' }}
+      keep={current === DEFAULT_QUEUE_FILTER ? undefined : { filter: current }}
+      chips={QUEUE_FILTERS.map((f) => ({ href: accountsQueueHref(f.value), label: f.label, current: f.value === current, count: f.value === current ? total : undefined }))}
+    />
   );
+}
+
+/** What a queue row asks next, with its one row button (design plan 2.3, To check). */
+export function queueRowNext(i: AccountsQueueItem): { text: string; button: { label: string; tab: AccountsDealPageTab } | null } {
+  if (!isZero(i.money.awaitingVerificationPaise)) return { text: 'A receipt waits for a second Accounts person', button: { label: 'Verify', tab: 'receipts' } };
+  if (i.hasConfirmedBooking && i.billingStatus !== 'verified') return { text: 'Check the billing details', button: { label: 'Review', tab: 'review' } };
+  if (i.reviewStatus === 'pending') return { text: 'Approve or return the booking', button: { label: 'Review', tab: 'review' } };
+  if (i.reviewStatus === 'returned') return { text: 'Sales fixes the returned booking and sends it again', button: null };
+  if (!isZero(i.money.chequesAwaitingClearancePaise)) return { text: 'A cheque waits for bank clearance', button: { label: 'Open', tab: 'receipts' } };
+  return { text: 'Nothing waiting', button: null };
 }
 
 export interface AccountsQueuePaging {
@@ -298,12 +289,15 @@ export function AccountsQueueView({
   filter,
   lookup = null,
   paging,
+  sectionTabs,
 }: {
   items: AccountsQueueItem[];
   filter: AccountsQueueFilter;
   lookup?: LookupOutcome;
   /** Omitted only by callers that already hold the whole queue (totalCount = items.length). */
   paging?: AccountsQueuePaging;
+  /** D5: the To check section tabs, placed under the page header (the page builds them for the viewer). */
+  sectionTabs?: ReactNode;
 }) {
   const label = QUEUE_FILTERS.find((f) => f.value === filter)?.label ?? 'All';
   const page: AccountsQueuePaging = paging ?? { totalCount: items.length, hasMore: false, nextAfter: null, laterPage: false };
@@ -315,8 +309,9 @@ export function AccountsQueueView({
       <FinanceHeader eyebrow="Accounts" title="To check">
         <p>Bookings and payments to check.</p>
       </FinanceHeader>
-      <LookupPanel lookup={lookup} />
-      <QueueTabs current={filter} total={total} />
+      {sectionTabs}
+      <QueueBar current={filter} total={total} reference={lookup?.reference ?? ''} />
+      <LookupResult lookup={lookup} />
       {page.hasMore ? (
         <Notice tone="warning" role="status" className="mb-3">
           <p>
@@ -338,7 +333,7 @@ export function AccountsQueueView({
           <EmptyState icon={CircleCheck} headingLevel={2} title={empty.title} description={empty.text} />
         </Card>
       ) : (
-        <div className="table-scroll">
+        <div className="table-scroll" role="region" aria-label={`Deals to check · ${label}`} tabIndex={0}>
           <table className="stack-table fin-queue">
             <caption>
               {partial ? `Showing ${items.length} of ${total} ${total === 1 ? 'deal' : 'deals'}` : `${items.length} ${items.length === 1 ? 'deal' : 'deals'}`} · {label}
@@ -346,44 +341,55 @@ export function AccountsQueueView({
             <thead>
               <tr>
                 <th scope="col">Deal</th>
-                <th scope="col">Branch</th>
-                <th scope="col">Booking</th>
-                <th scope="col">Billing</th>
-                <th scope="col">Review</th>
                 <th scope="col">Available</th>
                 <th scope="col">Awaiting verification</th>
                 <th scope="col">Cheques awaiting clearance</th>
+                <th scope="col">Status</th>
+                <th scope="col">Next step</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((i) => (
-                <tr key={i.dealId}>
-                  <td data-label="Deal">
-                    <Link href={`/app/accounts/deals/${i.dealId}`}>
-                      <strong>{i.dealReference}</strong>
-                      <span className="visually-hidden"> — open in Accounts</span>
-                    </Link>
-                    <span className="fin-sub">{i.dealTitle}</span>
-                  </td>
-                  <td data-label="Branch">{i.branchName}</td>
-                  <td data-label="Booking">{i.hasConfirmedBooking ? 'Confirmed' : 'No confirmed booking'}</td>
-                  <td data-label="Billing">
-                    <BillingPill status={i.billingStatus} />
-                  </td>
-                  <td data-label="Review">
-                    <ReviewPill status={i.reviewStatus} />
-                  </td>
-                  <td data-label="Available" className="fin-num">
-                    {formatInr(i.money.availablePaise)}
-                  </td>
-                  <td data-label="Awaiting verification" className="fin-num">
-                    {formatInr(i.money.awaitingVerificationPaise)}
-                  </td>
-                  <td data-label="Cheques awaiting clearance" className="fin-num">
-                    {formatInr(i.money.chequesAwaitingClearancePaise)}
-                  </td>
-                </tr>
-              ))}
+              {items.map((i) => {
+                const next = queueRowNext(i);
+                return (
+                  <tr key={i.dealId}>
+                    <td data-label="Deal">
+                      <Link href={`/app/accounts/deals/${i.dealId}`}>
+                        <strong>{i.dealReference}</strong>
+                        <span className="visually-hidden"> — open in Accounts</span>
+                      </Link>
+                      <span className="fin-sub">{i.dealTitle}</span>
+                      <span className="fin-sub">
+                        {i.branchName} · {i.hasConfirmedBooking ? 'Confirmed booking' : 'No confirmed booking'}
+                      </span>
+                    </td>
+                    <td data-label="Available" className="fin-num">
+                      {formatInr(i.money.availablePaise)}
+                    </td>
+                    <td data-label="Awaiting verification" className="fin-num">
+                      {formatInr(i.money.awaitingVerificationPaise)}
+                    </td>
+                    <td data-label="Cheques awaiting clearance" className="fin-num">
+                      {formatInr(i.money.chequesAwaitingClearancePaise)}
+                    </td>
+                    <td data-label="Status">
+                      <ReviewPill status={i.reviewStatus} />
+                      <span className="fin-sub">Billing details: {i.billingStatus ? BILLING_STATUS_LABEL[i.billingStatus].toLowerCase() : 'not entered yet'}</span>
+                    </td>
+                    <td data-label="Next step">
+                      <div className="flex flex-col items-start gap-1.5">
+                        <span className="text-sm text-copy">{next.text}</span>
+                        {next.button ? (
+                          <Link href={`/app/accounts/deals/${i.dealId}?tab=${next.button.tab}`} className={buttonVariants({ variant: 'secondary', size: 'sm' })}>
+                            {next.button.label}
+                            <span className="visually-hidden"> {i.dealReference}</span>
+                          </Link>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           <details className="mt-8 font-sans text-sm text-quiet">
@@ -395,12 +401,6 @@ export function AccountsQueueView({
         </div>
       )}
       <QueuePager filter={filter} paging={page} />
-      <p className="m-0 mt-5 font-sans text-sm text-quiet">
-        Also in Accounts: <Link href="/app/accounts/cash" className={LINK_CLASS}>Open branch cash, deposits and daily counts</Link> ·{' '}
-        <Link href="/app/accounts/destinations" className={LINK_CLASS}>
-          Open company accounts (bank accounts and UPI IDs customers pay into)
-        </Link>
-      </p>
     </>
   );
 }
@@ -457,7 +457,7 @@ function Readiness({ d }: { d: AccountsDealDetail }) {
           {d.billing?.status === 'verified' ? 'Billing details checked' : d.billing ? 'Billing details saved, not checked yet' : 'Billing details not entered'}
         </Check>
         <Check ok={b ? b.reviewStatus === 'approved' : null}>{b ? `Review: ${REVIEW_STATUS_LABEL[b.reviewStatus]}` : 'Review: nothing to review without a confirmed booking'}</Check>
-        <Check ok={null}>Money: see the three separate figures on the Money tab</Check>
+        <Check ok={null}>Money: see the three separate figures on the Receipts tab</Check>
       </ul>
     </section>
   );
@@ -467,7 +467,7 @@ function BookingFacts({ d, actions }: { d: AccountsDealDetail; actions: FinanceA
   const b = d.booking;
   if (!b) {
     return (
-      <section className="fin-card" aria-labelledby="fin-booking">
+      <section id="fin-booking-section" className="fin-card" aria-labelledby="fin-booking">
         <h2 id="fin-booking">Booking and review</h2>
         <p className="m-0">
           This deal has no confirmed booking. There is nothing to review yet. You can still record receipts on the Receipts tab.
@@ -477,7 +477,7 @@ function BookingFacts({ d, actions }: { d: AccountsDealDetail; actions: FinanceA
   }
   const travellers = b.adults === null ? '—' : `${b.adults} ${b.adults === 1 ? 'adult' : 'adults'}${b.children ? `, ${b.children} ${b.children === 1 ? 'child' : 'children'}` : ''}`;
   return (
-    <section className="fin-card" aria-labelledby="fin-booking">
+    <section id="fin-booking-section" className="fin-card" aria-labelledby="fin-booking">
       <div className="panel-header m-0">
         <h2 id="fin-booking" className="m-0">
           Booking and review
@@ -555,7 +555,7 @@ function BookingFacts({ d, actions }: { d: AccountsDealDetail; actions: FinanceA
 function BillingSection({ d, actions }: { d: AccountsDealDetail; actions: FinanceActions }) {
   const b = d.billing;
   return (
-    <section className="fin-card" aria-labelledby="fin-billing">
+    <section id="fin-billing-section" className="fin-card" aria-labelledby="fin-billing">
       <div className="panel-header m-0">
         <h2 id="fin-billing" className="m-0">
           Customer billing details
@@ -652,104 +652,154 @@ function ReceiptDestination({ r }: { r: ReceiptView }) {
   );
 }
 
-function ReceiptCard({
-  r,
+const AWAITING: ReceiptView['status'][] = ['recorded', 'pending_clearance', 'bounced'];
+
+/** Receipts as rows (design plan 2.3): awaiting receipts first, otherwise the order the database gives (newest first). */
+export function orderReceipts(receipts: ReceiptView[]): ReceiptView[] {
+  const awaiting = receipts.filter((r) => AWAITING.includes(r.status));
+  return [...awaiting, ...receipts.filter((r) => !AWAITING.includes(r.status))];
+}
+
+function ReceiptFacts({ r }: { r: ReceiptView }) {
+  return (
+    <dl className="facts fin-receipt-facts">
+      <dt>Received</dt>
+      <dd>
+        {finDate(r.receivedOn)} at {r.branchName}
+        {r.collectorName ? ` · collected by ${r.collectorName}` : ''}
+      </dd>
+      <dt>Payer</dt>
+      <dd>
+        {r.payerName}
+        {r.payerPanMasked ? ` · PAN ${r.payerPanMasked}` : ''}
+        {r.payerMobileMasked ? ` · mobile ${r.payerMobileMasked}` : ''}
+      </dd>
+      {r.reference ? (
+        <>
+          <dt>Reference</dt>
+          <dd className="fin-mono">{r.reference}</dd>
+        </>
+      ) : null}
+      <ReceiptDestination r={r} />
+      {r.mode === 'cheque' ? (
+        <>
+          <dt>Cheque</dt>
+          <dd>
+            No. <span className="fin-mono">{r.chequeNumber ?? '—'}</span> · MICR <span className="fin-mono">{r.micrCode ?? '—'}</span> · dated {finDate(r.chequeDate)}
+            {r.outcomeDate ? ` · outcome on ${finDate(r.outcomeDate)}` : ''}
+          </dd>
+        </>
+      ) : null}
+      <dt>Recorded</dt>
+      <dd>
+        {finDateTime(r.recordedAt)}
+        {r.recordedByName ? ` by ${r.recordedByName}` : ''} · policy version {r.policyVersionNo}
+      </dd>
+      {r.verifiedAt ? (
+        <>
+          <dt>Verified</dt>
+          <dd>
+            {finDateTime(r.verifiedAt)}
+            {r.verifiedByName ? ` by ${r.verifiedByName}` : ''}
+          </dd>
+        </>
+      ) : null}
+      {r.reason ? (
+        <>
+          <dt>Reason</dt>
+          <dd className="prewrap">{r.reason}</dd>
+        </>
+      ) : null}
+      {r.correctsReceiptNo ? (
+        <>
+          <dt>Corrects</dt>
+          <dd>{r.correctsReceiptNo}</dd>
+        </>
+      ) : null}
+      {r.correctedByReceiptNo ? (
+        <>
+          <dt>Corrected by</dt>
+          <dd>{r.correctedByReceiptNo}</dd>
+        </>
+      ) : null}
+    </dl>
+  );
+}
+
+function ReceiptRows({
   d,
   actions,
   destinationOptions,
   destinationOptionsUnavailable,
 }: {
-  r: ReceiptView;
   d: AccountsDealDetail;
   actions: FinanceActions;
   destinationOptions: DestinationOption[];
   destinationOptionsUnavailable: boolean;
 }) {
-  const headingId = `rcpt-${r.receiptId}`;
+  if (d.receipts.length === 0) {
+    return <StateBlock kind="empty" icon={ReceiptText} headingLevel={3} title="No receipts yet" text="No receipts recorded for this deal yet. Use “Record a receipt” at the top when the customer pays." />;
+  }
   return (
-    <li className={`fin-receipt is-${r.status}`} aria-labelledby={headingId}>
-      <div className="fin-receipt-head">
-        <div>
-          <h3 id={headingId} className="m-0">
-            {r.receiptNo} · {RECEIPT_MODE_LABEL[r.mode]}
-          </h3>
-          <p className="offer-meta">Internal receipt number</p>
-        </div>
-        <p className="fin-receipt-amount m-0">{formatInr(r.amountPaise)}</p>
-      </div>
-      <ReceiptStatusPill status={r.status} isCheque={r.mode === 'cheque'} rejection={r.rejectionKind} reversal={r.reversalKind} />
-      <dl className="facts fin-receipt-facts">
-        <dt>Received</dt>
-        <dd>
-          {finDate(r.receivedOn)} at {r.branchName}
-          {r.collectorName ? ` · collected by ${r.collectorName}` : ''}
-        </dd>
-        <dt>Payer</dt>
-        <dd>
-          {r.payerName}
-          {r.payerPanMasked ? ` · PAN ${r.payerPanMasked}` : ''}
-          {r.payerMobileMasked ? ` · mobile ${r.payerMobileMasked}` : ''}
-        </dd>
-        {r.reference ? (
-          <>
-            <dt>Reference</dt>
-            <dd className="fin-mono">{r.reference}</dd>
-          </>
-        ) : null}
-        <ReceiptDestination r={r} />
-        {r.mode === 'cheque' ? (
-          <>
-            <dt>Cheque</dt>
-            <dd>
-              No. <span className="fin-mono">{r.chequeNumber ?? '—'}</span> · MICR <span className="fin-mono">{r.micrCode ?? '—'}</span> · dated {finDate(r.chequeDate)}
-              {r.outcomeDate ? ` · outcome on ${finDate(r.outcomeDate)}` : ''}
-            </dd>
-          </>
-        ) : null}
-        <dt>Recorded</dt>
-        <dd>
-          {finDateTime(r.recordedAt)}
-          {r.recordedByName ? ` by ${r.recordedByName}` : ''} · policy version {r.policyVersionNo}
-        </dd>
-        {r.verifiedAt ? (
-          <>
-            <dt>Verified</dt>
-            <dd>
-              {finDateTime(r.verifiedAt)}
-              {r.verifiedByName ? ` by ${r.verifiedByName}` : ''}
-            </dd>
-          </>
-        ) : null}
-        {r.reason ? (
-          <>
-            <dt>Reason</dt>
-            <dd className="prewrap">{r.reason}</dd>
-          </>
-        ) : null}
-        {r.correctsReceiptNo ? (
-          <>
-            <dt>Corrects</dt>
-            <dd>{r.correctsReceiptNo}</dd>
-          </>
-        ) : null}
-        {r.correctedByReceiptNo ? (
-          <>
-            <dt>Corrected by</dt>
-            <dd>{r.correctedByReceiptNo}</dd>
-          </>
-        ) : null}
-      </dl>
-      <EvidenceList evidence={r.evidence} />
-      {['recorded', 'pending_clearance', 'bounced'].includes(r.status) ? <EvidenceUploadForm dealId={d.dealId} receipt={r} action={actions.uploadEvidenceAction} /> : null}
-      <ReceiptActionsPanel
-        dealId={d.dealId}
-        receipt={r}
-        detail={d}
-        actions={actions}
-        destinationOptions={destinationOptions}
-        destinationOptionsUnavailable={destinationOptionsUnavailable}
-      />
-    </li>
+    <div className="table-scroll" role="region" aria-label={`Receipts of ${d.dealReference}`} tabIndex={0}>
+      <table className="stack-table fin-receipt-rows">
+        <caption className="visually-hidden">Customer receipts, awaiting first, then newest</caption>
+        <thead>
+          <tr>
+            <th scope="col">Receipt</th>
+            <th scope="col">Received</th>
+            <th scope="col">Amount</th>
+            <th scope="col">Status</th>
+            <th scope="col">Proof</th>
+            <th scope="col">Next step</th>
+          </tr>
+        </thead>
+        {orderReceipts(d.receipts).map((r) => {
+          const files = r.evidence.filter((e) => e.status !== 'removed').length;
+          return (
+            <tbody key={r.receiptId} id={`rcpt-${r.receiptId}`} className={`fin-receipt is-${r.status}`}>
+              <tr>
+                <td data-label="Receipt">
+                  <span className="font-semibold whitespace-nowrap text-ink">{r.receiptNo}</span> <span className="text-copy">· {RECEIPT_MODE_LABEL[r.mode]}</span>
+                </td>
+                <td data-label="Received">
+                  <span className="whitespace-nowrap">{finDate(r.receivedOn)}</span>
+                </td>
+                <td data-label="Amount" className="fin-num">
+                  {formatInr(r.amountPaise)}
+                </td>
+                <td data-label="Status">
+                  <ReceiptStatusPill status={r.status} isCheque={r.mode === 'cheque'} rejection={r.rejectionKind} reversal={r.reversalKind} />
+                  <span className="fin-sub">{r.verifiedByName ? `Verified by ${r.verifiedByName}` : r.recordedByName ? `Recorded by ${r.recordedByName}` : 'Recorded'}</span>
+                </td>
+                <td data-label="Proof">{files > 0 ? `${files} ${files === 1 ? 'file' : 'files'}` : <span className="text-quiet">No proof</span>}</td>
+                <td data-label="Next step">
+                  <ReceiptRowAction dealId={d.dealId} receipt={r} actions={actions} />
+                </td>
+              </tr>
+              <tr className="fin-receipt-details">
+                <td colSpan={6}>
+                  <Fold flat summary={<>Details<span className="visually-hidden"> of receipt {r.receiptNo}</span></>} meta="Facts, proof files and other actions">
+                    <ReceiptFacts r={r} />
+                    <EvidenceList evidence={r.evidence} label={`Proof files of ${r.receiptNo}`} />
+                    {AWAITING.includes(r.status) ? <EvidenceUploadForm dealId={d.dealId} receipt={r} action={actions.uploadEvidenceAction} /> : null}
+                    <ReceiptActionsPanel
+                      dealId={d.dealId}
+                      receipt={r}
+                      detail={d}
+                      actions={actions}
+                      destinationOptions={destinationOptions}
+                      destinationOptionsUnavailable={destinationOptionsUnavailable}
+                      inRow
+                    />
+                  </Fold>
+                </td>
+              </tr>
+            </tbody>
+          );
+        })}
+      </table>
+    </div>
   );
 }
 
@@ -758,43 +808,69 @@ function liveSummary(d: AccountsDealDetail): string {
   return live.length === 0 ? 'No payment mode is available yet.' : `Available: ${live.join(', ')}.`;
 }
 
-const NOTHING_WAITING = 'Nothing waiting.';
-
-/** Where the person is sent next (DA-275), in the same order as the default tab. */
-function nextOf(d: AccountsDealDetail): { text: string; tab: AccountsDealTab | null; label: string | null } {
-  const waiting = d.receipts.filter((r) => r.status === 'recorded').length;
-  if (waiting > 0) return { text: 'another Accounts person verifies the receipt', tab: 'receipts', label: waiting === 1 ? 'Open the receipt to verify' : 'Open the receipts to verify' };
-  if (d.billing?.status !== 'verified') return { text: 'check the billing details', tab: 'review', label: 'Check billing details' };
-  if (d.booking?.reviewStatus === 'pending') return { text: 'approve or return the booking', tab: 'review', label: 'Review the booking' };
-  if (d.booking?.reviewStatus === 'returned') return { text: 'Sales fixes the returned booking and sends it again', tab: null, label: null };
-  return { text: NOTHING_WAITING, tab: null, label: null };
-}
-
 /**
- * The open tab: `?tab=` when it is one of the four (server allowlist),
- * otherwise the tab of the next action (accountsDealDefaultTab; lead ruling
- * D6: billing sits on Review). `fromAddress` false = the address had no
- * valid tab.
+ * The open tab: `?tab=` when it is one of the five, an old value through its
+ * alias (`money` → Receipts), otherwise the tab of the next action
+ * (accountsDealDefaultTab; lead ruling D6: billing sits on Review).
+ * `fromAddress` false = the address did not name the open tab exactly.
  */
-export function accountsDealTabOf(d: AccountsDealDetail, tabParam: string | string[] | undefined): { tab: AccountsDealTab; fromAddress: boolean } {
-  const fallback = accountsDealDefaultTab({
+export function accountsDealTabOf(d: AccountsDealDetail, tabParam: string | string[] | undefined): { tab: AccountsDealPageTab; fromAddress: boolean } {
+  // The Batch 4 rule (settings/contracts.ts) answers Receipts or Review; its type also allows the old Money tab.
+  const next = accountsDealDefaultTab({
     receiptsAwaitingVerification: d.receipts.filter((r) => r.status === 'recorded').length,
     billingVerified: d.billing?.status === 'verified',
     reviewWaiting: d.booking?.reviewStatus === 'pending',
   });
-  const tab = parseAccountsDealTab(tabParam, fallback);
-  const raw = Array.isArray(tabParam) ? tabParam[0] : tabParam;
-  return { tab, fromAddress: raw === tab };
+  return parseAccountsDealPageTab(tabParam, parseAccountsDealPageTab(next, 'receipts').tab);
 }
 
-function MoneyTab({
+type HeaderNext = { text: ReactNode; button?: NextButton } | null;
+
+/**
+ * "Next:" in the record header (DA-275, design plan 2.3), in the same order as
+ * the default tab. A receipt this person may verify comes first (the button
+ * jumps to its row on Receipts); a receipt only someone else may verify says
+ * so. When nothing else waits, "Record a receipt" at the top is the one
+ * primary action.
+ */
+export function accountsDealNext(d: AccountsDealDetail, tab: AccountsDealPageTab, hrefOf: (t: AccountsDealPageTab) => string): HeaderNext {
+  const waiting = orderReceipts(d.receipts).filter((r) => r.status === 'recorded');
+  const mine = waiting.find((r) => (r.actions.verify ?? null) === null);
+  if (mine) {
+    return {
+      text: `verify receipt ${mine.receiptNo} (${formatInr(mine.amountPaise)}, ${RECEIPT_MODE_LABEL[mine.mode]})`,
+      button: tab === 'receipts' ? { label: 'Verify receipt', jumpTo: verifyButtonId(mine.receiptId) } : { label: 'Verify receipt', href: hrefOf('receipts') },
+    };
+  }
+  if (waiting.length > 0) {
+    // Nobody approves their own work: the recorder (or the Deal's owner or seller) waits for a colleague.
+    const otherPerson = waiting.every((r) => r.actions.verify === 'own_record' || r.actions.verify === 'deal_conflict');
+    if (otherPerson) return { text: `another Accounts person verifies ${waiting.length === 1 ? 'the receipt' : 'the receipts'} waiting on this deal.` };
+    return {
+      text: `${waiting.length === 1 ? 'the receipt waiting here cannot' : 'the receipts waiting here cannot'} be verified yet; each row says why.`,
+      button: tab === 'receipts' ? undefined : { label: 'Open the receipts', href: hrefOf('receipts') },
+    };
+  }
+  if (d.billing?.status !== 'verified') {
+    return { text: 'check the billing details', button: tab === 'review' ? { label: 'Check billing details', jumpTo: 'fin-billing-section' } : { label: 'Check billing details', href: hrefOf('review') } };
+  }
+  if (d.booking?.reviewStatus === 'pending') {
+    return { text: 'approve or return the booking', button: tab === 'review' ? { label: 'Review the booking', jumpTo: 'fin-booking-section' } : { label: 'Review the booking', href: hrefOf('review') } };
+  }
+  if (d.booking?.reviewStatus === 'returned') return { text: 'Sales fixes the returned booking and sends it again.' };
+  return { text: 'nothing waiting. Record a receipt when the customer pays.' };
+}
+
+function ReceiptsTab({
   d,
+  actions,
   claimActions,
   destinationOptions,
   destinationOptionsUnavailable,
   openClaimId,
 }: {
   d: AccountsDealDetail;
+  actions: FinanceActions;
   claimActions?: ClaimActions;
   destinationOptions: DestinationOption[];
   destinationOptionsUnavailable: boolean;
@@ -802,56 +878,22 @@ function MoneyTab({
 }) {
   return (
     <>
-      <section className="fin-card" aria-labelledby="fin-money-heading">
-        <h2 id="fin-money-heading">Money for this deal</h2>
+      <section className="mb-5" aria-labelledby="fin-money-heading">
+        <h2 id="fin-money-heading" className="visually-hidden">
+          Money for this deal
+        </h2>
         <MoneyFigures money={d.money} headingId="fin-money-heading" />
+      </section>
+      <section className="fin-card" aria-labelledby="fin-receipts">
+        <h2 id="fin-receipts">Customer receipts</h2>
+        <p className="hint">
+          A second Accounts person verifies each receipt; verifying confirms the money arrived, matching the proof. Nothing here refunds the customer or creates an invoice. {liveSummary(d)}
+        </p>
+        <ReceiptRows d={d} actions={actions} destinationOptions={destinationOptions} destinationOptionsUnavailable={destinationOptionsUnavailable} />
       </section>
       {claimActions && d.claims ? (
         <AccountsClaimsSection detail={d} actions={claimActions} destinationOptions={destinationOptions} destinationOptionsUnavailable={destinationOptionsUnavailable} openClaimId={openClaimId} />
       ) : null}
-    </>
-  );
-}
-
-function ReceiptsTab({
-  d,
-  actions,
-  destinationOptions,
-  destinationOptionsUnavailable,
-}: {
-  d: AccountsDealDetail;
-  actions: FinanceActions;
-  destinationOptions: DestinationOption[];
-  destinationOptionsUnavailable: boolean;
-}) {
-  const anyAllowed = Object.values(d.modesAllowed).some(Boolean);
-  return (
-    <>
-      <section className="fin-card" aria-labelledby="fin-receipts">
-        <h2 id="fin-receipts">Customer receipts</h2>
-        <p className="hint">
-          Each receipt needs a second Accounts person to verify it. Nothing here refunds the customer or creates an invoice. {liveSummary(d)}
-        </p>
-        {d.receipts.length === 0 ? (
-          <p>No receipts recorded for this deal yet.</p>
-        ) : (
-          <ol className="fin-receipt-list" aria-label="Receipts, newest first">
-            {d.receipts.map((r) => (
-              <ReceiptCard key={r.receiptId} r={r} d={d} actions={actions} destinationOptions={destinationOptions} destinationOptionsUnavailable={destinationOptionsUnavailable} />
-            ))}
-          </ol>
-        )}
-      </section>
-
-      <section className="fin-card" aria-labelledby="fin-record">
-        <h2 id="fin-record">Record a receipt</h2>
-        {!anyAllowed ? (
-          <Notice tone="warning" className="mb-3" title="No payment mode is available yet.">
-            <p>Payment modes are switched on by the CRM team with the owner’s approval, after the CA confirms the rules. You can still verify receipts that were already recorded.</p>
-          </Notice>
-        ) : null}
-        <RecordReceiptForm detail={d} action={actions.recordReceiptAction} destinationOptions={destinationOptions} destinationOptionsUnavailable={destinationOptionsUnavailable} />
-      </section>
     </>
   );
 }
@@ -886,6 +928,37 @@ function DocumentsTab({ d, documents }: { d: AccountsDealDetail; documents?: Rea
   );
 }
 
+/** Dues and plan: the Deal's Customer dues card (route slot), with the way to the Dues list. */
+function DuesTab({ dues }: { dues?: ReactNode }) {
+  return (
+    <>
+      {dues ?? <StateBlock kind="unknown" title="Dues not shown" text="The dues of this deal are not available here. Open Customer dues to find them." />}
+      <p className="m-0 mt-3 font-sans text-sm text-quiet">
+        Instalments are a plan, not money received. Only verified receipts reduce a due; the Deal’s salesperson follows up.{' '}
+        <Link href="/app/accounts/dues" className={LINK_CLASS}>
+          Open Customer dues
+        </Link>
+      </p>
+    </>
+  );
+}
+
+/** Refunds: the Deal's Refunds card (route slot), with the way to the Refunds list. */
+function RefundsTab({ refunds }: { refunds?: ReactNode }) {
+  return (
+    <>
+      {refunds ?? <StateBlock kind="empty" icon={Undo2} headingLevel={2} title="No refunds on this deal" text="A refund appears here after the branch Manager approves a cancellation or a change." />}
+      <p className="m-0 mt-3 font-sans text-sm text-quiet">
+        Refunds are paid and verified on{' '}
+        <Link href="/app/accounts/refunds" className={LINK_CLASS}>
+          Refunds
+        </Link>
+        ; a different Accounts person verifies each one.
+      </p>
+    </>
+  );
+}
+
 export function AccountsDealView({
   detail,
   actions,
@@ -895,8 +968,10 @@ export function AccountsDealView({
   openClaimId,
   tabParam,
   documents,
-  money,
+  dues,
+  refunds,
   tabHref,
+  recordOpen = false,
 }: {
   detail: AccountsDealDetail;
   actions: FinanceActions;
@@ -908,37 +983,36 @@ export function AccountsDealView({
   destinationOptions?: DestinationOption[];
   /** The company-accounts read was refused; the receipt form says so instead of "none approved". */
   destinationOptionsUnavailable?: boolean;
-  /** Raw `?tab=` from the address (Batch 4 DA-15); allowlisted here, else the tab of the next action. */
+  /** Raw `?tab=` from the address; allowlisted here (old `money` opens Receipts), else the tab of the next action. */
   tabParam?: string | string[];
   /** Documents tab content from the route (traveller ID proofs; Accounts phase 2: customer documents). */
   documents?: ReactNode;
-  /** Accounts phase 2: Money tab content from the route (the Deal's refunds), shown under the money summary. */
-  money?: ReactNode;
+  /** Dues and plan tab content from the route (the Deal's Customer dues card). */
+  dues?: ReactNode;
+  /** Refunds tab content from the route (the Deal's Refunds card); null or absent = none for this viewer. */
+  refunds?: ReactNode;
   /** Preview gallery only: where each tab link points. Routes omit it. */
-  tabHref?: (tab: AccountsDealTab) => string;
+  tabHref?: (tab: AccountsDealPageTab) => string;
+  /** Preview gallery only: the receipt drawer starts open. */
+  recordOpen?: boolean;
 }) {
   const d = detail;
   const { tab, fromAddress } = accountsDealTabOf(d, tabParam);
   const base = `/app/accounts/deals/${d.dealId}`;
-  const hrefOf = (t: AccountsDealTab) => tabHref?.(t) ?? `${base}?tab=${t}`;
-  const next = nextOf(d);
-  // One primary per screen: Review and Receipts carry their own actions, so the
-  // header link to the next action shows only on Money and Documents.
-  const primary =
-    next.tab && next.label && next.tab !== tab && (tab === 'money' || tab === 'documents') ? (
-      <Link href={hrefOf(next.tab)} className={buttonVariants({ variant: 'primary' })}>
-        {next.label}
-      </Link>
-    ) : undefined;
+  const hrefOf = (t: AccountsDealPageTab) => tabHref?.(t) ?? `${base}?tab=${t}`;
+  const next = accountsDealNext(d, tab, hrefOf);
+  const waiting = d.receipts.filter((r) => r.status === 'recorded').length;
+  const b = d.booking;
   return (
     <>
       {fromAddress || tabHref ? null : <KeepTabInAddress tab={tab} />}
-      <FinanceHeader
-        eyebrow={`Accounts · ${d.branchName}`}
+      <RecordHeader
+        back={{ href: '/app/accounts', label: 'To check' }}
+        // The reference stays in the one h1 (as before), so the page name says which deal it is.
         title={<span className="block wrap-anywhere">{`${d.dealReference} · ${d.dealTitle}`}</span>}
         status={
           <>
-            {d.booking ? <ReviewPill status={d.booking.reviewStatus} /> : null}
+            {b ? <ReviewPill status={b.reviewStatus} /> : null}
             <BillingPill status={d.billing?.status ?? null} />
             {d.isSynthetic ? (
               <StatusBadge tone="warning" icon={FlaskConical}>
@@ -947,32 +1021,54 @@ export function AccountsDealView({
             ) : null}
           </>
         }
-        actions={primary ? <div data-slot="accounts-deal-primary">{primary}</div> : undefined}
-      >
-        <p data-slot="accounts-deal-next">
-          {next.tab === null && next.label === null && next.text === NOTHING_WAITING ? (
-            NOTHING_WAITING
-          ) : (
-            <>
-              <span className="font-semibold text-ink">Next:</span> {next.text}
-            </>
-          )}
-        </p>
-        <p className="text-sm">
-          <Link href="/app/accounts" className={LINK_CLASS}>
-            Back to To check
-          </Link>
-        </p>
-      </FinanceHeader>
+        next={next}
+        actions={
+          <div data-slot="accounts-deal-primary">
+            <RecordReceiptDrawer
+              detail={d}
+              action={actions.recordReceiptAction}
+              destinationOptions={destinationOptions}
+              destinationOptionsUnavailable={destinationOptionsUnavailable}
+              primary={!next?.button}
+              defaultOpen={recordOpen}
+            />
+          </div>
+        }
+        details={
+          <dl className="facts m-0">
+            <dt>Branch</dt>
+            <dd>{d.branchName}</dd>
+            <dt>Booking</dt>
+            <dd>{b ? `Confirmed ${finDateTime(b.confirmedAt)}${b.confirmedByName ? ` by ${b.confirmedByName}` : ''} · version ${b.versionNo}` : 'No confirmed booking yet; receipts can still be recorded'}</dd>
+          </dl>
+        }
+        className="mb-3"
+      />
+      <div className="mb-4">
+        <FinanceDisclaimer />
+      </div>
 
-      <Tabs label="Accounts deal sections" className="mb-4" items={ACCOUNTS_DEAL_TABS.map((t) => ({ href: hrefOf(t), label: ACCOUNTS_DEAL_TAB_LABEL[t], current: t === tab }))} />
+      <Tabs
+        variant="pill"
+        label="Accounts deal sections"
+        className="mb-4"
+        items={ACCOUNTS_DEAL_PAGE_TABS.map((t) => ({ href: hrefOf(t), label: ACCOUNTS_DEAL_PAGE_TAB_LABEL[t], current: t === tab, count: t === 'receipts' && waiting > 0 ? waiting : undefined }))}
+      />
 
       <div data-slot="accounts-deal-tab" data-tab={tab}>
-        {tab === 'money' ? (
-          <>
-            <MoneyTab d={d} claimActions={claimActions} destinationOptions={destinationOptions} destinationOptionsUnavailable={destinationOptionsUnavailable} openClaimId={openClaimId} />
-            {money ? <div className="mt-5 flex flex-col gap-5">{money}</div> : null}
-          </>
+        {tab === 'receipts' ? (
+          <ReceiptsTab
+            d={d}
+            actions={actions}
+            claimActions={claimActions}
+            destinationOptions={destinationOptions}
+            destinationOptionsUnavailable={destinationOptionsUnavailable}
+            openClaimId={openClaimId}
+          />
+        ) : tab === 'dues' ? (
+          <DuesTab dues={dues} />
+        ) : tab === 'refunds' ? (
+          <RefundsTab refunds={refunds} />
         ) : tab === 'review' ? (
           <>
             <div className="fin-grid">
@@ -981,8 +1077,6 @@ export function AccountsDealView({
             </div>
             <BillingSection d={d} actions={actions} />
           </>
-        ) : tab === 'receipts' ? (
-          <ReceiptsTab d={d} actions={actions} destinationOptions={destinationOptions} destinationOptionsUnavailable={destinationOptionsUnavailable} />
         ) : (
           <DocumentsTab d={d} documents={documents} />
         )}

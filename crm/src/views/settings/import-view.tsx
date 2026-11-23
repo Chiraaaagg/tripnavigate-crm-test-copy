@@ -1,9 +1,11 @@
 'use client';
 
-import { CircleCheck, FileSpreadsheet, History, Upload } from 'lucide-react';
+import { ChevronRight, CircleCheck, FileSpreadsheet, History, Lock, Upload } from 'lucide-react';
+import Link from 'next/link';
 import { useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { StatusBadge, type StatusTone } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { cn, focusRing } from '@/components/ui/cn';
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/field';
@@ -15,6 +17,7 @@ import { AreaField, SelectField } from '../b11/controls';
 import { newRequestId, ResultBox, useB11Action, type UiResult } from '../b11/form-kit';
 import type { ImportActions, ImportBatchRow, ImportBranchChoice, ImportKind, ImportStatus, ImportSummaryView } from '../booking-form/vn-types';
 import { SupplierImportDetails } from '../suppliers/import-rows';
+import type { ImportIndexRow } from './imports-index';
 import { SettingsSectionHeading } from './settings-frame';
 
 /*
@@ -48,6 +51,7 @@ export function ImportView({
   actions,
   branchChoice = null,
   previewApply,
+  heading = true,
 }: {
   /** Preview gallery: open the apply dialog, optionally with a refusal on screen. */
   previewApply?: { state?: UiResult | null };
@@ -61,6 +65,8 @@ export function ImportView({
   actions: ImportActions;
   /** Customer imports: the branch choice (Echo-A M1). Absent for hotel imports. */
   branchChoice?: ImportBranchChoice | null;
+  /** R3 (S14): false when the page frame already names the import (Suppliers › Import suppliers); default: the Settings heading. */
+  heading?: boolean;
 }) {
   const w = KIND_WORD[kind];
   const [validateState, validateAction] = useB11Action(actions.validate);
@@ -101,8 +107,8 @@ export function ImportView({
   const canApplyNow = canApply && summary?.status === 'validated' && !summary.applyBlockedReason && summary.counts.creates + summary.counts.updates > 0;
   return (
     <div className="flex flex-col gap-5 font-sans text-base text-copy">
-      <SettingsSectionHeading description={`Add or update the stored ${w.many} from a CSV file. Nothing is saved until you apply.`}>Import {w.many}</SettingsSectionHeading>
-      {kindLinks.length > 1 ? <Tabs label="What to import" items={kindLinks.map((k) => ({ href: k.href, label: k.label, current: k.current }))} /> : null}
+      {heading ? <SettingsSectionHeading description={`Add or update the stored ${w.many} from a CSV file. Nothing is saved until you apply.`}>Import {w.many}</SettingsSectionHeading> : null}
+      {kindLinks.length > 1 ? <Tabs label="What to import" variant="pill" items={kindLinks.map((k) => ({ href: k.href, label: k.label, current: k.current }))} /> : null}
 
       <Card>
         <CardHeader>
@@ -485,8 +491,56 @@ export function RateSheetImportFrame({ kindLinks, children }: { kindLinks: Array
   return (
     <div className="flex flex-col gap-5 font-sans text-base text-copy">
       <SettingsSectionHeading description="Rate contracts from a supplier's rate sheet. Nothing is saved until you import, and every contract starts as a draft for a Manager to approve.">Import rate sheets</SettingsSectionHeading>
-      {kindLinks.length > 1 ? <Tabs label="What to import" items={kindLinks.map((k) => ({ href: k.href, label: k.label, current: k.current }))} /> : null}
+      {kindLinks.length > 1 ? <Tabs label="What to import" variant="pill" items={kindLinks.map((k) => ({ href: k.href, label: k.label, current: k.current }))} /> : null}
       {children}
+    </div>
+  );
+}
+
+/**
+ * Settings › Imports index (UX redesign R1): the address without ?kind=. One
+ * row per list with what it does and whether this person may import it; each
+ * row opens that list's page (the same ?kind= addresses as before). Access is
+ * decided again by each page and by the database on every step.
+ */
+export function ImportsIndexView({ entries }: { entries: ImportIndexRow[] }) {
+  return (
+    <div className="flex flex-col gap-5 font-sans text-base text-copy">
+      <SettingsSectionHeading description="Lists from a CSV file saved in Excel: check the file first, then import with a reason. Nothing is saved until you import.">Imports</SettingsSectionHeading>
+      <Card>
+        <ul className="m-0 flex list-none flex-col p-0" aria-label="What you can import">
+          {entries.map((e) => (
+            <li key={e.kind} className="m-0 border-b border-line last:border-b-0" data-kind={e.kind}>
+              <Link
+                href={e.href}
+                className={cn('group flex items-center gap-3 px-4.5 py-3.5 no-underline hover:bg-wash', focusRing, 'focus-visible:-outline-offset-2')}
+              >
+                <FileSpreadsheet aria-hidden="true" className="size-4 shrink-0 text-faint" />
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="font-semibold text-brand-strong group-hover:text-brand-deep">{e.label}</span>
+                  <span className="text-sm text-copy">
+                    {e.line}
+                  </span>
+                  <span className="flex items-start gap-1.5 text-sm text-quiet">
+                    {e.blockedText ? (
+                      <>
+                        <Lock aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+                        {e.blockedText}
+                      </>
+                    ) : (
+                      <>
+                        <CircleCheck aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+                        You can import this list.
+                      </>
+                    )}
+                  </span>
+                </span>
+                <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-quiet" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </Card>
     </div>
   );
 }

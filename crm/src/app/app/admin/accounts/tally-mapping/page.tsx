@@ -3,6 +3,7 @@ import { loadTallyExports, loadTallyMapping, loadTallyMappingHistory } from '@/m
 import { setTallyMappingAction } from '@/modules/accounts-desk/server/actions';
 import { requireStaff } from '@/modules/identity/server/session';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
+import { accountsSettingsTabs } from '@/views/tally-mapping/labels';
 import { TallyMappingNoAccess, TallyMappingView } from '@/views/tally-mapping/mapping';
 import type { TallyMappingPageView } from '@/views/tally-mapping/types';
 
@@ -18,6 +19,7 @@ const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
  * are the ones the viewer exports Tally for; `?entity=` picks one and
  * `?history=<mappingId>` opens that row's history (read here, on the server).
  * Every save is the database's tally_mapping_set with the person's reason.
+ * UX redesign R1: shown as the Tally mapping sub-tab of Settings › Accounts.
  */
 export default async function TallyMappingRoute({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const staff = await requireStaff();
@@ -34,7 +36,10 @@ export default async function TallyMappingRoute({ searchParams }: { searchParams
     historyId && UUID.test(historyId) ? loadTallyMappingHistory(staff, historyId).catch(() => 'error' as const) : Promise.resolve(undefined),
   ]);
   if (list === null) return <TallyMappingNoAccess />;
+  // R1: Settings › Accounts sub-tabs. "Switches" for a Super Admin (that page shows read only to one who also holds Accounts).
+  const superAdmin = staff.memberships.some((m) => m.roleCode === 'super_admin');
   const view: TallyMappingPageView = {
+    tabs: accountsSettingsTabs({ switches: superAdmin, mapping: true, current: 'mapping', mappingHref: baseHref }),
     entityName: current.name,
     entities: entities.length > 1 ? entities.map((e) => ({ id: e.entityId, name: e.name, href: `${PATH}?entity=${e.entityId}`, current: e.entityId === current.entityId })) : undefined,
     list,

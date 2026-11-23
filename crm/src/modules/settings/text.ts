@@ -10,7 +10,7 @@ import type { WorkflowSettingKey } from '@/modules/fulfilment/contracts';
 export const SETTINGS_TEXT = {
   // DA-251
   title: 'Settings',
-  frameLine: 'Changes here affect every branch. Live changes need the owner’s APPROVE first; write it in the reason.',
+  // R1: the frame's approval line moved to the Overview (SETTINGS_AREA_LINE.overview in contracts.ts) and into each change dialog.
   frameReadOnly: 'You can view these settings but not change them.',
   // DA-253
   readOnlyLine: 'Changed by the CRM team with the owner’s approval, not here.',
@@ -40,6 +40,13 @@ export const SETTINGS_TEXT = {
   pending: 'Saving…',
   resultChanged: '{switch} is now {state}. Recorded with your name and reason.',
   resultUnchanged: '{switch} was already {state}. Nothing changed.',
+  // R1, owner answer D9: the reason may be left empty ("No reason given" is saved); change, person and time stay recorded.
+  resultChangedNoReason: '{switch} is now {state}. Recorded with your name and the time (no reason given).',
+  recordedWithReason: 'Recorded with your name and reason.',
+  recordedNoReason: 'Recorded with your name and the time (no reason given).',
+  reasonOptionalLabel: 'Reason',
+  reasonOptionalHint: 'Leave it empty, or write 10 to 500 characters. The change, your name and the time are kept either way. If the owner approved it, write that here.',
+  reasonRequiredHint: '10 to 500 characters, saved with your name. Write the owner’s APPROVE here.',
   refusedReason: 'Not saved: say why, in 10 to 500 characters.',
   refusedReview: 'Not saved: review the change first. Nothing was changed.',
   refusedNotAuthorized: 'Only a Super Admin can change this. Nothing was changed.',

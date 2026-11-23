@@ -132,7 +132,8 @@ describe('8.3 / 8.6 new kinds: templates and links', () => {
     const href = (kind: NoticeItemDTO['kind'], link: NoticeItemDTO['link']) => noticeHref({ kind, link, dealId, department: null, dealReference: 'BX-1001' });
     expect(href('refund_to_approve', { kind: 'refund', id })).toBe('/app/approvals?tab=refunds');
     expect(href('refund_payout_due', { kind: 'refund', id })).toBe('/app/accounts/refunds');
-    expect(href('refund_paid', { kind: 'refund', id })).toBe(`/app/deals/${dealId}#refund`);
+    // UX redesign R2: the refunds card is on the Deal's Money tab.
+    expect(href('refund_paid', { kind: 'refund', id })).toBe(`/app/deals/${dealId}?tab=money#refunds`);
     expect(href('document_to_release', { kind: 'customer_document', id })).toBe('/app/accounts/documents?dealReference=BX-1001');
     expect(href('supplier_refund_due', { kind: 'supplier_refund', id })).toBe('/app/accounts/refunds');
     expect(href('cancellation_to_approve', { kind: 'cancellation', id })).toBe('/app/approvals');

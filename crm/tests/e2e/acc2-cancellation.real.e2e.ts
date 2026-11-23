@@ -137,7 +137,8 @@ test('4. Flight and Visa cancellation', async ({ browser }) => {
   // "Received (verified)" (round-3 flake). The Deal's refund card shows the verified receipt.
   await acc.page.reload();
   await expect(acc.page.getByText(ref)).toHaveCount(0);
-  await acc.page.goto(`/app/accounts/deals/${dealId}?tab=money`);
+  // R4: the refund cards sit on the Accounts deal page's Refunds tab.
+  await acc.page.goto(`/app/accounts/deals/${dealId}?tab=refunds`);
   const supplierRefunds = acc.page.getByRole('region', { name: 'Refunds expected from suppliers' });
   await expect(supplierRefunds.getByText('All received', { exact: true })).toBeVisible();
   await expect(supplierRefunds.getByRole('list', { name: /^Refunds received for / }).getByText('Verified', { exact: true })).toBeVisible();

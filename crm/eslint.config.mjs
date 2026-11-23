@@ -22,8 +22,8 @@ const config = [
               // Toast viewport, ...) server-render style attributes or un-nonced style tags.
               // Use the native controls and own components in src/components/ui instead.
               name: 'radix-ui',
-              allowImportNames: ['Dialog', 'DropdownMenu', 'Tooltip', 'Slot', 'Popover'],
-              message: 'Only Radix Dialog, DropdownMenu, Tooltip, Popover and Slot are allowed (CSP); see src/components/ui.',
+              allowImportNames: ['Dialog', 'AlertDialog', 'Collapsible', 'DropdownMenu', 'Tooltip', 'Slot', 'Popover'],
+              message: 'Only Radix Dialog, AlertDialog, Collapsible, DropdownMenu, Tooltip, Popover and Slot are allowed (CSP); see src/components/ui.',
             },
           ],
           // Relative and extension-suffixed specifiers reach the same module.

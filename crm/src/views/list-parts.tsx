@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { StatusBadge } from '@/components/ui/badge';
 import { cn, focusRing } from '@/components/ui/cn';
 import { Notice } from '@/components/ui/notice';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { BitrixNameVM, ListFiltersVM, ListFreshnessVM, ListPagerVM, RecordOwnerVM } from '@/modules/deals/workspace-contract';
 import {
   type BitrixCodeKind,
@@ -174,4 +175,64 @@ export function LateRecordNotice({ thing }: { thing: 'deal' | 'lead' }) {
 export function nothingVisible(shown: number, filters: ListFiltersVM<string>, pager: ListPagerVM): boolean {
   const current = filters.chips.find((c) => c.current)?.filter ?? 'all';
   return shown === 0 && !pager.previousHref && !pager.nextHref && current === 'all';
+}
+
+/**
+ * UX redesign R2 (C2, owner choice A: the CRM table and filter chips with the
+ * toolbar layout of olewandowski1 Search Toolbar Page Header, pattern only):
+ * one row on wide screens, in reading and keyboard order: search, filter
+ * chips, order. Stacks on narrow screens. Layout only; each part keeps its
+ * own behaviour (chips and order are links, the search box its own form).
+ */
+export function ListToolbar({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={cn('flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-start', className)} data-slot="list-toolbar">
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Loading state of a list page (route loading file): a visually hidden level-1
+ * heading (the real one replaces it), one polite "Loading …" line, then grey
+ * shapes in the page's own layout: title, one line, the toolbar row (search,
+ * chips, order) and table rows. The shapes are hidden from screen readers, the
+ * placeholder area is busy, and the pulse stops under reduced motion.
+ */
+export function ListLoading({ title, noun, withOrder = false }: { title: string; noun: string; withOrder?: boolean }) {
+  return (
+    <div className="flex flex-col gap-4 font-sans">
+      <h1 className="sr-only">{title}</h1>
+      <p role="status" aria-live="polite" className="m-0 text-sm font-medium text-quiet">
+        Loading {noun}…
+      </p>
+      <div aria-busy="true" className="flex flex-col gap-4">
+        <Skeleton className="h-7 w-40 max-w-full" />
+        <Skeleton className="h-4 w-full max-w-xl" />
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center" data-slot="list-toolbar-loading">
+          <Skeleton className="h-10 w-full max-w-md rounded-control lg:w-96" />
+          <div className="flex flex-wrap gap-2">
+            <Skeleton className="h-9 w-44 rounded-control" />
+            <Skeleton className="h-9 w-32 rounded-control" />
+            <Skeleton className="h-9 w-36 rounded-control max-sm:hidden" />
+          </div>
+          {withOrder ? <Skeleton className="h-9 w-56 max-w-full rounded-control lg:ml-auto" /> : null}
+        </div>
+        <div className="rounded-card border border-line bg-card shadow-card">
+          <div className="border-b border-line px-4.5 py-3">
+            <Skeleton className="h-4 w-56 max-w-full" />
+          </div>
+          {Array.from({ length: 6 }, (_, i) => (
+            <div key={i} className="flex items-center gap-6 border-b border-line px-4.5 py-4 last:border-b-0 max-sm:flex-col max-sm:items-start max-sm:gap-2">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-4 w-48 max-w-full flex-1 max-sm:flex-none" />
+              <Skeleton className="h-4 w-16 max-sm:hidden" />
+              <Skeleton className="h-4 w-20 max-sm:hidden" />
+              <Skeleton className="h-4 w-32 max-sm:w-40" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }

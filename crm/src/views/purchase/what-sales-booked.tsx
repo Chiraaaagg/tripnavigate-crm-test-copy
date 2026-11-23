@@ -3,6 +3,7 @@ import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/compon
 import { cn } from '@/components/ui/cn';
 import { Notice } from '@/components/ui/notice';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { dateRangeText } from '@/lib/format';
 import { formatPaise } from '@/modules/deals/dto';
 import { SERVICE_TYPE_LABEL, type PurchaseTaskView } from '@/modules/fulfilment/contracts';
 import { formatDateOnly } from '../booking-views';
@@ -40,7 +41,7 @@ const subHeadingClass = 'm-0 mb-2 text-base font-semibold text-ink';
  * Each part is a named section (Stay, or "<type> details", and Travellers and budget), as on the
  * Flight task, so screen-reader users can jump to it and a transfer or activity never shows hotel fields.
  */
-export function BookedFacts({ task, idPrefix = 'booked' }: { task: PurchaseTaskView; idPrefix?: string }) {
+export function BookedFacts({ task, idPrefix = 'booked', withSpecialRequest = true }: { task: PurchaseTaskView; idPrefix?: string; /** O5: false when the Work tab already shows the special request above the fold. */ withSpecialRequest?: boolean }) {
   const breakup = hotelBreakup(task);
   const hotel = task.serviceType === 'hotel';
   const factsId = `${idPrefix}-${hotel ? 'stay' : 'facts'}`;
@@ -137,13 +138,38 @@ export function BookedFacts({ task, idPrefix = 'booked' }: { task: PurchaseTaskV
           </dd>
         </dl>
       </section>
-      {task.specialRequests ? (
-        <Notice tone="warning" title="Special request">
-          <p className="whitespace-pre-wrap wrap-break-word">{task.specialRequests}</p>
-        </Notice>
-      ) : null}
+      {withSpecialRequest ? <SpecialRequestNotice task={task} /> : null}
     </div>
   );
+}
+
+/** The special request as a warning notice with its word (shown in full wherever the booked facts are). */
+export function SpecialRequestNotice({ task }: { task: PurchaseTaskView }) {
+  return task.specialRequests ? (
+    <Notice tone="warning" title="Special request">
+      <p className="whitespace-pre-wrap wrap-break-word">{task.specialRequests}</p>
+    </Notice>
+  ) : null;
+}
+
+/**
+ * O5 (owner, 16 November 2026; design plan 2.4): the one line above the
+ * "Show what Sales booked" fold on the Work tab. Hotel: dates · nights ·
+ * rooms · travellers · budget. Other services: travellers · budget (their
+ * details stay in the fold). Words already used in the full facts; cost side
+ * only, never a selling price.
+ */
+export function bookedLineText(task: PurchaseTaskView): string {
+  const parts: string[] = [];
+  if (task.serviceType === 'hotel') {
+    parts.push(task.checkIn || task.checkOut ? dateRangeText(task.checkIn, task.checkOut) : 'Dates not set');
+    if (task.checkIn && task.checkOut) parts.push(nightsText(task.nights));
+    if (task.rooms) parts.push(`${task.rooms} ${task.rooms === 1 ? 'room' : 'rooms'}`);
+  }
+  parts.push(travellersText(task.travellers));
+  const budget = budgetText(task.purchaseBudgetPaise);
+  parts.push(budget === 'Budget not set' ? budget : `Approved budget ${budget}`);
+  return parts.join(' · ');
 }
 
 /** Details tab card. */

@@ -1,11 +1,13 @@
 import type { Metadata } from 'next';
+import { SectionTabs } from '@/components/ui/section-tabs';
 import { requireStaff } from '@/modules/identity/server/session';
 import { loadSmallBalances } from '@/modules/write-offs/server/queries';
 import { decideWriteOffAction, proposeWriteOffAction, undoWriteOffAction, withdrawWriteOffAction } from '@/modules/write-offs/server/actions';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
-import { parseSmallBalancesQuery } from '@/views/write-offs/labels';
+import { parseSmallBalancesQuery, SMALL_BALANCES_PATH } from '@/views/write-offs/labels';
 import { SmallBalancesNoAccess, SmallBalancesView } from '@/views/write-offs/small-balances';
 import { deskViewerOf } from '../records/desk-glue';
+import { accountsSectionViewer } from '../section-viewer';
 
 export const metadata: Metadata = { title: 'Small balances' };
 
@@ -22,7 +24,7 @@ const DEFAULT_LIMIT_PAISE = '500000';
 export default async function SmallBalancesRoute({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const staff = await requireStaff();
   const { filter, after } = parseSmallBalancesQuery(await searchParams);
-  const page = await loadSmallBalances(staff, filter, after).catch(() => 'error' as const);
+  const [page, sectionViewer] = await Promise.all([loadSmallBalances(staff, filter, after).catch(() => 'error' as const), accountsSectionViewer(staff)]);
   if (page === null) return <SmallBalancesNoAccess />;
   const mode = staff.memberships.some((m) => m.roleCode === 'accounts') ? 'accounts' : 'manager';
   const settings = page === 'error' ? undefined : page.settings;
@@ -39,6 +41,7 @@ export default async function SmallBalancesRoute({ searchParams }: { searchParam
       actions={ACTIONS}
       writeOffsOn={writeOffsOn}
       limitPaise={limitPaise}
+      sectionTabs={<SectionTabs section="money-in" currentHref={SMALL_BALANCES_PATH} viewer={sectionViewer} />}
     />
   );
 }

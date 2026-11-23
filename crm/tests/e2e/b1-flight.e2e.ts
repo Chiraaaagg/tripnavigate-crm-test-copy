@@ -85,7 +85,8 @@ test.describe('B1 Flight queue', () => {
     await expect(main).not.toContainText('₹1,84,000');
     // Flight build (11.1): one row per Deal; the caption counts flight rows (wording not frozen).
     const table = page.getByRole('table', { name: /flight/i });
-    await expect(table.getByRole('columnheader')).toHaveText(['Route', 'Flights', 'Travellers', 'Approved budget', 'Status', 'Taken by', 'Deal']);
+    // R3 (C2): the shared work-queue columns (route and flights under What, travellers under Dates, Who = taken by).
+    await expect(table.getByRole('columnheader')).toHaveText(['What', 'Dates', 'Approved budget', 'Status', 'Next step', 'Who', 'Deal']);
     // Flight build: the new grouped-queue fixture (Track C) carries an approved budget of ₹18,000.00 and a "Budget not set" row.
     await expect(table).toContainText('₹18,000.00');
     await expect(table).toContainText('Budget not set');
@@ -157,11 +158,13 @@ test.describe('B1 Purchase: service type and facts per type', () => {
     await open(page, 'purchase-queue-mixed');
     const main = page.locator('main');
     const table = page.getByRole('table', { name: '3 tasks' });
-    await expect(table.locator('th').first()).toHaveText('Service');
+    // R3 queue pattern: the first column is "What" (type pill above the title); "Stay" became "Dates".
+    await expect(table.locator('th').first()).toHaveText('What');
     await expect(table).toContainText('Transfer or cab');
     await expect(table).toContainText('Activity');
     await expect(table).toContainText('Airport to jetty, both ways');
-    await expect(table).toContainText('Not a hotel');
+    // A transfer row never shows hotel facts (nights, rooms); it used to say "Not a hotel" in the Stay column.
+    await expect(table.getByRole('row').filter({ hasText: 'Airport to jetty, both ways' })).not.toContainText(/\bnights?\b|\brooms?\b/);
     await expect(main).not.toContainText(/Selling/i);
     await expect(main).not.toContainText('₹1,84,000');
   });
@@ -199,10 +202,12 @@ test.describe('B1 Purchase: service type and facts per type', () => {
 });
 
 test.describe('B1 admin workflow switches (Batch 4: Settings · Features)', () => {
-  test('every switch named, state in words, the approval line once per page, reason required before the review', async ({ page }) => {
+  test('every switch named, state in words, the approval line in each confirm dialog (R1: no longer on the page), one confirm dialog with an optional reason (R1, D9)', async ({ page }) => {
     await open(page, 'admin-workflow-off');
     const main = page.locator('main');
-    await expect(main).toContainText('Changes here affect every branch. Live changes need the owner’s APPROVE first; write it in the reason.');
+    // The approval line once in Settings: R1 moved it from each area page to the Overview and into every confirm dialog.
+    await expect(main).not.toContainText('Live changes need the owner’s APPROVE first; write it in the reason.');
+    await expect(main.locator('#feature-switches [data-slot="setting-row"]').filter({ hasText: 'APPROVE first' })).toHaveCount(0);
     await expect(main).not.toContainText('off by default');
     // DEC-54: no text claims that switching off restores the previous behaviour.
     await expect(main).not.toContainText('restores the previous behaviour');
@@ -210,40 +215,44 @@ test.describe('B1 admin workflow switches (Batch 4: Settings · Features)', () =
     await expect(rows).toHaveText([/Book now \(service list\)/, /Count of won deals with no booking \(on Home\)/, /Visa and passport tasks/, /Fill new bookings and quotations from Bitrix/, /Referral drafts/]);
     for (const key of ['service_items_enabled', 'intake_prompt_enabled']) {
       const row = page.locator(`[data-slot="setting-row"][data-key="${key}"]`);
-      await expect(row).toContainText('current state: Off');
-      await row.getByRole('button', { name: /^Change / }).click();
-      const form = row.getByRole('form');
-      await expect(form.getByRole('radio', { name: 'On' })).toBeChecked();
-      await expect(form.getByLabel('Why are you changing it?')).toHaveAccessibleDescription(/10 to 500 characters/);
-      await form.getByRole('button', { name: 'Review change' }).click();
-      await expect(form.getByLabel('Why are you changing it?')).toHaveAttribute('aria-invalid', 'true');
-      await expect(form.getByRole('button', { name: /^Turn / })).toHaveCount(0);
+      await expect(row).toContainText('State: Off');
+      const change = row.getByRole('button', { name: /^Change / });
+      await change.click();
+      // One confirm dialog that switches to the other state (no On/Off choice), Cancel focused first.
+      const dialog = page.getByRole('alertdialog', { name: /^Turn .+ on\?$/ });
+      await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+      await expect(dialog.getByRole('radio')).toHaveCount(0);
+      await expect(dialog).toContainText('Changing this in the live CRM needs the owner’s APPROVE first. Write it in the reason.');
+      // Book now (service list) starts real department work: its reason stays required (lead ruling on Q1); the count's is optional (D9).
+      await expect(dialog.getByLabel('Why are you changing it?')).toHaveAccessibleDescription(key === 'service_items_enabled' ? /10 to 500 characters/ : /Leave it empty, or write 10 to 500 characters/);
+      await expect(dialog.getByRole('button', { name: /^Turn .+ on$/ })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(change).toBeFocused();
     }
     await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Settings', exact: true })).toHaveAttribute('aria-current', 'page');
     await expect(page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Features' })).toHaveAttribute('aria-current', 'page');
   });
 
-  test('a refused change keeps the choice and the typed reason; a saved change is announced', async ({ page }) => {
+  test('a refused change keeps the dialog and the typed reason; a saved change is announced', async ({ page }) => {
     test.setTimeout(120_000);
     await open(page, 'admin-workflow-refused');
     const row = page.locator('[data-slot="setting-row"][data-key="service_items_enabled"]');
     await row.getByRole('button', { name: 'Change Book now (service list)' }).click();
-    const form = row.getByRole('form');
-    await form.getByLabel('Why are you changing it?').fill('Owner approved the pilot (synthetic).');
-    await form.getByRole('button', { name: 'Review change' }).click();
-    await form.getByRole('button', { name: 'Turn Book now (service list) on' }).click();
-    await expect(row.getByRole('alert')).toContainText('Only a Super Admin can change this. Nothing was changed.');
-    await expect(form).toContainText('Reason: “Owner approved the pilot (synthetic).”');
-    await form.getByRole('button', { name: 'Go back' }).click();
-    await expect(form.getByRole('radio', { name: 'On' })).toBeChecked();
-    await expect(form.getByLabel('Why are you changing it?')).toHaveValue('Owner approved the pilot (synthetic).');
+    const dialog = page.getByRole('alertdialog', { name: 'Turn Book now (service list) on?' });
+    await dialog.getByLabel('Why are you changing it?').fill('Owner approved the pilot (synthetic).');
+    await dialog.getByRole('button', { name: 'Turn Book now (service list) on' }).click();
+    // The refusal keeps the dialog open with the typed reason.
+    await expect(dialog.getByRole('alert')).toContainText('Only a Super Admin can change this. Nothing was changed.');
+    await expect(dialog.getByLabel('Why are you changing it?')).toHaveValue('Owner approved the pilot (synthetic).');
+    await expect(dialog.getByRole('button', { name: 'Turn Book now (service list) on' })).toBeVisible();
     await open(page, 'admin-workflow-changed');
     const count = page.locator('[data-slot="setting-row"][data-key="intake_prompt_enabled"]');
-    await expect(count).toContainText('current state: On');
+    await expect(count).toContainText('State: On');
     await count.getByRole('button', { name: /^Change / }).click();
-    await count.getByLabel('Why are you changing it?').fill('Owner approved hiding the count (synthetic).');
-    await count.getByRole('button', { name: 'Review change' }).click();
-    await count.getByRole('button', { name: 'Turn Count of won deals with no booking (on Home) off' }).click();
+    const d2 = page.getByRole('alertdialog');
+    await d2.getByLabel('Why are you changing it?').fill('Owner approved hiding the count (synthetic).');
+    await d2.getByRole('button', { name: 'Turn Count of won deals with no booking (on Home) off' }).click();
+    await expect(d2).toHaveCount(0);
     await expect(count.getByRole('status')).toContainText('is now off. Recorded with your name and reason.');
   });
 
@@ -255,7 +264,7 @@ test.describe('B1 admin workflow switches (Batch 4: Settings · Features)', () =
     await open(page, 'admin-workflow-unavailable');
     await expect(page.locator('main')).toContainText('Nothing is assumed on or off.');
     // Echo-B L1: an unreadable page shows no switch state at all (no On, no Off) and no rows.
-    await expect(page.locator('main')).not.toContainText(/current state: (On|Off)/i);
+    await expect(page.locator('main')).not.toContainText(/State: (On|Off)/i);
     await expect(page.locator('main [data-slot="setting-row"]')).toHaveCount(0);
   });
 });

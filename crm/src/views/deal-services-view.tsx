@@ -1,5 +1,6 @@
 import { ListChecks, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { StatusBadge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,8 +32,11 @@ export function DealServicesCard({
   linkLabel = 'Open intake',
   canOpenFlightWorkspace = false,
   canOpenVisaDesk = false,
+  headerAction,
 }: {
   services: DealServicesView;
+  /** R2 (SL-8): the route's "Request a change" control, shown in this card's header. */
+  headerAction?: ReactNode;
   /** Visa build: the viewer holds the Visa role or is a branch Manager (the visa link opens the desk task). */
   canOpenVisaDesk?: boolean;
   /** Flight build: the viewer holds the Flight role or is a branch Manager (the flight link opens the workspace). */
@@ -55,7 +59,10 @@ export function DealServicesCard({
                 : 'Not submitted yet'}
             </CardDescription>
           </div>
-          <ProgressPill progress={services.progress} />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <ProgressPill progress={services.progress} />
+            {headerAction}
+          </div>
         </CardHeader>
         {items.length === 0 ? (
           <EmptyState

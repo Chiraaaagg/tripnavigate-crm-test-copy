@@ -8,7 +8,8 @@ import type {
 import { istDate } from '@/lib/dates';
 import type { StaffContext } from '@/modules/identity/server/session';
 import { administeredEntityIds } from '../policy';
-import type { GrantLine, StaffLine } from '@/views/staff-views';
+import type { StaffLine } from '@/views/settings/people-views';
+import type { GrantLine } from '@/views/staff-views';
 
 export const PERMISSION_LABEL: Record<string, string> = {
   'deal.read': 'View deals',

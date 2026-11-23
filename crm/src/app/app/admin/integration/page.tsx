@@ -18,7 +18,7 @@ import { applySyncScopeAction, changeSettingSwitchAction, previewSyncScopeAction
 import { bitrixPageModel, loadSettingsStates } from '@/modules/settings/server/queries';
 import { WonOnlyCard } from '@/views/b11/won-only-card';
 import { BitrixNamesCard, BitrixTripDetailsCard } from '@/views/bitrix-names-card';
-import { IntegrationAdminView, IntegrationNoPermissionView } from '@/views/integration-views';
+import { IntegrationAdminView, IntegrationNoPermissionView, parseBitrixTab } from '@/views/integration-views';
 import { IdProofCopyAlertsCard } from '@/views/workflow-views';
 import { DestinationClassesCard } from '@/views/settings/destination-classes';
 import type { B11Action } from '@/views/b11/shapes';
@@ -33,14 +33,19 @@ function requestTime(): number {
 export const metadata: Metadata = { title: 'Bitrix connection' };
 
 /**
- * Settings · Bitrix connection (AD-03; address unchanged, L1). Status first,
- * then the Bitrix switches (one change flow, DA-256), which deals come in
- * (preview then apply with a reason, M1, enforced in the database; there is
- * no one-step save), the Bitrix names card, ID-proof copies and the Won-only
- * rule (moved from Features, lead ruling D3). Purchase holders get nothing
- * here (review M2; same rule as authz.can_read_lead).
+ * Settings · Bitrix connection (AD-03; address unchanged, L1). UX redesign R1:
+ * four sub-tabs on the same address (?tab=, parseBitrixTab; the old address
+ * opens Status). Status: what needs fixing, the connection, Check Bitrix now.
+ * Which deals come in: preview then apply with a reason (M1, enforced in the
+ * database; there is no one-step save), the Lead import list and the Won-only
+ * rule (moved from Features, lead ruling D3). Switches: the Bitrix switches
+ * (one change flow, DA-256), Bitrix names, trip details and destinations.
+ * Clean-up: ID-proof copies, open sync work, rows that need a person.
+ * Purchase holders get nothing here (review M2; same rule as authz.can_read_lead).
+ * The reads are the same on every tab, so each tab shows the same facts as before.
  */
-export default async function IntegrationAdminPage() {
+export default async function IntegrationAdminPage({ searchParams }: { searchParams: Promise<{ tab?: string | string[] }> }) {
+  const tab = parseBitrixTab((await searchParams).tab);
   const staff = await requireStaff();
   if (administeredEntityIds(staff.access, 'integration.manage').length === 0 || holdsPurchaseAnywhere(staff.access)) {
     return <IntegrationNoPermissionView />;
@@ -85,13 +90,19 @@ export default async function IntegrationAdminPage() {
         switches={page.switches}
         switchActions={{ change: changeSettingSwitchAction }}
         sync={{ model: page.sync, text: page.syncText, preview: previewSyncScopeAction, apply: applySyncScopeAction }}
-      >
-        <BitrixNamesCard state={nameRead} action={setBitrixNameReadAction} />
-        <BitrixTripDetailsCard state={tripDetailsRead} action={setBitrixTripDetailsReadAction} />
-        <DestinationClassesCard rows={destinations.rows} canEdit={destinations.canEdit} action={setDestinationScopeAction as unknown as B11Action} />
-        {copyAlerts !== null ? <IdProofCopyAlertsCard alerts={copyAlerts} retryAction={retryIdProofCopyAction} /> : null}
-        <WonOnlyCard rule={rule} stageOptions={stageOptions} setAction={setDealEntryStagesAction} dryRunAction={pruneDryRunAction} runAction={pruneRunAction} />
-      </IntegrationAdminView>
+        tab={tab}
+        slots={{
+          switches: (
+            <>
+              <BitrixNamesCard state={nameRead} action={setBitrixNameReadAction} />
+              <BitrixTripDetailsCard state={tripDetailsRead} action={setBitrixTripDetailsReadAction} />
+              <DestinationClassesCard rows={destinations.rows} canEdit={destinations.canEdit} action={setDestinationScopeAction as unknown as B11Action} />
+            </>
+          ),
+          deals: <WonOnlyCard rule={rule} stageOptions={stageOptions} setAction={setDealEntryStagesAction} dryRunAction={pruneDryRunAction} runAction={pruneRunAction} />,
+          cleanup: copyAlerts !== null ? <IdProofCopyAlertsCard alerts={copyAlerts} retryAction={retryIdProofCopyAction} /> : null,
+        }}
+      />
     </>
   );
 }

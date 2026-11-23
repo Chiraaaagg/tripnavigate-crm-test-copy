@@ -1,36 +1,39 @@
-import { Hotel, Mail, Phone, Star } from 'lucide-react';
+import { BadgeCheck, CircleHelp, Hotel, Landmark, Mail, Phone, Star } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { StatusBadge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn, focusRing } from '@/components/ui/cn';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Notice } from '@/components/ui/notice';
 import { PageHeader } from '@/components/ui/page-header';
+import { RecordHeader } from '@/components/ui/record-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs } from '@/components/ui/tabs';
 import { UnavailableAction } from '@/views/accounts/supplier-forms';
 import type { DeskResult } from '@/views/accounts-desk/desk-kit';
 import { formatIst } from '@/views/deal-labels';
-import { TaskBackLink } from '@/views/department/task-frame';
 import { ContactDialog, ContactIcon, DuplicateWarnings, LinkHotelDialog, RemoveContactDialog, SupplierDetailsForm, UnlinkHotelDialog, type SupplierFormActions } from './forms';
-import { CHANGE_SOURCE_WORD, fieldWord, HOTEL_SOURCE_WORD, KIND_LABEL, SERVICE_LABEL, stateText, historyValueWord } from './labels';
-import { SupplierStatusBadges } from './register';
+import { BANK_WORD, CHANGE_SOURCE_WORD, fieldWord, HOTEL_SOURCE_WORD, KIND_LABEL, SERVICE_LABEL, stateText, historyValueWord, VERIFICATION_WORD } from './labels';
+import { supplierNext, supplierTabHref, type SupplierTab } from './tabs';
 import type { CatalogueHotelSearch, SupplierMaster, SupplierServiceType, SupplierViewer } from './types';
 
 /*
- * Supplier page (Accounts phase 2 contract 5.7 R-A2, 11.9): status, next step
- * and the one primary action (Verify, for a Manager) at the top; possible
- * duplicates as a warning (never a block); link tabs Details, Contacts,
- * Hotels sold, History (each a ?tab= address, so they work without script).
- * Bank details keep the existing section (passed in by the route), so bank
- * approval and payment holds are unchanged. History never shows bank
- * numbers; PAN is masked unless the reader is Accounts or a Manager.
+ * Supplier page (Accounts phase 2 contract 5.7 R-A2, 11.9; UX redesign R3,
+ * DM-21): the record header (back link, kind, name, details and bank state,
+ * "Next:" with the one button the viewer can use, or who acts next); possible
+ * duplicates as a warning (never a block); pill link tabs Details · Bank
+ * details · Contacts · Hotels sold · History (each a ?tab= address, so they
+ * work without script; old addresses open the same tab, see tabs.ts). Bank
+ * details are their own tab and keep the existing section (passed in by the
+ * route), so bank approval, its permission and payment holds are unchanged.
+ * "Payments on hold" in the header links to that tab. History never shows
+ * bank numbers; PAN is masked unless the reader is Accounts or a Manager.
  */
 
-export type SupplierTab = 'details' | 'contacts' | 'hotels' | 'history';
-export const SUPPLIER_TABS: readonly SupplierTab[] = ['details', 'contacts', 'hotels', 'history'];
+export { SUPPLIER_TABS, supplierTabFrom, type SupplierTab } from './tabs';
 
 export interface SupplierPagePreview {
   editState?: DeskResult | null;
@@ -39,13 +42,6 @@ export interface SupplierPagePreview {
   removeContactOpen?: boolean;
   linkOpen?: boolean;
   linkState?: DeskResult | null;
-}
-
-function nextStep(s: SupplierMaster): string {
-  if (s.verification === 'unverified') return 'Next: a Manager checks and verifies these details.';
-  if (s.bankState === 'on_hold') return 'Next: a Manager who did not record them approves the latest bank details. Payments wait until then.';
-  if (s.bankState === 'none') return 'Next: record bank details before any payment to this supplier.';
-  return 'Ready to use for rates and payments.';
 }
 
 export function SupplierMasterPage({
@@ -78,33 +74,54 @@ export function SupplierMasterPage({
   justCreated?: boolean;
   preview?: SupplierPagePreview;
 }) {
-  const href = (t: SupplierTab) => `${basePath}/${s.supplierId}${t === 'details' ? '' : `?tab=${t}`}`;
+  const href = (t: SupplierTab) => supplierTabHref(basePath, s.supplierId, t);
   const sellsHotels = s.serviceTypes.includes('hotel');
   const activeContacts = s.contacts.filter((c) => c.status === 'active');
   const canEdit = s.can.edit && !!actions;
   const serviceChoices: SupplierServiceType[] = s.serviceTypes.includes('flight') ? ['flight'] : ['hotel', 'transfer', 'activity'];
   const backLink = back ?? (viewer === 'flight' ? { href: '/app/flight', label: 'Back to Flight tasks' } : { href: basePath, label: 'Back to suppliers' });
+  const shown: SupplierTab = tab === 'hotels' && !sellsHotels ? 'details' : tab;
+  const next = supplierNext(s, { canEdit, tab: shown, bankHref: href('bank') });
+  const v = VERIFICATION_WORD[s.verification];
+  const b = BANK_WORD[s.bankState];
   return (
     <div className="flex flex-col gap-5 font-sans text-base text-copy">
-      <div>
-        <TaskBackLink href={backLink.href}>{backLink.label}</TaskBackLink>
-        <PageHeader
-          className="mb-[0]"
-          eyebrow={`Supplier · ${KIND_LABEL[s.kind]}`}
-          title={<span className="block wrap-anywhere">{s.name}</span>}
-          status={
-            <>
-              <SupplierStatusBadges row={s} />
-              {s.status === 'archived' ? <span className="text-copy">Archived</span> : null}
-              <span className="basis-full text-copy">
-                {s.verification === 'verified' && s.verifiedAt ? `Verified${s.verifiedByName ? ` by ${s.verifiedByName}` : ''} · ${formatIst(s.verifiedAt)}. ` : ''}
-                {nextStep(s)}
+      <RecordHeader
+        className="mb-[0]"
+        back={backLink}
+        recordId={`Supplier · ${KIND_LABEL[s.kind]}`}
+        title={<span className="block wrap-anywhere">{s.name}</span>}
+        status={
+          <>
+            <StatusBadge tone={v.tone} icon={s.verification === 'verified' ? BadgeCheck : CircleHelp} wrap>
+              <span className="sr-only">Details: </span>
+              {v.word}
+            </StatusBadge>
+            {s.bankState === 'on_hold' ? (
+              // The hold stops payments: the badge links to the place to fix it (DM-21).
+              <Link href={href('bank')} className={cn('inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-chip no-underline', focusRing)} data-slot="hold-link">
+                <StatusBadge tone={b.tone} icon={Landmark} wrap>
+                  {b.word}
+                </StatusBadge>
+                <span className="font-medium text-brand-strong underline underline-offset-4 hover:text-brand-deep">Bank details</span>
+              </Link>
+            ) : (
+              <StatusBadge tone={b.tone} icon={Landmark} wrap>
+                {b.word}
+              </StatusBadge>
+            )}
+            {s.status === 'archived' ? <span className="text-copy">Archived</span> : null}
+            {s.verification === 'verified' && s.verifiedAt ? (
+              <span className="text-copy">
+                Verified{s.verifiedByName ? ` by ${s.verifiedByName}` : ''} · {formatIst(s.verifiedAt)}
               </span>
-            </>
-          }
-          actions={s.can.verify ? verifyAction : undefined}
-        />
-      </div>
+            ) : null}
+          </>
+        }
+        next={next.button || next.mine ? { text: next.text, button: next.button } : null}
+        nextWho={next.button || next.mine ? undefined : next.text}
+        actions={s.can.verify ? verifyAction : undefined}
+      />
       {justCreated ? (
         <Notice tone="success" role="status">
           <p>
@@ -116,38 +133,40 @@ export function SupplierMasterPage({
 
       <Tabs
         label="Supplier sections"
+        variant="pill"
         items={[
-          { href: href('details'), label: 'Details', current: tab === 'details' },
-          { href: href('contacts'), label: 'Contacts', current: tab === 'contacts', count: activeContacts.length },
-          ...(sellsHotels ? [{ href: href('hotels'), label: 'Hotels sold', current: tab === 'hotels', count: s.hotels.length }] : []),
-          { href: href('history'), label: 'History', current: tab === 'history' },
+          { href: href('details'), label: 'Details', current: shown === 'details' },
+          { href: href('bank'), label: 'Bank details', current: shown === 'bank' },
+          // R3 integration: the counts come from the record already loaded (no extra read), as before the redesign.
+          { href: href('contacts'), label: 'Contacts', current: shown === 'contacts', count: activeContacts.length },
+          ...(sellsHotels ? [{ href: href('hotels'), label: 'Hotels sold', current: shown === 'hotels', count: s.hotels.length }] : []),
+          { href: href('history'), label: 'History', current: shown === 'history' },
         ]}
       />
 
-      {tab === 'details' || (tab === 'hotels' && !sellsHotels) ? (
-        <>
-          <Card>
-            <section aria-labelledby="sup-details">
-              <CardHeader>
-                <div className="min-w-0">
-                  <CardTitle id="sup-details">Details</CardTitle>
-                  {canEdit ? <CardDescription>Change and save. A change of name, kind, GSTIN, PAN or state needs a Manager’s check again.</CardDescription> : null}
-                </div>
-              </CardHeader>
-              <CardBody>
-                {canEdit && actions?.update ? (
-                  <SupplierDetailsForm mode="edit" action={actions.update} supplier={s} states={states} serviceChoices={serviceChoices} initialState={preview?.editState} />
-                ) : (
-                  <SupplierFacts s={s} states={states} showLedger={viewer === 'manager' || viewer === 'accounts'} />
-                )}
-              </CardBody>
-            </section>
-          </Card>
-          {bank ?? <BankSummary s={s} />}
-        </>
+      {shown === 'details' ? (
+        <Card>
+          <section aria-labelledby="sup-details">
+            <CardHeader>
+              <div className="min-w-0">
+                <CardTitle id="sup-details">Details</CardTitle>
+                {canEdit ? <CardDescription>Change and save. A change of name, kind, GSTIN, PAN or state needs a Manager’s check again.</CardDescription> : null}
+              </div>
+            </CardHeader>
+            <CardBody>
+              {canEdit && actions?.update ? (
+                <SupplierDetailsForm mode="edit" action={actions.update} supplier={s} states={states} serviceChoices={serviceChoices} initialState={preview?.editState} />
+              ) : (
+                <SupplierFacts s={s} states={states} showLedger={viewer === 'manager' || viewer === 'accounts'} />
+              )}
+            </CardBody>
+          </section>
+        </Card>
       ) : null}
 
-      {tab === 'contacts' ? (
+      {shown === 'bank' ? (bank ?? <BankSummary s={s} />) : null}
+
+      {shown === 'contacts' ? (
         <Card>
           <section aria-labelledby="sup-contacts">
             <CardHeader className="max-sm:flex-col max-sm:items-start">
@@ -209,7 +228,7 @@ export function SupplierMasterPage({
         </Card>
       ) : null}
 
-      {tab === 'hotels' && sellsHotels ? (
+      {shown === 'hotels' ? (
         <Card>
           <section aria-labelledby="sup-hotels">
             <CardHeader className="max-sm:flex-col max-sm:items-start">
@@ -247,7 +266,7 @@ export function SupplierMasterPage({
         </Card>
       ) : null}
 
-      {tab === 'history' ? (
+      {shown === 'history' ? (
         <Card>
           <section aria-labelledby="sup-history">
             <CardHeader>

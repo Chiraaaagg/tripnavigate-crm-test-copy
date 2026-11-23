@@ -9,6 +9,7 @@ import type { BookingFormActions, FormStep } from '@/views/booking-form/types';
 import { check, draftView, emptyDraft, inlinePrefillUi, travellers } from './b11-fixtures';
 import { sales, SAVING_ACTIONS } from './b11-states';
 import type { VoiceNoteProps } from '@/views/booking-form/vn-types';
+import { previewB11ClassificationRefusedAction } from './b11-preview-actions';
 import { previewCreatePartyAction, previewPickPartyAction, previewPickPartyFailAction, previewSearchHotelsAction, previewSearchPartiesAction, previewSearchPartiesThrowsAction } from './vn-preview-actions';
 import { previewBookformRefreshAction, previewBookformRefuseBillToAction, previewBookformRefuseCustomerAction, previewBookformRefusePricesAction, previewBookformRefuseServiceAction, previewBookformReturnsAction, previewBookformSavedAction } from './bookform-preview-actions';
 
@@ -208,6 +209,17 @@ const VN_SEARCH: VoiceNoteProps = {
 };
 const DEAL_FACTS = { destination: 'Himachal', start: '2026-10-25', end: '2026-10-31', total: 4, adults: 2, children: 1, infants: 1, scope: 'domestic' as const, readAt: '2026-10-24T05:30:00.000Z', bitrixDealHref: null };
 
+/**
+ * The fix of a returned booking (Stage 3 revision, DEC-31): a version 2 draft that revises version 1.
+ * Only the version and checklist differ from the owner example; the form shows the change type and
+ * "Save fixed booking" in the submit card of step 3.
+ */
+function revisionView(version: Partial<NonNullable<BookNowView['version']>>, checklist: BookNowView['checklist']): BookNowView {
+  const base = ownerView();
+  return ownerView({ version: { ...base.version!, versionNo: 2, revisesVersionId: 'v-base', revisesVersionNo: 1, ...version }, checklist });
+}
+const REVISION_CHANGED = { changedFields: ['items.1.checkIn', 'sellingTotal'], allowedClasses: ['format_only', 'customer_material', 'internal_only'] as NonNullable<BookNowView['version']>['allowedClasses'] };
+
 function scenario(name: string): Scenario | null {
   switch (name) {
     case 'empty': {
@@ -321,12 +333,41 @@ function scenario(name: string): Scenario | null {
       const vm = ownerCore(view);
       return { view, vm: { ...vm, billTo: { ...vm.billTo!, partyId: 'p0000000-0000-4000-8000-000000000002', partyCheckStatus: 'not_checked' } }, vn: { ...VN_SEARCH, dealFacts: DEAL_FACTS } };
     }
+    case 'revision': {
+      // Fixing a returned booking: the change type is not chosen yet.
+      const view = revisionView(REVISION_CHANGED, [check('revision_class_missing', true)]);
+      return { view, vm: ownerCore(view) };
+    }
+    case 'revision-refused': {
+      // The server refuses a weaker change type than the changes allow.
+      const view = revisionView(REVISION_CHANGED, [check('revision_class_missing', true)]);
+      return { view, vm: ownerCore(view), actions: { ...ACTIONS, classifyRevision: previewB11ClassificationRefusedAction } };
+    }
+    case 'revision-acceptance': {
+      // A change the customer will notice needs a fresh acceptance.
+      const view = revisionView({ changeClass: 'customer_material', changedFields: ['items.1.checkIn'] }, [check('customer_acceptance_required', true)]);
+      return { view, vm: ownerCore(view) };
+    }
+    case 'revision-no-changes': {
+      const view = revisionView({ changedFields: [] }, [check('no_changes', true)]);
+      return { view, vm: ownerCore(view) };
+    }
+    case 'revision-base-decided': {
+      // Accounts decided on the returned version while it was being fixed.
+      const view = revisionView({ changeClass: 'format_only', changedFields: ['contacts.mobile'] }, [check('base_no_longer_returned', true)]);
+      return { view, vm: ownerCore(view) };
+    }
+    case 'revision-ready': {
+      // Nothing left to finish: "Save fixed booking" opens its confirmation.
+      const view = revisionView({ changeClass: 'format_only', changedFields: ['contacts.mobile'] }, []);
+      return { view, vm: ownerCore(view) };
+    }
     default:
       return null;
   }
 }
 
-export const BOOKFORM_SCENARIOS = ['v2', 'v2-nocopy', 'v2-quote', 'v2-empty', 'empty', 'owner', 'gaps', 'refused', 'no-price', 'verified', 'legacy', 'read-only', 'auto', 'vn-deal', 'vn-gaps', 'vn-nodeal', 'vn-billto', 'vn-billto-picked', 'vn-billto-pickfail', 'vn-billto-searchfail'] as const;
+export const BOOKFORM_SCENARIOS = ['v2', 'v2-nocopy', 'v2-quote', 'v2-empty', 'empty', 'owner', 'gaps', 'refused', 'no-price', 'verified', 'legacy', 'read-only', 'auto', 'vn-deal', 'vn-gaps', 'vn-nodeal', 'vn-billto', 'vn-billto-picked', 'vn-billto-pickfail', 'vn-billto-searchfail', 'revision', 'revision-refused', 'revision-acceptance', 'revision-no-changes', 'revision-base-decided', 'revision-ready'] as const;
 export const BOOKFORM_STATES = BOOKFORM_SCENARIOS.flatMap((s) => (['travellers', 'stay', 'finish'] as const).map((step) => `bookform-${s}--${step}`));
 
 export function renderBookformState(state: string): ReactNode | null {

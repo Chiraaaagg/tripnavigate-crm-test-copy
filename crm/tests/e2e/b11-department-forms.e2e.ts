@@ -100,6 +100,9 @@ test.describe('B1.1 department cost block', () => {
     await expect(card).toContainText('returned by Accounts');
     await expect(card.getByRole('button', { name: 'Fix and send the payment again' })).toBeVisible();
     await open(page, 'b11-flight-task-cost-sent');
+    // R3 (O9): a finished payment step folds to one line on the Work tab; open it to read the card.
+    const paymentFold = page.locator('details#step-payment');
+    if ((await paymentFold.count()) > 0 && (await paymentFold.getAttribute('open')) === null) await paymentFold.locator('summary').click();
     await expect(page.getByRole('region', { name: 'Cost and payment' })).toContainText('Paid directly · with Accounts');
     // "Approved budget" is the budget line; the payment itself is never described as waiting for an approval.
     await expect(page.getByRole('region', { name: 'Cost and payment' })).not.toContainText(/waiting for (an )?approval|payment approval/i);
@@ -192,5 +195,75 @@ test.describe('B1.1 Visa & Passport desk (now the Visa build screens)', () => {
     // Was: "This task is not available to you." Now the shared not-available answer (11.1 "Same answer for missing and not allowed").
     await expect(main).toContainText(/not available/i);
     await expect(main).not.toContainText('.pdf');
+  });
+});
+
+/**
+ * R3 approved-form exceptions on the Purchase Work tab (owner, 16 November 2026;
+ * design plan 2.4): O5 "What Sales booked" as one line with a fold, O6 the
+ * "Next:" target ids, O7 jump links, "Add a rate" folded after the final rate,
+ * finished payment requests as one line each. No field, label or rule changed.
+ */
+test.describe('R3 Purchase Work tab (O5, O6, O7)', () => {
+  test('O5: what Sales booked is one line; the special request stays in full; the facts fold', async ({ page }) => {
+    await open(page, 'pb-task-work-final-rate');
+    const main = page.locator('main');
+    await expect(main.locator('[data-slot="booked-line"]')).toContainText(/Approved budget ₹/);
+    await expect(main.getByText('Special request', { exact: true }).first()).toBeVisible();
+    const fold = main.locator('details#work-booked');
+    await expect(fold).not.toHaveAttribute('open', '');
+    await expect(page.getByRole('region', { name: 'Travellers and budget' })).toBeHidden();
+    await fold.locator('summary').click();
+    await expect(page.getByRole('region', { name: 'Travellers and budget' })).toBeVisible();
+    // The special request is shown once, above the fold, not repeated inside it.
+    await expect(fold.getByText('Special request', { exact: true })).toHaveCount(0);
+  });
+
+  test('O7: jump links Rates · Payments · Files move to their cards', async ({ page }) => {
+    await open(page, 'pb-task-work-go-ahead-given');
+    const nav = page.getByRole('navigation', { name: 'On this page' });
+    await expect(nav.getByRole('link')).toHaveText(['Rates', 'Payments', 'Files']);
+    await expect(nav.getByRole('link', { name: 'Payments' })).toHaveAttribute('href', '#work-payments');
+    await nav.getByRole('link', { name: 'Files' }).click();
+    // R3 integration: the shared JumpLinks moves focus to the card too (the address keeps no hash; without script it is a plain #work-files link).
+    await expect(page.locator('#work-files')).toBeFocused();
+    await expect(page.locator('#work-files')).toBeInViewport();
+  });
+
+  test('O7: "Add a rate" is open before a final rate and folded after it, with the same form', async ({ page }) => {
+    await open(page, 'pb-task-work-no-rates');
+    await expect(page.locator('#purchase-next-add-rate').getByRole('form', { name: 'Add a rate' })).toBeVisible();
+    await open(page, 'pb-task-work-final-rate');
+    const form = page.getByRole('form', { name: 'Add a rate' });
+    await expect(form).toBeHidden();
+    await page.locator('main summary', { hasText: 'Add a rate' }).click();
+    await expect(form).toBeVisible();
+    await expect(form.getByRole('button', { name: 'Add rate' })).toBeVisible();
+  });
+
+  test('O7: a finished payment request is one line; the waiting ones stay open', async ({ page }) => {
+    await open(page, 'pb-task-work-confirmed');
+    const list = page.getByRole('list', { name: 'Payment requests on this service' });
+    const verified = list.locator('details').filter({ hasText: 'SP-2026-00004' });
+    await expect(verified.locator('summary')).toContainText('Paid and verified');
+    await expect(verified).not.toHaveAttribute('open', '');
+    await expect(verified.getByText('reference SYNUTR0001')).toBeHidden();
+    await verified.locator('summary').click();
+    await expect(verified.getByText(/reference SYNUTR0001/)).toBeVisible();
+    // Returned (can be sent again) and on-hold requests are not folded.
+    await expect(list.locator('details')).toHaveCount(1);
+    await expect(list.getByRole('button', { name: 'Change and send again' })).toBeVisible();
+  });
+
+  test('O6: the Work tab carries the "Next:" target ids of the header (helper C1)', async ({ page }) => {
+    for (const [state, id] of [
+      ['pb-task-work-no-rates', 'purchase-next-add-rate'],
+      ['pb-task-work-final-rate', 'purchase-next-booking-request'],
+      ['pb-task-work-go-ahead-given', 'purchase-next-confirmation'],
+      ['pb-task-work-cancelled', 'purchase-next-charges'],
+    ] as const) {
+      await open(page, state);
+      await expect(page.locator(`#${id}`), `${state}: #${id}`).toHaveCount(1);
+    }
   });
 });

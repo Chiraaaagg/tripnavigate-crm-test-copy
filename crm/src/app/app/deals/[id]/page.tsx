@@ -9,7 +9,7 @@ import { DealCustomerMessagesCard } from '@/views/customer-messages/deal-card';
 import { openChangeVersionAction, requestAddServiceAction, requestChangeAction, requestRemoveServiceAction, resubmitChangeAction, setBookingChangesAction, setServiceChangesAction, withdrawChangeAction } from '@/modules/booking-changes/server/actions';
 import { loadChangeHistory, loadDealChangeRequests } from '@/modules/booking-changes/server/queries';
 import { changeHistoryView, dealChangesView } from '@/views/booking-changes/adapt';
-import { DealChangesCard } from '@/views/booking-changes/deal-card';
+import { DealChangesCard, RequestChangeHeaderAction } from '@/views/booking-changes/deal-card';
 import { ChangeHistory } from '@/views/booking-changes/history';
 import type { ReactNode } from 'react';
 import { LiveDealsRefresh } from '@/components/LiveDealsRefresh';
@@ -17,7 +17,7 @@ import { getAppConfig } from '@/lib/config';
 import { loadDealDocuments } from '@/modules/deals/server/documents';
 import { loadDealLeadLink } from '@/modules/deals/server/lead-link';
 import { getVisibleDeal, loadBitrixNameLookup } from '@/modules/deals/server/queries';
-import { buildDealWorkspace, parseDealTab, type DealBookingInput } from '@/modules/deals/workspace';
+import { buildDealWorkspace, canListDealMessages, canListDealMoney, DEAL_TAB_LABEL, dealHref, isDealMoneyReader, isDeskOnlyViewer, requestedDealTab, type DealBookingInput } from '@/modules/deals/workspace';
 import { loadDealServices, loadWorkflowSettings } from '@/modules/fulfilment/server/intake';
 import { loadBookingForDeal } from '@/modules/fulfilment/server/queries';
 import { BOOK_NOW_NOT_INSTALLED, loadBookNow } from '@/modules/fulfilment/server/book-now';
@@ -37,6 +37,10 @@ import { HotelBookingPanel, HotelBookingUnavailable } from '@/views/booking-view
 import { DealServicesCard, DealServicesEmpty, DealServicesUnavailable, DealServicesUseHeader } from '@/views/deal-services-view';
 import { DealNotFoundView } from '@/views/staff-views';
 import { DealWorkspaceView } from '@/views/deal-workspace/workspace';
+import { ReportPaymentDialog } from '@/views/deal-workspace/claim-dialog';
+import { MovedCardsNote, type MovedCardLink } from '@/views/deal-workspace/moved-cards';
+import { StateBlock } from '@/components/ui/state-block';
+import { reportPaymentClaimAction, withdrawPaymentClaimAction } from '@/modules/finance/server/claim-actions';
 import { blockingCount } from '@/views/b11/book-fields';
 import { StartBookNowForm } from '@/views/b11/book-entry-forms';
 import { DealBookingUnavailable, DealBookNowCard, type DealBookNowState } from '@/views/b11/book-views';
@@ -63,9 +67,15 @@ export default async function DealPage({
 }) {
   const { id } = await params;
   const query = (await searchParams) ?? {};
-  // Allowlist parse only (no authorization): decides which tab-only reads to start early.
-  const requestedTab = parseDealTab(query.tab);
+  // Allowlist parse only (no authorization): decides which tab-only reads to start early. Retired values
+  // map to their new tab (quotations → documents); no tab or an unknown value starts no tab-only read here
+  // (the default tab depends on the deal, so its reads start once the deal is known).
+  const requestedTab = requestedDealTab(query.tab);
   const staff = await requireStaff();
+  const roleCodes = (staff.memberships ?? []).map((m) => m.roleCode);
+  // Money fence (build plan section 5): no customer-money read is started for a person who holds only
+  // Purchase, Flight or Visa, even though the database would return nothing to them.
+  const deskOnly = isDeskOnlyViewer(roleCodes);
   // Every read starts together with the deal read (speed plan C4). All run under the viewer's own
   // session (RLS), are read-only, and their results are used only after the deal is known to be
   // visible. A booking or services read failure must not hide the deal, and must not look like
@@ -86,48 +96,48 @@ export default async function DealPage({
     () => ({ ok: false as const }),
   );
   // B1.2 quotations and itineraries: Sales owner, assignee and branch Manager only (null for everyone
-  // else: no Quotations tab). Needed on every tab: tab visibility and DA-22 depend on them.
+  // else). Needed on every tab: Documents tab visibility and DA-22 depend on them.
   const quotationsRead = loadQuotationsForDeal(staff, id).catch(() => null);
   const itinerariesRead = loadItinerariesForDeal(staff, id).catch(() => null);
   // Bitrix stage names (B1-1, switch Off by default): a failure shows the fallback wording.
   const namesRead = loadBitrixNameLookup(staff).catch(() => ({ state: 'list_unreadable' as const }));
-  // Services tab only: the "Open intake" secondary link (navigation convenience; the intake route decides).
-  const settingsRead =
-    requestedTab === 'services'
-      ? loadWorkflowSettings(staff).then(
-          (s) => s.serviceItemsEnabled,
-          () => false,
-        )
-      : Promise.resolve(false);
-  // Documents tab only (B1-2): one read when the tab is open, started with the others (speed plan C4).
-  const documentsRead = requestedTab === 'documents' ? loadDealDocuments(staff, id) : null;
-  // Flight build: the Deal's flight card (Services tab) and flight events (History tab). null = not for
-  // this viewer (Purchase, Visa, Flight-only roles); a failed read shows nothing on Services and an error on History.
-  const flightSummaryRead = requestedTab === 'services' ? loadDealFlightSummary(staff, id).catch(() => 'error' as const) : Promise.resolve(null);
-  const flightHistoryRead = requestedTab === 'history' ? loadDealFlightHistory(staff, id).catch(() => 'error' as const) : Promise.resolve(undefined);
-  // Visa build (contract 9.3 / 11.2): the visa card and result notices (Services tab) and the "Visa and
-  // passport" History group. null = not for this viewer; 'error' = the read failed (never "nothing").
-  const visaSummaryRead = requestedTab === 'services' ? loadDealVisaSummary(staff, id).catch(() => 'error' as const) : Promise.resolve(null);
-  const visaHistoryRead = requestedTab === 'history' ? loadDealVisaHistory(staff, id).catch(() => 'error' as const) : Promise.resolve(undefined);
-  // Accounts phase (contract 8.3 deal_dues, 11.4): the "Customer dues" card on the Services tab. null = not for
-  // this viewer (Purchase, Flight, Visa and other Sales get null from the database); 'error' = the read failed.
-  const duesRead = requestedTab === 'services' ? loadDealDues(staff, id).catch(() => 'error' as const) : Promise.resolve(null);
+  // Tab-only reads, started early only when the address names the tab (speed plan C4); otherwise started
+  // below once the open tab is known. A tab named in the address that turns out to be refused only costs a read.
+  const readSettings = () =>
+    loadWorkflowSettings(staff).then(
+      (s) => s.serviceItemsEnabled,
+      () => false,
+    );
+  const readFlightSummary = () => loadDealFlightSummary(staff, id).catch(() => 'error' as const);
+  const readVisaSummary = () => loadDealVisaSummary(staff, id).catch(() => 'error' as const);
+  const early = {
+    // Services tab only: the "Open intake" secondary link (navigation convenience; the intake route decides).
+    settings: requestedTab === 'services' ? readSettings() : null,
+    // Documents tab only (B1-2).
+    documents: requestedTab === 'documents' ? loadDealDocuments(staff, id) : null,
+    // Flight build: the Deal's flight card (Services tab) and flight events (History tab). null = not for
+    // this viewer (Purchase, Visa, Flight-only roles); a failed read shows nothing on Services and an error on History.
+    flightSummary: requestedTab === 'services' ? readFlightSummary() : null,
+    // Visa build (contract 9.3 / 11.2): the visa card and result notices (Services tab).
+    visaSummary: requestedTab === 'services' ? readVisaSummary() : null,
+    flightHistory: requestedTab === 'history' ? loadDealFlightHistory(staff, id).catch(() => 'error' as const) : null,
+    visaHistory: requestedTab === 'history' ? loadDealVisaHistory(staff, id).catch(() => 'error' as const) : null,
+  };
   const deal = await getVisibleDeal(staff, id);
   // Same response for "does not exist" and "not yours" so IDs cannot be probed.
   if (!deal) return <DealNotFoundView />;
   const config = getAppConfig();
-  const [booking, services, serviceItemsEnabled, leadLink, bookResult, quotationResult, itineraryResult, names] = await Promise.all([
+  const [booking, services, leadLink, bookResult, quotationResult, itineraryResult, names] = await Promise.all([
     bookingRead,
     servicesRead,
-    settingsRead,
     leadLinkRead,
     bookRead,
     quotationsRead,
     itinerariesRead,
     namesRead,
   ]);
-  const documentsResult = documentsRead ? await documentsRead : null;
-  const [flightSummary, flightHistory, visaSummary, visaHistory] = await Promise.all([flightSummaryRead, flightHistoryRead, visaSummaryRead, visaHistoryRead]);
+  const documentsResult = early.documents ? await early.documents : null;
+  const [flightHistory, visaHistory] = await Promise.all([early.flightHistory ?? Promise.resolve(undefined), early.visaHistory ?? Promise.resolve(undefined)]);
   const quotationList = quotationResult && quotationResult !== QUOTATIONS_NOT_INSTALLED ? quotationResult : null;
   const itineraryList = itineraryResult && itineraryResult !== ITINERARIES_NOT_INSTALLED ? itineraryResult : null;
   const bookView: BookNowView | null = bookResult.ok && bookResult.value && bookResult.value !== BOOK_NOW_NOT_INSTALLED ? bookResult.value : null;
@@ -150,12 +160,21 @@ export default async function DealPage({
     flightHistory,
     visaHistory,
     // Documents tab (B1-2): listed for every Deal reader; the read lists only files the viewer may
-    // open. Read only when the tab is open; a database without the read hides the tab (never partial).
+    // open. Read only when the tab is open; a database without the read hides the files (never partial).
     documentsAvailable: documentsResult?.state !== 'not_installed',
     ...(documentsResult && documentsResult.state !== 'not_installed'
       ? { documents: documentsResult.state === 'ok' ? documentsResult.files : ('error' as const) }
       : {}),
+    // Messages tab: Sales owner, branch Manager, Accounts (never a desk-only viewer); the read decides the rest.
+    messagesListed: canListDealMessages(deal.relation, roleCodes),
+    // Money tab: price readers and money readers (a branch Manager through a deal.read grant reads dues and
+    // refunds without the price summary); never a desk-only viewer.
+    moneyListed: canListDealMoney(deal, roleCodes),
   });
+  const current = workspace.current;
+  // People who may read customer money on this Deal; a failed money read shows its error card only to them
+  // (review item 16). Purchase, Flight and Visa see nothing about customer money.
+  const moneyReader = isDealMoneyReader(deal.relation, roleCodes);
 
   const bookHref = `/app/deals/${deal.id}/book`;
   const startForm =
@@ -164,16 +183,42 @@ export default async function DealPage({
     ) : undefined;
 
   let servicesTab: ReactNode;
-  if (workspace.current === 'services') {
+  if (current === 'services') {
+    const [serviceItemsEnabled, flightSummary, visaSummary] = await Promise.all([
+      early.settings ?? readSettings(),
+      early.flightSummary ?? readFlightSummary(),
+      early.visaSummary ?? readVisaSummary(),
+    ]);
     // Visa build: the desk task page opens for Visa role holders and the branch Manager (visa_workspace decides);
     // read only where a card needs it, as canOpenFlightWorkspace is.
-    const canOpenVisaDesk = () => staff.memberships.some((m) => m.roleCode === 'visa' || m.roleCode === 'manager');
+    const canOpenVisaDesk = () => roleCodes.some((r) => r === 'visa' || r === 'manager');
     const packageVersion = servicesView?.version?.serviceType === 'package';
     // Editors get the link while the switch is on; every booking reader keeps it for a package
     // version (the intake screen is where its proof, selling total and readiness live; review E8).
     const legacyIntakeHref = servicesView && (packageVersion || (serviceItemsEnabled && servicesView.canEdit)) ? `/app/deals/${deal.id}/intake` : null;
     const bookState = bookView ? dealBookState(bookView) : null;
     const intakeHref = bookState || bookFailed ? null : legacyIntakeHref;
+    // Accounts phase 3 (contract 10.5 R-G1, R-G4; screen 15.10): changes after a supplier confirmed and their
+    // history. Sales owner, branch Manager and Accounts read; Purchase, Flight and Visa would get null, so the
+    // reads are not started for a desk-only viewer (no card).
+    const [dealChanges, changeHistory] = deskOnly
+      ? ([null, null] as const)
+      : await Promise.all([loadDealChangeRequests(staff, deal.id).catch(() => 'error' as const), loadChangeHistory(staff, deal.id).catch(() => 'error' as const)]);
+    const changeViewer = roleCodes.includes('accounts') ? 'accounts' : roleCodes.includes('manager') ? 'manager' : 'sales';
+    const changeActions =
+      changeViewer === 'accounts'
+        ? null
+        : {
+            create: requestChangeAction as unknown as DecisionAction,
+            createAdd: requestAddServiceAction as unknown as DecisionAction,
+            createRemove: requestRemoveServiceAction as unknown as DecisionAction,
+            resubmit: resubmitChangeAction as unknown as DecisionAction,
+            withdraw: withdrawChangeAction as unknown as DecisionAction,
+            openVersion: openChangeVersionAction as unknown as DecisionAction,
+          };
+    // R2 (SL-8): "Request a change" in the Services sold header when that card is shown.
+    const changesView = dealChanges && dealChanges !== 'error' ? dealChangesView(dealChanges) : null;
+    const askInServicesHeader = Boolean(servicesView) && Boolean(changesView?.canRequest);
     // A failed Book now read is "could not be loaded", never the legacy hotel panel. view null: the
     // viewer has no booking view (for example Purchase): no panel. A package version is worked on
     // the intake screen: the legacy hotel panel stays only for hotel versions.
@@ -198,12 +243,11 @@ export default async function DealPage({
         services={servicesView}
         intakeHref={bookState ? bookHref : intakeHref}
         linkLabel={bookState ? 'Open the booking' : undefined}
-        canOpenFlightWorkspace={staff.memberships.some((m) => m.roleCode === 'flight' || m.roleCode === 'manager')}
+        canOpenFlightWorkspace={roleCodes.some((r) => r === 'flight' || r === 'manager')}
         canOpenVisaDesk={canOpenVisaDesk()}
+        headerAction={askInServicesHeader && changesView ? <RequestChangeHeaderAction changes={changesView} actions={changeActions} /> : undefined}
       />
     ) : null;
-    // Never a blank tab: when neither the booking card nor the services card applies, show one
-    // empty state (D-12). When the header carries the booking action, say where it is instead.
     // Flight build (contract 11.2): current flights, the approval card for the decider, e-ticket links. No fares.
     const flightCard =
       flightSummary === 'error' ? (
@@ -228,59 +272,17 @@ export default async function DealPage({
           canOpenTasks={canOpenVisaDesk()}
         />
       ) : null;
-    const dues = await duesRead;
-    const duesCard =
-      // A failed read shows the error card only to people who may read dues (Accounts, branch Manager, the
-      // Deal owner); Purchase, Flight and Visa see nothing about customer money (review item 16).
-      dues === 'error' ? (
-        (staff.memberships ?? []).some((m) => m.roleCode === 'accounts' || m.roleCode === 'manager') || deal.relation === 'owner' ? (
-          <DealDuesCard dues="error" viewer="sales" />
-        ) : null
-      ) : dues ? (
-        <DealDuesCard
-          dues={dues}
-          viewer={dues.viewer}
-          actions={dues.viewer === 'accounts' ? { addTallyInvoice: addTallyInvoiceAction as unknown as DecisionAction, withdrawTallyInvoice: withdrawTallyInvoiceAction as unknown as DecisionAction } : null}
-        />
-      ) : null;
-    // Accounts phase 2 (contract 6.9 R-B1, 7.5 R-C1; screens 11.1, 11.3): Customer documents and Refunds. The
-    // reads fence every viewer (null = no card); a failed read shows the error card only to money readers.
-    const moneyReader = (staff.memberships ?? []).some((m) => m.roleCode === 'accounts' || m.roleCode === 'manager') || deal.relation === 'owner';
-    const [customerDocsCard, refundCard, customerMessages] = await Promise.all([
-      customerDocumentsCard(staff, deal.id, { moneyReader, numberPrefix: deal.source?.sourceDealId ?? deal.reference, dues }),
-      refundsCard(staff, deal.id, { moneyReader }),
-      // Accounts phase 3 (contract 5.10 R-A1, screen 15.2, LD9): Sales owner, branch Manager and Accounts
-      // read; Purchase, Flight and Visa get null (no card). A failed read shows the error card to readers only.
-      loadDealCustomerMessages(staff, deal.id).catch(() => 'error' as const),
-    ]);
-    // Accounts phase 3 (contract 10.5 R-G1, R-G4; screen 15.10): changes after a supplier confirmed and their
-    // history. Sales owner, branch Manager and Accounts read; Purchase, Flight and Visa get null (no card).
-    const [dealChanges, changeHistory] = await Promise.all([
-      loadDealChangeRequests(staff, deal.id).catch(() => 'error' as const),
-      loadChangeHistory(staff, deal.id).catch(() => 'error' as const),
-    ]);
-    const changeViewer = (staff.memberships ?? []).some((m) => m.roleCode === 'accounts') ? 'accounts' : (staff.memberships ?? []).some((m) => m.roleCode === 'manager') ? 'manager' : 'sales';
     const changesCard =
       dealChanges === null || (dealChanges === 'error' && !moneyReader) ? null : (
         <DealChangesCard
-          changes={dealChanges === 'error' ? 'error' : dealChangesView(dealChanges)}
+          changes={changesView ?? 'error'}
           viewer={changeViewer}
-          actions={
-            changeViewer === 'accounts'
-              ? null
-              : {
-                  create: requestChangeAction as unknown as DecisionAction,
-                  createAdd: requestAddServiceAction as unknown as DecisionAction,
-                  createRemove: requestRemoveServiceAction as unknown as DecisionAction,
-                  resubmit: resubmitChangeAction as unknown as DecisionAction,
-                  withdraw: withdrawChangeAction as unknown as DecisionAction,
-                  openVersion: openChangeVersionAction as unknown as DecisionAction,
-                }
-          }
+          actions={changeActions}
+          askInServicesHeader={askInServicesHeader}
           editHref={() => `/app/deals/${deal.id}/book`}
           // Super Admins switch both features (the setters refuse anyone else).
           switches={
-            (staff.memberships ?? []).some((m) => m.roleCode === 'super_admin')
+            roleCodes.includes('super_admin')
               ? { setChanges: setBookingChangesAction as unknown as DecisionAction, setServiceChanges: setServiceChangesAction as unknown as DecisionAction }
               : null
           }
@@ -290,28 +292,15 @@ export default async function DealPage({
       changeHistory === null || (changeHistory !== 'error' && changeHistory.versions.length <= 1 && changeHistory.confirmations.length === 0) || (changeHistory === 'error' && !moneyReader) ? null : (
         <ChangeHistory history={changeHistory === 'error' ? 'error' : changeHistoryView(changeHistory)} viewer={changeViewer} />
       );
-    const messagesCard =
-      customerMessages === null || (customerMessages === 'error' && !moneyReader) ? null : (
-        <DealCustomerMessagesCard
-          data={customerMessages}
-          actions={{
-            setPrefs: setDealMessagePrefsAction as unknown as DecisionAction,
-            resend: resendCustomerMessageAction as unknown as DecisionAction,
-            restartWhatsapp: restartWhatsappAction as unknown as DecisionAction,
-          }}
-        />
-      );
+    // Never a blank tab: when neither the booking card nor the services card applies, show one
+    // empty state (D-12). When the header carries the booking action, say where it is instead.
     servicesTab =
-      panel || servicesCard || flightCard || visaCard || duesCard || customerDocsCard || refundCard || messagesCard || changesCard ? (
+      panel || servicesCard || flightCard || visaCard || changesCard ? (
         <>
           {panel}
           {flightCard}
           {visaCard}
           {servicesCard}
-          {duesCard}
-          {customerDocsCard}
-          {refundCard}
-          {messagesCard}
           {changesCard}
           {historyCard}
         </>
@@ -320,6 +309,29 @@ export default async function DealPage({
       ) : (
         <DealServicesEmpty />
       );
+    // R2: older saved links (bookmarks, notices already pushed) still say `?tab=services#dues` and the like; keep those anchors
+    // here with a pointer to the card's new tab, for money readers and only to tabs they may open.
+    if (moneyReader) {
+      const listed = new Set(workspace.tabs.map((t) => t.tab));
+      const moved: MovedCardLink[] = (
+        [
+          ['dues', 'Customer dues', 'money'],
+          ['refunds', 'Refunds', 'money'],
+          ['customer-documents', 'Customer documents', 'documents'],
+          ['customer-messages', 'Messages to customer', 'messages'],
+        ] as const
+      )
+        .filter(([, , tab]) => listed.has(tab))
+        .map(([anchor, label, tab]) => ({ anchor, label, href: `${dealHref(deal.id, tab)}#${anchor}`, tabLabel: DEAL_TAB_LABEL[tab] }));
+      if (moved.length > 0) {
+        servicesTab = (
+          <>
+            {servicesTab}
+            <MovedCardsNote links={moved} />
+          </>
+        );
+      }
+    }
     // Purchase build (owner decision 4): the branch Manager's "Trip cancelled". Shown only when the
     // database says this viewer may open it or a cancellation exists; a failed read shows nothing.
     const cancellation = await loadDealCancellation(staff, deal.id).catch(() => null);
@@ -333,34 +345,101 @@ export default async function DealPage({
     }
   }
 
-  let quotationsTab: ReactNode;
-  if (workspace.current === 'quotations') {
-    // Batch 3 (DA-71): referral drafts actively linked to this Deal that the viewer can open. Read only on
-    // this tab; null (not an editor), a failed read or an older database shows no section, never an error.
-    const referralDrafts = quotationList ? subjectReferralDraftsVM(await loadReferralDraftsForSubject(staff, 'deal', deal.id)) : null;
-    quotationsTab = (
-      <>
-        {quotationList ? (
-          <SubjectQuotationsCard
-            list={quotationList}
-            subjectId={deal.id}
-            defaultTitle={deal.title}
-            createAction={QUOTE_ACTIONS.create}
-            // One primary per page (copy §16.3): the Deal header holds it, so the card's create button is secondary.
-            createVariant="secondary"
-            blockedReason={
-              quotationList.canCreate
-                ? null
-                : bookView?.dealNotActive
-                  ? 'Lost or rejected in Bitrix: no new quotations.'
-                  : 'You cannot start a quotation on this deal right now.'
-            }
-          />
-        ) : null}
-        {referralDrafts ? <SubjectReferralDraftsSection vm={referralDrafts} /> : null}
-        {itineraryList ? <ItinerariesCard list={itineraryList} defaultTitle={deal.title} createAction={ITINERARY_ACTIONS.create} /> : null}
-      </>
-    );
+  // Money tab (R2: dues and plan, reported payments, refunds). The tab is listed for price readers and money
+  // readers, never for Purchase, Flight or Visa, so these reads never start for them; deskOnly is checked again
+  // on purpose. A money reader without the price summary (workspace.money absent) still gets dues and refunds.
+  let moneyTab: ReactNode;
+  let reportPayment: ReactNode;
+  if (current === 'money' && !deskOnly) {
+    // Accounts phase (contract 8.3 deal_dues, 11.4) and phase 2 (7.5 R-C1): Customer dues and Refunds. The reads
+    // fence every viewer (null = no card); a failed read shows the error card only to money readers.
+    const [dues, refundCard] = await Promise.all([loadDealDues(staff, deal.id).catch(() => 'error' as const), refundsCard(staff, deal.id, { moneyReader })]);
+    const duesCard =
+      dues === 'error' ? (
+        moneyReader ? (
+          <DealDuesCard dues="error" viewer="sales" />
+        ) : null
+      ) : dues ? (
+        <DealDuesCard
+          dues={dues}
+          viewer={dues.viewer}
+          actions={dues.viewer === 'accounts' ? { addTallyInvoice: addTallyInvoiceAction as unknown as DecisionAction, withdrawTallyInvoice: withdrawTallyInvoiceAction as unknown as DecisionAction } : null}
+        />
+      ) : null;
+    moneyTab =
+      duesCard || refundCard ? (
+        <>
+          {duesCard}
+          {refundCard}
+        </>
+      ) : workspace.money ? undefined : (
+        <StateBlock kind="empty" title="No customer money to show" text="Customer dues and refunds on this deal are shown to its Sales owner, the branch Manager and Accounts." />
+      );
+    // "Tell Accounts about a payment": the existing Book now claim panel in a dialog, for price readers the
+    // claims read lets report (deal_payment_claims; canReport). The same server actions as Book now.
+    const claims = bookView?.claims;
+    reportPayment = workspace.money && claims?.canReport ? (
+      <ReportPaymentDialog dealId={deal.id} claims={claims} reportAction={reportPaymentClaimAction} withdrawAction={withdrawPaymentClaimAction} />
+    ) : undefined;
+  }
+
+  // Documents tab (R2): files, then Customer documents (bills and vouchers), then the quotations and
+  // itineraries that were the old Quotations tab (`?tab=quotations` opens here).
+  let documentsTab: ReactNode;
+  if (current === 'documents') {
+    // Batch 3 (DA-71): referral drafts actively linked to this Deal that the viewer can open. null (not an
+    // editor), a failed read or an older database shows no section, never an error.
+    const [customerDocsCard, referralRead] = await Promise.all([
+      // Accounts phase 2 (contract 6.9 R-B1; screen 11.1): no customer-money read for a desk-only viewer.
+      deskOnly ? Promise.resolve(null) : customerDocumentsCard(staff, deal.id, { moneyReader, numberPrefix: deal.source?.sourceDealId ?? deal.reference }),
+      quotationList ? loadReferralDraftsForSubject(staff, 'deal', deal.id) : Promise.resolve(null),
+    ]);
+    const referralDrafts = quotationList ? subjectReferralDraftsVM(referralRead) : null;
+    documentsTab =
+      customerDocsCard || quotationList || referralDrafts || itineraryList ? (
+        <>
+          {customerDocsCard}
+          {quotationList ? (
+            <SubjectQuotationsCard
+              list={quotationList}
+              subjectId={deal.id}
+              defaultTitle={deal.title}
+              createAction={QUOTE_ACTIONS.create}
+              // One primary per page (copy §16.3): the Deal header holds it, so the card's create button is secondary.
+              createVariant="secondary"
+              blockedReason={
+                quotationList.canCreate
+                  ? null
+                  : bookView?.dealNotActive
+                    ? 'Lost or rejected in Bitrix: no new quotations.'
+                    : 'You cannot start a quotation on this deal right now.'
+              }
+            />
+          ) : null}
+          {referralDrafts ? <SubjectReferralDraftsSection vm={referralDrafts} /> : null}
+          {itineraryList ? <ItinerariesCard list={itineraryList} defaultTitle={deal.title} createAction={ITINERARY_ACTIONS.create} /> : null}
+        </>
+      ) : undefined;
+  }
+
+  // Messages tab (R2, new): the customer messages card (Accounts phase 3, contract 5.10 R-A1, screen 15.2,
+  // LD9). Listed only for the Sales owner, branch Manager and Accounts; the read still decides (null = none).
+  let messagesTab: ReactNode;
+  if (current === 'messages' && !deskOnly) {
+    const customerMessages = await loadDealCustomerMessages(staff, deal.id).catch(() => 'error' as const);
+    messagesTab =
+      customerMessages === null || (customerMessages === 'error' && !moneyReader) ? (
+        <StateBlock kind="empty" title="No customer messages to show" text="Messages to the customer on this deal are shown to its Sales owner, the branch Manager and Accounts." />
+      ) : (
+        <DealCustomerMessagesCard
+          data={customerMessages}
+          actions={{
+            setPrefs: setDealMessagePrefsAction as unknown as DecisionAction,
+            resend: resendCustomerMessageAction as unknown as DecisionAction,
+            restartWhatsapp: restartWhatsappAction as unknown as DecisionAction,
+          }}
+        />
+      );
   }
 
   return (
@@ -368,7 +447,10 @@ export default async function DealPage({
       workspace={workspace}
       startBookingForm={startForm}
       servicesTab={servicesTab}
-      quotationsTab={quotationsTab}
+      reportPayment={reportPayment}
+      moneyTab={moneyTab}
+      documentsTab={documentsTab}
+      messagesTab={messagesTab}
       live={<LiveDealsRefresh supabaseUrl={config.supabaseUrl} supabasePublishableKey={config.supabasePublishableKey} dealId={deal.id} />}
     />
   );

@@ -8,12 +8,11 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { FilterChips } from '@/components/ui/filter-chips';
 import { ListPager, pagerRangeText } from '@/components/ui/list-pager';
 import { PageHeader } from '@/components/ui/page-header';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCaption, TableCell } from '@/components/ui/table';
 import type { ViewerRelation } from '@/modules/deals/dto';
 import type { BitrixNameVM, DealListFilter, ListFiltersVM, ListFreshnessVM, ListPagerVM, RecordOwnerVM } from '@/modules/deals/workspace-contract';
 import { type DealProgress, type DealServiceSummaryView, progressText } from '@/modules/fulfilment/contracts';
-import { FreshnessLine, namesSwitchedOff, nothingVisible } from './list-parts';
+import { FreshnessLine, ListLoading, ListToolbar, namesSwitchedOff, nothingVisible } from './list-parts';
 import { DealListRow, DealsTableHeader } from './list-rows';
 import { type DealSearchAction, DealsServerSearch, ListSearch } from './list-search';
 import { DEAL_SEEN_BECAUSE } from './list-seen-because';
@@ -27,6 +26,9 @@ import { ServiceTypeChips } from './service-labels';
  * a two-option order control built as links, and the table skeleton for
  * loading (uiable 19969). Earlier record:
  * docs/implementation/current/design/ui-foundation-21st-log-2026-10-09.md.
+ * UX redesign R2 (C2, owner choice A): search, chips and order in one toolbar
+ * row (ListToolbar), the customer name as the row's one link, and loading
+ * shapes in the same layout (ListLoading). Same filters, order and search.
  */
 
 export interface DealsPaging {
@@ -51,40 +53,12 @@ export function dealsHref(page: number, sort: DealsPaging['sort'] = 'id_desc'): 
 }
 
 /**
- * Loading state of the Deals list (route loading file): a visually hidden
- * "Deals" heading, then the page header, the order control and a few table
- * rows as grey shapes. Announced once, politely;
- * the shapes are hidden from screen readers and the placeholder area is busy.
+ * Loading state of the Deals list (route loading file): the list's own shapes
+ * (ListLoading): a visually hidden "Deals" heading, one polite "Loading
+ * deals…" line, the toolbar row (search, chips, order) and table rows.
  */
 export function DealsListLoading() {
-  return (
-    <div className="flex flex-col gap-4 font-sans">
-      {/* The page keeps one level-1 heading while it loads (visually hidden; the real one replaces it). */}
-      <h1 className="sr-only">Deals</h1>
-      <p role="status" aria-live="polite" className="m-0 text-sm font-medium text-quiet">
-        Loading deals…
-      </p>
-      <div aria-busy="true" className="flex flex-col gap-4">
-        <Skeleton className="h-7 w-40 max-w-full" />
-        <Skeleton className="h-4 w-full max-w-xl" />
-        <Skeleton className="h-9 w-80 max-w-full self-end max-sm:self-start" />
-        <div className="rounded-card border border-line bg-card shadow-card">
-          <div className="border-b border-line px-4.5 py-3">
-            <Skeleton className="h-4 w-56 max-w-full" />
-          </div>
-          {Array.from({ length: 6 }, (_, i) => (
-            <div key={i} className="flex items-center gap-6 border-b border-line px-4.5 py-4 last:border-b-0 max-sm:flex-col max-sm:items-start max-sm:gap-2">
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-4 w-48 max-w-full flex-1 max-sm:flex-none" />
-              <Skeleton className="h-4 w-16 max-sm:hidden" />
-              <Skeleton className="h-4 w-20 max-sm:hidden" />
-              <Skeleton className="h-4 w-32 max-sm:w-40" />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+  return <ListLoading title="Deals" noun="deals" withOrder />;
 }
 
 // ===========================================================================
@@ -322,13 +296,22 @@ export function DealsListScreen({ rows, filters, freshness, pager, sort, service
       ) : (
         <>
           <div className="mb-4 flex flex-col gap-4">
-            <FilterChips filters={filters} label="Filter deals" srSuffix={{ assigned: ', owned by someone else' }} />
-            {rows.length > 0 ? (
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <ListSearch tableId="deals-table" noun="deals" />
-                <DealsOrderToggle sort={sort} />
+            {/* UX redesign R2 (C2): the same toolbar row as with server search: search, chips, order. */}
+            <ListToolbar>
+              {rows.length > 0 ? (
+                <div className="w-full max-w-xl min-w-0 lg:w-auto lg:max-w-md lg:min-w-64 lg:flex-1">
+                  <ListSearch tableId="deals-table" noun="deals" />
+                </div>
+              ) : null}
+              <div className={cn('min-w-0', rows.length > 0 && 'lg:pt-6')}>
+                <FilterChips filters={filters} label="Filter deals" srSuffix={{ assigned: ', owned by someone else' }} />
               </div>
-            ) : null}
+              {rows.length > 0 ? (
+                <div className="lg:ml-auto lg:pt-6">
+                  <DealsOrderToggle sort={sort} />
+                </div>
+              ) : null}
+            </ListToolbar>
             {servicesNotice}
           </div>
           {list}

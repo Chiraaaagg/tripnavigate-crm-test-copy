@@ -2,7 +2,10 @@ import type { ReactNode } from 'react';
 import { SettingsShell } from './settings-preview-frame';
 import { moneyRulesModel } from '@/modules/settings/server/queries';
 import { switchStates } from './batch4-settings-fixtures';
-import { ACCOUNTS_DEAL_TABS, type AccountsDealTab } from '@/modules/settings/contracts';
+import { SectionTabs } from '@/components/ui/section-tabs';
+import { DealDuesCard } from '@/views/accounts-desk/deal-money';
+import { ACCOUNTS_DEAL_PAGE_TABS, type AccountsDealPageTab } from '@/views/finance-common';
+import { DEAL_DUES } from './acc-fixtures';
 import type { DealListItem } from '@/modules/deals/dto';
 import type {
   AccountsDealDetail,
@@ -54,6 +57,17 @@ async function previewAction(): Promise<FinanceActionState> {
 async function previewUnknownOutcomeAction(): Promise<FinanceActionState> {
   'use server';
   throw new Error('Design preview: simulated lost response.');
+}
+
+/**
+ * Like a lost response, the outcome stays unconfirmed (no known code, so the form keeps its requestId),
+ * and the answer names the request id and amount the server received, so a test can see what was posted.
+ */
+async function previewUnknownOutcomeEchoAction(_prev: FinanceActionState, formData: FormData): Promise<FinanceActionState> {
+  'use server';
+  const id = String(formData.get('requestId') ?? 'none');
+  const amount = String(formData.get('amountRupees') ?? '');
+  return { status: 'error', message: `Design preview: the outcome is not confirmed. Request id received: ${id}, amount ₹${amount}.` };
 }
 
 /** Synthetic full details for "Show full details" (made-up values; nothing is read or audited). */
@@ -882,18 +896,27 @@ async function previewSupplierConfirmLost(): Promise<ProcurementActionResult<{ o
 }
 
 /**
- * Batch 4: the Accounts deal page has tabs (DA-15). Each deal state also
- * renders as "{state}--{tab}" (money, review, receipts, documents); the tab
- * links point at those preview states.
+ * The Accounts deal page has tabs (Batch 4 DA-15; R4: Receipts · Dues and
+ * plan · Documents · Refunds · Review). Each deal state also renders as
+ * "{state}--{tab}", and as "{state}--money" for the old address (it opens
+ * Receipts); the tab links point at those preview states. The Dues and plan
+ * tab shows the synthetic dues card, read-only.
  */
-function dealTab(name: string, tab: AccountsDealTab | undefined) {
-  return { tabParam: tab, tabHref: (t: AccountsDealTab) => `/preview/${name}--${t}` };
+function dealTab(name: string, tab: string | undefined) {
+  return {
+    tabParam: tab,
+    tabHref: (t: AccountsDealPageTab) => `/preview/${name}--${t}`,
+    dues: <DealDuesCard dues={DEAL_DUES} viewer="accounts" actions={null} />,
+  };
 }
 
-const states: Record<string, (tab?: AccountsDealTab) => ReactNode> = {
+/** D5 (R4): the To check section tabs under the queue header, for the synthetic Accounts person. */
+const toCheckTabs = <SectionTabs section="to-check" currentHref="/app/accounts" viewer={accounts} />;
+
+const states: Record<string, (tab?: string) => ReactNode> = {
   'finance-queue': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
-      <AccountsQueueView items={queueItems} filter="all" />
+      <AccountsQueueView sectionTabs={toCheckTabs} items={queueItems} filter="all" />
     </StaffShell>
   ),
   'finance-loading': () => (
@@ -903,32 +926,33 @@ const states: Record<string, (tab?: AccountsDealTab) => ReactNode> = {
   ),
   'finance-queue-truncated': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
-      <AccountsQueueView items={queueItems} filter="all" paging={{ totalCount: 137, hasMore: true, nextAfter: QUEUE_NEXT, laterPage: false }} />
+      <AccountsQueueView sectionTabs={toCheckTabs} items={queueItems} filter="all" paging={{ totalCount: 137, hasMore: true, nextAfter: QUEUE_NEXT, laterPage: false }} />
     </StaffShell>
   ),
   'finance-queue-later-page': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
-      <AccountsQueueView items={queueItems.slice(0, 2)} filter="needs_review" paging={{ totalCount: 52, hasMore: false, nextAfter: null, laterPage: true }} />
+      <AccountsQueueView sectionTabs={toCheckTabs} items={queueItems.slice(0, 2)} filter="needs_review" paging={{ totalCount: 52, hasMore: false, nextAfter: null, laterPage: true }} />
     </StaffShell>
   ),
   'finance-queue-end': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
-      <AccountsQueueView items={[]} filter="all" paging={{ totalCount: 50, hasMore: false, nextAfter: null, laterPage: true }} />
+      <AccountsQueueView sectionTabs={toCheckTabs} items={[]} filter="all" paging={{ totalCount: 50, hasMore: false, nextAfter: null, laterPage: true }} />
     </StaffShell>
   ),
   'finance-queue-empty': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
-      <AccountsQueueView items={[]} filter="all" />
+      <AccountsQueueView sectionTabs={toCheckTabs} items={[]} filter="all" />
     </StaffShell>
   ),
   'finance-queue-filter-empty': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
-      <AccountsQueueView items={[]} filter="cheques_pending" />
+      <AccountsQueueView sectionTabs={toCheckTabs} items={[]} filter="cheques_pending" />
     </StaffShell>
   ),
   'finance-queue-lookup-found': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsQueueView
+        sectionTabs={toCheckTabs}
         items={queueItems.slice(0, 2)}
         filter="needs_review"
         lookup={{
@@ -940,50 +964,55 @@ const states: Record<string, (tab?: AccountsDealTab) => ReactNode> = {
   ),
   'finance-queue-lookup-missing': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
-      <AccountsQueueView items={queueItems} filter="all" lookup={{ reference: 'SYN-XXX-404', result: null }} />
+      <AccountsQueueView sectionTabs={toCheckTabs} items={queueItems} filter="all" lookup={{ reference: 'SYN-XXX-404', result: null }} />
     </StaffShell>
   ),
-  'finance-deal-detail': (tab?: AccountsDealTab) => (
+  'finance-deal-detail': (tab?: string) => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-detail', tab)} detail={detail} actions={actions} destinationOptions={destinationOptions} />
     </StaffShell>
   ),
-  'finance-deal-blocked': (tab?: AccountsDealTab) => (
+  'finance-deal-blocked': (tab?: string) => (
     <StaffShell viewer={accounts2} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-blocked', tab)} detail={blockedDetail} actions={actions} />
     </StaffShell>
   ),
-  'finance-deal-not-live': (tab?: AccountsDealTab) => (
+  'finance-deal-not-live': (tab?: string) => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-not-live', tab)} detail={notLiveDetail} actions={actions} />
     </StaffShell>
   ),
-  'finance-deal-partly-live': (tab?: AccountsDealTab) => (
+  'finance-deal-partly-live': (tab?: string) => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-partly-live', tab)} detail={partlyLiveDetail} actions={actions} destinationOptions={destinationOptions} />
     </StaffShell>
   ),
-  'finance-deal-cash-off': (tab?: AccountsDealTab) => (
+  'finance-deal-cash-off': (tab?: string) => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-cash-off', tab)} detail={cashOffDetail} actions={actions} />
     </StaffShell>
   ),
-  'finance-deal-no-booking': (tab?: AccountsDealTab) => (
+  'finance-deal-no-booking': (tab?: string) => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-no-booking', tab)} detail={noBookingDetail} actions={actions} />
     </StaffShell>
   ),
-  'finance-deal-approved-after-return': (tab?: AccountsDealTab) => (
+  'finance-deal-approved-after-return': (tab?: string) => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-approved-after-return', tab)} detail={approvedStaleReasonDetail} actions={actions} />
     </StaffShell>
   ),
-  'finance-deal-unknown-outcome': (tab?: AccountsDealTab) => (
+  'finance-deal-unknown-outcome': (tab?: string) => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-unknown-outcome', tab)} detail={partlyLiveDetail} actions={{ ...actions, recordReceiptAction: previewUnknownOutcomeAction }} destinationOptions={destinationOptions} />
     </StaffShell>
   ),
-  'finance-deal-returned': (tab?: AccountsDealTab) => (
+  'finance-deal-unknown-outcome-echo': (tab?: string) => (
+    <StaffShell viewer={accounts} currentPath="/app/accounts">
+      <AccountsDealView {...dealTab('finance-deal-unknown-outcome-echo', tab)} detail={partlyLiveDetail} actions={{ ...actions, recordReceiptAction: previewUnknownOutcomeEchoAction }} destinationOptions={destinationOptions} />
+    </StaffShell>
+  ),
+  'finance-deal-returned': (tab?: string) => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-returned', tab)} detail={returnedDetail} actions={actions} />
     </StaffShell>
@@ -995,17 +1024,56 @@ const states: Record<string, (tab?: AccountsDealTab) => ReactNode> = {
   ),
   'finance-cash': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts/cash">
-      <CashOverviewView overview={cash} actions={actions} />
+      <CashOverviewView overview={cash} actions={actions} viewer={accounts} />
+    </StaffShell>
+  ),
+  // R4 (A8): the second branch tab (branch tab links point at the real route, so the gallery cannot follow them).
+  'finance-cash-jodhpur': () => (
+    <StaffShell viewer={accounts} currentPath="/app/accounts/cash">
+      <CashOverviewView overview={cash} actions={actions} viewer={accounts} branchId={BR_JDH} />
+    </StaffShell>
+  ),
+  // R4 (A8): the deposit drawer open with a refusal; the typed form stays.
+  'finance-cash-deposit-error': () => (
+    <StaffShell viewer={accounts} currentPath="/app/accounts/cash">
+      <CashOverviewView
+        overview={cash}
+        actions={actions}
+        viewer={accounts}
+        depositInitialState={{
+          status: 'error',
+          code: 'invalid_input',
+          message: 'Some details are missing or not in the expected format. Check the highlighted fields.',
+          fieldErrors: { bankReference: 'Enter the bank reference on the slip.' },
+        }}
+      />
+    </StaffShell>
+  ),
+  // R4 (A8): the cash count drawer open with a refusal, on the second branch.
+  'finance-cash-count-error': () => (
+    <StaffShell viewer={accounts} currentPath="/app/accounts/cash">
+      <CashOverviewView
+        overview={cash}
+        actions={actions}
+        viewer={accounts}
+        branchId={BR_JDH}
+        countInitialState={{
+          status: 'error',
+          code: 'invalid_input',
+          message: 'Some details are missing or not in the expected format. Check the highlighted fields.',
+          fieldErrors: { businessDate: 'Choose a business date that is not in the future.' },
+        }}
+      />
     </StaffShell>
   ),
   'finance-cash-truncated': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts/cash">
-      <CashOverviewView overview={truncatedCash} actions={actions} />
+      <CashOverviewView overview={truncatedCash} actions={actions} viewer={accounts} />
     </StaffShell>
   ),
   'finance-cash-awaiting-verification': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts/cash">
-      <CashOverviewView overview={awaitingCash} actions={actions} />
+      <CashOverviewView overview={awaitingCash} actions={actions} viewer={accounts} />
     </StaffShell>
   ),
   'finance-cash-unavailable': () => (
@@ -1015,7 +1083,7 @@ const states: Record<string, (tab?: AccountsDealTab) => ReactNode> = {
   ),
   'finance-cash-empty': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts/cash">
-      <CashOverviewView overview={{ ...cash, branches: [] }} actions={actions} />
+      <CashOverviewView overview={{ ...cash, branches: [] }} actions={actions} viewer={accounts} />
     </StaffShell>
   ),
   'finance-policy': () => (
@@ -1085,17 +1153,17 @@ const states: Record<string, (tab?: AccountsDealTab) => ReactNode> = {
   // Stage 2: company accounts and the receipt destination.
   'finance-destinations': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts/destinations">
-      <CompanyDestinationsView page={destinationsPage} actions={actions} />
+      <CompanyDestinationsView page={destinationsPage} actions={actions} viewer={accounts} />
     </StaffShell>
   ),
   'finance-destinations-own': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts/destinations">
-      <CompanyDestinationsView page={ownDestinationsPage} actions={actions} />
+      <CompanyDestinationsView page={ownDestinationsPage} actions={actions} viewer={accounts} />
     </StaffShell>
   ),
   'finance-destinations-empty': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts/destinations">
-      <CompanyDestinationsView page={{ entityId: ENTITY, destinations: [] }} actions={actions} />
+      <CompanyDestinationsView page={{ entityId: ENTITY, destinations: [] }} actions={actions} viewer={accounts} />
     </StaffShell>
   ),
   'finance-destinations-add-error': () => (
@@ -1103,6 +1171,7 @@ const states: Record<string, (tab?: AccountsDealTab) => ReactNode> = {
       <CompanyDestinationsView
         page={{ entityId: ENTITY, destinations: [] }}
         actions={actions}
+        viewer={accounts}
         addInitialState={{
           status: 'error',
           code: 'invalid_input',
@@ -1120,30 +1189,47 @@ const states: Record<string, (tab?: AccountsDealTab) => ReactNode> = {
       <FinanceUnavailableView code="environment_unset" title="Company accounts" />
     </StaffShell>
   ),
-  'finance-deal-destinations': (tab?: AccountsDealTab) => (
+  'finance-deal-destinations': (tab?: string) => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-destinations', tab)} detail={mappedReceiptsDetail} actions={actions} destinationOptions={destinationOptions} />
     </StaffShell>
   ),
-  'finance-deal-no-destination': (tab?: AccountsDealTab) => (
+  'finance-deal-no-destination': (tab?: string) => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-no-destination', tab)} detail={partlyLiveDetail} actions={actions} destinationOptions={[]} />
     </StaffShell>
   ),
-  'finance-deal-destinations-unavailable': (tab?: AccountsDealTab) => (
+  'finance-deal-destinations-unavailable': (tab?: string) => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-destinations-unavailable', tab)} detail={partlyLiveDetail} actions={actions} destinationOptions={[]} destinationOptionsUnavailable />
     </StaffShell>
   ),
-  'finance-deal-destination-changed': (tab?: AccountsDealTab) => (
+  'finance-deal-destination-changed': (tab?: string) => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-destination-changed', tab)} detail={partlyLiveDetail} actions={{ ...actions, recordReceiptAction: previewDestinationChangedAction }} destinationOptions={destinationOptions} />
     </StaffShell>
   ),
   // Accounts phase 0 (contract 5.2, 11.4): the Return button is hidden once the Deal is committed (a supplier confirmed or tickets issued), with the reason.
-  'finance-deal-return-blocked-committed': (tab?: AccountsDealTab) => (
+  'finance-deal-return-blocked-committed': (tab?: string) => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
       <AccountsDealView {...dealTab('finance-deal-return-blocked-committed', tab ?? 'review')} detail={{ ...detail, booking: { ...detail.booking!, canReturn: false, returnBlock: 'committed' } }} actions={actions} destinationOptions={destinationOptions} />
+    </StaffShell>
+  ),
+  // R4: "Record a receipt" at the top opens the existing form in a drawer.
+  'finance-deal-record-open': (tab?: string) => (
+    <StaffShell viewer={accounts} currentPath="/app/accounts">
+      <AccountsDealView {...dealTab('finance-deal-record-open', tab ?? 'receipts')} detail={partlyLiveDetail} actions={actions} destinationOptions={destinationOptions} recordOpen />
+    </StaffShell>
+  ),
+  // R4: the Refunds tab with nothing for this deal, and the Dues and plan tab when the dues read failed.
+  'finance-deal-refunds-empty': () => (
+    <StaffShell viewer={accounts} currentPath="/app/accounts">
+      <AccountsDealView {...dealTab('finance-deal-refunds-empty', 'refunds')} detail={detail} actions={actions} destinationOptions={destinationOptions} />
+    </StaffShell>
+  ),
+  'finance-deal-dues-error': () => (
+    <StaffShell viewer={accounts} currentPath="/app/accounts">
+      <AccountsDealView {...dealTab('finance-deal-dues-error', 'dues')} dues={<DealDuesCard dues="error" viewer="accounts" />} detail={detail} actions={actions} destinationOptions={destinationOptions} />
     </StaffShell>
   ),
   'finance-not-configured': () => (
@@ -1154,9 +1240,9 @@ const states: Record<string, (tab?: AccountsDealTab) => ReactNode> = {
 };
 
 
-const DEAL_TAB_STATES = ['finance-deal-detail', 'finance-deal-blocked', 'finance-deal-not-live', 'finance-deal-partly-live', 'finance-deal-cash-off', 'finance-deal-no-booking', 'finance-deal-approved-after-return', 'finance-deal-unknown-outcome', 'finance-deal-returned', 'finance-deal-destinations', 'finance-deal-no-destination', 'finance-deal-destinations-unavailable', 'finance-deal-destination-changed', 'finance-deal-return-blocked-committed'];
+const DEAL_TAB_STATES = ['finance-deal-detail', 'finance-deal-blocked', 'finance-deal-not-live', 'finance-deal-partly-live', 'finance-deal-cash-off', 'finance-deal-no-booking', 'finance-deal-approved-after-return', 'finance-deal-unknown-outcome', 'finance-deal-unknown-outcome-echo', 'finance-deal-returned', 'finance-deal-destinations', 'finance-deal-no-destination', 'finance-deal-destinations-unavailable', 'finance-deal-destination-changed', 'finance-deal-return-blocked-committed'];
 for (const name of DEAL_TAB_STATES) {
-  for (const tab of ACCOUNTS_DEAL_TABS) states[`${name}--${tab}`] = () => states[name]!(tab);
+  for (const tab of [...ACCOUNTS_DEAL_PAGE_TABS, 'money']) states[`${name}--${tab}`] = () => states[name]!(tab);
 }
 
 export const FINANCE_PREVIEW_STATES = Object.keys(states);

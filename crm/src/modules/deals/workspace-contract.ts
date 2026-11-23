@@ -16,8 +16,9 @@ import type { VisaDealHistoryKind } from '@/modules/visa/contracts';
  *   - Built on the server from reads that the database already filters
  *     (docs/implementation/frontend-redesign-2026-10-15/batch-1-backend-contract.md §2, §3).
  *     A view model never carries a field the screen does not display.
- *   - Money appears ONLY in DealMoneyVM. DealMoneyVM is absent (the key is left
- *     out, never null) for every viewer whose deal DTO says commercialAbsence
+ *   - Money appears ONLY in DealMoneyVM and in DealOverviewVM.money (R2: two
+ *     summary lines for price readers). Both are absent (the key is left out,
+ *     never null) for every viewer whose deal DTO says commercialAbsence
  *     'withheld' (Purchase, Flight, Visa, Sales without price access):
  *     money-privacy-settings.md P5, P6, P12; feature-parity FP-020, FP-026.
  *   - Amounts are display strings already formatted on the server from whole
@@ -34,28 +35,54 @@ import type { VisaDealHistoryKind } from '@/modules/visa/contracts';
 // ---------------------------------------------------------------------------
 
 /**
- * Deal record tabs, in display order (DA-10): Overview · Services and tasks ·
- * Quotations · Documents · Money · History, as `?tab=overview|services|
- * quotations|documents|money|history`. Parsed on the server against this list;
- * an unknown value or a tab the viewer may not open renders Overview. The tab
- * never decides authorization.
+ * Deal record tabs, in display order (UX redesign R2, design plan 1.3):
+ * Overview · Services and tasks · Money · Documents · Messages · History, as
+ * `?tab=overview|services|money|documents|messages|history`. Parsed on the
+ * server against this list. The tab never decides authorization.
+ *
+ * Old addresses keep working (R2 tab contract, frozen by the lead):
+ *   - `?tab=quotations` (the old Quotations tab) opens Documents, which now
+ *     holds the quotation and itinerary lists (DealTabAlias).
+ *   - An unknown value, or a tab the viewer may not open, renders the
+ *     viewer's default tab (DealDefaultTabInput). A repeated parameter uses
+ *     its first value (src/lib/parse-tab.ts).
+ * Every tab link carries `?tab=`, so Overview stays reachable when the
+ * default is Services and tasks.
  */
-export type DealTab = 'overview' | 'services' | 'quotations' | 'documents' | 'money' | 'history';
+export type DealTab = 'overview' | 'services' | 'money' | 'documents' | 'messages' | 'history';
+
+/** Retired `?tab=` values and the tab each now opens. */
+export interface DealTabAlias {
+  quotations: 'documents';
+}
+
+/**
+ * The default tab rule (owner, 16 November 2026): the Deal's Sales owner
+ * ('owner' relation) lands on Services and tasks when the Deal has services;
+ * everyone else, and the owner of a Deal without services, lands on Overview.
+ */
+export interface DealDefaultTabInput {
+  relation: ViewerRelation;
+  /** At least one service that is not cancelled, in a read the viewer already has. */
+  hasServices: boolean;
+}
 
 /** Lead record tabs (DA-11): Overview · Quotations · Bitrix details, as `?tab=overview|quotations|bitrix`. */
 export type LeadTab = 'overview' | 'quotations' | 'bitrix';
 
 /**
- * One link tab. Only tabs the viewer may open are listed: Money only with a
- * DealMoneyVM, Quotations only when the quotation or itinerary list is
- * readable, Documents only when the combined read (B1-2) is installed.
+ * One link tab. Only tabs the viewer may open are listed: Money only for
+ * price readers (a DealMoneyVM can be built), Documents when the combined
+ * read (B1-2) is installed or the quotation or itinerary list is readable,
+ * Messages only for the people the customer-message read serves (Sales owner,
+ * branch Manager, Accounts; never Purchase, Flight or Visa).
  * Deliberately no count field: tabs never show counts (money-privacy P6).
  */
 export interface TabItemVM<T extends string> {
   tab: T;
   /** Label exactly as DA-10 / DA-11. */
   label: string;
-  /** Same page with `?tab=`; Overview links without the parameter. */
+  /** Same page with `?tab=` (Deal tabs always carry it; Lead Overview links without it). */
   href: string;
   /** Sets aria-current="page". */
   current: boolean;
@@ -294,9 +321,35 @@ export interface DealTeamMemberVM {
   isYou: boolean;
 }
 
+/** One service line on the Overview summary (R2). Never a budget, cost or rate. */
+export interface DealOverviewServiceVM {
+  itemNo: number;
+  title: string;
+  /** "Purchase", "Flight", "Visa and passport desk". */
+  departmentLabel: string;
+  /** The task's word (DA-44), or "No task yet" before the booking is submitted. */
+  statusWord: string;
+  /** The task is done (supplier confirmed or completed). */
+  done: boolean;
+}
+
 /**
- * Overview tab (FP-020 without money, D-14, D-15). Never carries money:
- * the prototype's "Selling price" row in Overview is not adopted.
+ * Overview money lines (R2, design plan 2.4 "Deal › Overview"): price readers
+ * only, built from the same reads as DealMoneyVM. Absent (key left out) for a
+ * withheld viewer and when neither value is known.
+ */
+export interface DealOverviewMoneyVM {
+  /** Final selling total of the booking; null = not entered. */
+  sellingTotal: string | null;
+  /** "Still to pay (based on checked money)"; null = not known (no total yet, or no claims read). */
+  stillToPay: string | null;
+}
+
+/**
+ * Overview tab (FP-020, D-14, D-15; R2 one-screen summary). Each block links
+ * to its tab. Money only in `money`, and only for price readers; the
+ * prototype's "trip closure" checklist is NOT part of the Deal Overview
+ * (build plan section 5: a new read and a new decision).
  */
 export interface DealOverviewVM {
   branchName: string;
@@ -308,6 +361,14 @@ export interface DealOverviewVM {
   tripText: string | null;
   /** Traveller count line; null when not known or not shown to this role. */
   travellersText: string | null;
+  /** Services the viewer's reads returned (not cancelled), in item order; [] or absent when none. */
+  services?: DealOverviewServiceVM[];
+  /** "Services: n of m confirmed"; undefined when none or not loaded. */
+  servicesProgressText?: string;
+  /** Price readers only (see DealOverviewMoneyVM). */
+  money?: DealOverviewMoneyVM;
+  /** Same-page links to the tabs the summary points at (only tabs the viewer may open). */
+  links?: { services: string; money?: string };
   /** Undefined for a CRM-native or synthetic record. */
   bitrix?: DealBitrixDetailsVM;
 }
@@ -520,8 +581,11 @@ export type DealDocumentKind = DealDocumentRow['kind'];
 export type DealDocumentsVM = { state: 'ok'; rows: DealDocumentRow[] } | { state: 'error' };
 
 /**
- * Whole Deal workspace. Services and tasks and Quotations tab bodies are the
- * existing server-rendered cards placed by the route (not view models here).
+ * Whole Deal workspace. The existing server-rendered cards (booking, services,
+ * flights, visa, changes on Services and tasks; dues, refunds and the payment
+ * report on Money; customer documents, quotations and itineraries on
+ * Documents; customer messages on Messages) are placed by the route, not
+ * carried here.
  * Only the current tab's body is rendered; other tab models are left out.
  */
 export interface DealWorkspaceVM {

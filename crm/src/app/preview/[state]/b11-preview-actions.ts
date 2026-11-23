@@ -7,9 +7,9 @@ import type { PruneFormState, WonOnlyFormState } from '@/modules/integration/ser
 /*
  * LOCAL DESIGN-REVIEW GALLERY ONLY. Stand-in server actions for the B1.1
  * screens: they read nothing, write nothing and return fixed answers, so the
- * preview states can show refusals (typed values kept, fields named), the
- * "someone saved first" conflict, a failed upload and successes through the
- * real form path. The gallery page itself is a 404 outside local preview mode.
+ * preview states can show refusals (typed values kept, fields named) and
+ * successes through the real form path. The gallery page itself is a 404
+ * outside local preview mode.
  */
 
 type Result = BookingActionResult<unknown>;
@@ -19,57 +19,13 @@ async function settle<T>(value: T): Promise<T> {
   return value;
 }
 
-function invalid(fields: string[]): Result {
-  return { ok: false, code: 'invalid_input', message: ERROR_TEXT.invalid_input, fields };
-}
-
 export async function previewB11SavedAction(): Promise<Result> {
   return settle({ ok: true, data: undefined, message: `Synthetic preview: ${BOOK_NOW_TEXT.savedNothingBooked}` });
 }
 
-export async function previewB11RefuseCustomerAction(): Promise<Result> {
-  return settle(invalid(['mobile', 'postalCode', 'gstin']));
-}
-
-export async function previewB11RefuseTripAction(): Promise<Result> {
-  return settle(invalid(['tripEnd', 'travellerName[1]']));
-}
-
-export async function previewB11RefuseServiceAction(): Promise<Result> {
-  return settle(invalid(['checkOut', 'childAges']));
-}
-
-export async function previewB11RefusePriceAction(): Promise<Result> {
-  return settle(invalid(['sellingTotalRupees']));
-}
-
-export async function previewB11RefusePlanAction(): Promise<Result> {
-  return settle(invalid(['instalmentAmountRupees[1]']));
-}
-
-export async function previewB11ConflictAction(): Promise<Result> {
-  return settle({
-    ok: false,
-    code: 'version_changed',
-    message: '',
-    conflict: { savedByName: 'Synthetic Manager Delhi', savedAt: '2026-10-11T08:32:00.000Z' },
-  });
-}
-
-export async function previewB11UploadFailedAction(): Promise<Result> {
-  return settle({ ok: false, code: 'upload_failed', message: ERROR_TEXT.upload_failed });
-}
-
-export async function previewB11NotReadyAction(): Promise<Result> {
-  return settle({ ok: false, code: 'not_ready', message: ERROR_TEXT.not_ready, issues: ['plan_total_mismatch'] });
-}
-
+/** A fix marked with a weaker change type than its changes allow (bookform-revision-refused). */
 export async function previewB11ClassificationRefusedAction(): Promise<Result> {
-  return settle({ ok: false, code: 'classification_not_allowed', message: ERROR_TEXT.classification_not_allowed, fields: ['changeClass'] });
-}
-
-export async function previewB11RevisionNotAllowedAction(): Promise<Result> {
-  return settle({ ok: false, code: 'revision_not_allowed', message: ERROR_TEXT.revision_not_allowed });
+  return settle({ ok: false, code: 'classification_not_allowed', message: '', fields: ['changeClass'] });
 }
 
 export async function previewB11ClaimReportedAction(): Promise<FinanceActionState> {
@@ -147,24 +103,4 @@ export async function previewB12IdProofRejectedAction(): Promise<Result> {
 
 export async function previewB12IdProofRemovedAction(): Promise<Result> {
   return settle({ ok: true, data: undefined, message: 'Synthetic preview: identity proof removed for this traveller.' });
-}
-
-// B1.2 row-version chain check (gallery only, Echo D4-1), stateless so parallel workers cannot
-// interfere. The b12-book-chain view is at row version 7. The first section's save accepts its
-// base and returns base + 1; the second section's save behaves like the database: it is refused
-// as version_changed unless it posts 8, the row version the first save returned.
-export async function previewB12ChainFirstAction(_prev: unknown, formData: FormData): Promise<Result> {
-  const posted = Number(formData.get('rowVersion'));
-  return settle({ ok: true, data: { rowVersion: posted + 1, contentHash: `hash-${posted + 1}` }, message: `Synthetic preview: saved at row version ${posted + 1}.` });
-}
-
-export async function previewB12ChainSecondAction(_prev: unknown, formData: FormData): Promise<Result> {
-  const posted = Number(formData.get('rowVersion'));
-  if (posted !== 8) return settle({ ok: false, code: 'version_changed', message: '' });
-  return settle({ ok: true, data: { rowVersion: 9, contentHash: 'hash-9' }, message: 'Synthetic preview: saved at row version 9.' });
-}
-
-/** Batch 2: "Fill empty fields from Bitrix" that skipped every field (ok, empty list): the screen says nothing was filled and why. */
-export async function previewB2FillEmptyNothingAction(): Promise<Result> {
-  return settle({ ok: true, data: { rowVersion: 8, filled: [], skipped: [{ field: 'contacts.email', reason: 'no_value' }, { field: 'trip.start', reason: 'cleared_by_staff' }] }, message: 'Filled from Bitrix: .' });
 }

@@ -75,7 +75,7 @@ export function RefundRequestBlock({
           {showDealLink && dealReference ? (
             <>
               {' · '}
-              <Link href={`/app/deals/${dealId}?tab=services#refunds`} className="text-brand-strong underline-offset-4 hover:underline">
+              <Link href={`/app/deals/${dealId}?tab=money#refunds`} className="text-brand-strong underline-offset-4 hover:underline">
                 {dealReference}
               </Link>
             </>

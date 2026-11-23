@@ -362,9 +362,11 @@ test.describe('B1.2 quotation to booking journey (real local stack)', () => {
       // Customer copy is the server-rendered preview (the documents adapter): never our cost.
       await sales.getByRole('navigation', { name: 'Edit or customer copy' }).getByRole('link', { name: 'Customer copy' }).click();
       await expect(sales).toHaveURL(new RegExp(`/app/quotations/${versionId}/preview$`), { timeout: 30_000 });
-      await expect(sales.locator('main').getByRole('status')).toContainText('Checked: no internal or pushy words.');
+      // R2: the page has two status regions, the check result and the share line ("Share it with the customer").
+      const check = sales.locator('main').getByRole('status').filter({ hasText: 'Checked: no internal or pushy words.' });
+      await expect(check).toHaveCount(1);
       // One title-only day of a 4-day trip: a staff note in the status, never on the document, never blocking the share.
-      await expect(sales.locator('main').getByRole('status')).toContainText('Day plan covers 1 of 4 days.');
+      await expect(check).toContainText('Day plan covers 1 of 4 days.');
       const doc = sales.locator('#quote-document');
       await expect(doc).toContainText('GST as applicable. Quotation — not a tax invoice.');
       await expect(doc).toContainText('₹30,000');
@@ -474,10 +476,11 @@ test.describe('B1.2 quotation to booking journey (real local stack)', () => {
       await expect(sales.getByRole('link', { name: 'Open the written OK' })).toBeVisible();
       await expect(sales.locator('#bf-ready').getByRole('heading', { name: 'Ready to submit' })).toBeVisible({ timeout: 30_000 });
       await sales.screenshot({ path: `${shotDir}/04-finish.png`, fullPage: true });
-      // Book now v2 (prototype footSubmit): the footer "Review and submit" only scrolls to "Before you submit";
-      // the dialog opens from the submit card's own button.
+      // Book now v2 with O1 (owner, 16 November 2026): the footer "Review and submit" scrolls to the submit
+      // card's own button and focuses it; the dialog opens from that button.
       await main.getByRole('button', { name: 'Review and submit' }).click();
-      await expect(sales.locator('#bf-ready')).toBeInViewport();
+      await expect(sales.locator('#bf-submit-trigger')).toBeFocused();
+      await expect(sales.locator('#bf-submit-trigger')).toBeInViewport();
       await main.getByRole('region', { name: 'Submit' }).getByRole('button', { name: SUBMIT_BUTTON }).click();
       const dialog = sales.getByRole('dialog', { name: SUBMIT_DIALOG });
       await expect(dialog).toContainText('It creates 1 internal task', { timeout: 30_000 });
@@ -547,7 +550,8 @@ test.describe('B1.2 quotation to booking journey (real local stack)', () => {
       'estimatedMargin',
       'amountPaise',
     ];
-    const DEAL_TABS = ['', '?tab=overview', '?tab=services', '?tab=quotations', '?tab=documents', '?tab=money', '?tab=history', '?tab=not-a-tab'];
+    // R2 tabs: Overview · Services and tasks · Money · Documents · Messages · History; the retired ?tab=quotations opens Documents.
+    const DEAL_TABS = ['', '?tab=overview', '?tab=services', '?tab=quotations', '?tab=documents', '?tab=money', '?tab=messages', '?tab=history', '?tab=not-a-tab'];
 
     await test.step('control: Sales sees the Money tab, the Lead link and the written acceptance in Documents', async () => {
       await sales.goto(`/app/deals/${dealId}`);
@@ -581,18 +585,24 @@ test.describe('B1.2 quotation to booking journey (real local stack)', () => {
         await expect(tabsNav.getByRole('link', { name: 'Overview' }), path).toHaveCount(1);
         await expect(tabsNav.getByRole('link', { name: 'Money' }), path).toHaveCount(0);
         await expect(tabsNav.getByRole('link', { name: 'Quotations' }), path).toHaveCount(0);
+        await expect(tabsNav.getByRole('link', { name: 'Messages' }), path).toHaveCount(0);
         const html = await (await buyer.request.get(path)).text();
         for (const hidden of FORBIDDEN) {
           await expect(main, `${path}: ${hidden}`).not.toContainText(hidden);
           expect(html, `${path} raw HTML: ${hidden}`).not.toContain(hidden);
         }
       }
-      // Money and unknown tabs fall back to Overview for Purchase; Documents opens and lists no
-      // customer acceptance, booking acceptance or payment-proof file.
-      for (const tab of ['?tab=money', '?tab=not-a-tab', '?tab=quotations']) {
+      // Money, Messages and unknown tabs fall back to Overview (Purchase's default tab); the retired
+      // ?tab=quotations opens the same tab as ?tab=documents. Documents lists no customer acceptance,
+      // booking acceptance or payment-proof file.
+      for (const tab of ['?tab=money', '?tab=messages', '?tab=not-a-tab']) {
         await buyer.goto(`/app/deals/${dealId}${tab}`);
         await expect(buyer.getByRole('navigation', { name: 'Deal sections' }).getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page');
       }
+      await buyer.goto(`/app/deals/${dealId}?tab=documents`);
+      const documentsCurrent = await buyer.getByRole('navigation', { name: 'Deal sections' }).locator('[aria-current="page"]').innerText();
+      await buyer.goto(`/app/deals/${dealId}?tab=quotations`);
+      await expect(buyer.getByRole('navigation', { name: 'Deal sections' }).locator('[aria-current="page"]')).toHaveText(documentsCurrent);
       await buyer.goto(`/app/deals/${dealId}?tab=documents`);
       const documents = buyer.locator('main');
       await expect(buyer.getByRole('heading', { name: 'Documents', exact: true })).toBeVisible();

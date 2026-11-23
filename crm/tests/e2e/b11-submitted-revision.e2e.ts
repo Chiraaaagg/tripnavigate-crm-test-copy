@@ -3,8 +3,11 @@ import { LOCAL_NETWORK_ACCESS_OFF } from '../helpers/production-style-policy';
 import { accessibilitySuite, cspSuite, open, pillsHaveIconAndWord } from './b11-helpers';
 
 /**
- * B1.1 submitted booking (read only) and the fix of a returned booking
+ * B1.1 submitted booking (read only) and the fixed booking after a return
  * (Stage 3 revision for package versions, DEC-31), on the preview gallery.
+ * The fix itself (change type, its refusal, the blockers and the "Save fixed
+ * booking?" dialog) runs on the booking form's step 3 since 17 November 2026
+ * (owner decision D2 removed the October step screen).
  */
 
 test.use(LOCAL_NETWORK_ACCESS_OFF);
@@ -23,13 +26,13 @@ const SUBMITTED = [
   'b11-deal-stage-moved-after-submit',
 ];
 const REVISION = [
-  'b11-revision-draft',
-  'b11-revision-classify',
-  'b11-revision-acceptance-required',
-  'b11-revision-classification-refused',
-  'b11-revision-no-changes',
-  'b11-revision-base-approved',
-  'b11-revision-confirm-dialog',
+  'bookform-revision--stay',
+  'bookform-revision--finish',
+  'bookform-revision-refused--finish',
+  'bookform-revision-acceptance--finish',
+  'bookform-revision-no-changes--finish',
+  'bookform-revision-base-decided--finish',
+  'bookform-revision-ready--finish',
   'b11-revision-confirmed',
 ];
 
@@ -94,17 +97,23 @@ test.describe('B1.1 submitted booking', () => {
 });
 
 test.describe('B1.1 revision (fix a returned booking)', () => {
+  // Since 17 November 2026 (D2) these run on the booking form's step 3 (bookform-revision-*), which
+  // shows the same change-type form and "Save fixed booking" as the removed step screen did.
   test('a fix is a draft of a new version; services cannot be added or removed', async ({ page }) => {
-    await open(page, 'b11-revision-draft');
+    // The booking form says this in its own words on step 2 (services-step.tsx); the old step screen's
+    // "Fixing version 1 · draft" status, its sentence and its "Remove service" / "Service type to add"
+    // controls do not exist there. Control first: the same form outside a fix offers Remove.
+    await open(page, 'bookform-owner--stay');
+    await expect(page.locator('main').getByRole('button', { name: /^Remove / }).first()).toBeVisible();
+    await open(page, 'bookform-revision--stay');
     const main = page.locator('main');
-    await expect(main).toContainText('Fixing version 1 · draft');
-    await expect(main).toContainText('Services cannot be added or removed while fixing a returned booking.');
-    await expect(main.getByRole('button', { name: /Remove service/ })).toHaveCount(0);
-    await expect(main.getByRole('group', { name: 'Service type to add' })).toHaveCount(0);
+    await expect(main).toContainText('While fixing a returned booking you can change services but not add or remove them.');
+    await expect(main.getByRole('button', { name: /^Remove / })).toHaveCount(0);
+    await expect(main.getByRole('group', { name: 'Choose services' }).locator('button[aria-pressed="false"]:not([disabled])')).toHaveCount(0);
   });
 
   test('the change type is chosen with the rule beside each choice', async ({ page }) => {
-    await open(page, 'b11-revision-classify');
+    await open(page, 'bookform-revision--finish');
     const section = page.getByRole('region', { name: 'What kind of change is this?' });
     for (const label of ['Spelling or layout only', /Change the customer will notice/, /Internal budget only/]) {
       await expect(section.getByRole('radio', { name: label })).toHaveCount(1);
@@ -114,28 +123,34 @@ test.describe('B1.1 revision (fix a returned booking)', () => {
   });
 
   test('a weaker change type than the changes allow is refused in words', async ({ page }) => {
-    await open(page, 'b11-revision-classification-refused');
+    await open(page, 'bookform-revision-refused--finish');
+    const section = page.getByRole('region', { name: 'What kind of change is this?' });
+    await section.getByRole('radio', { name: 'Spelling or layout only' }).check();
+    await section.getByRole('button', { name: 'Save the change type' }).click();
     await expect(page.getByRole('region', { name: 'What kind of change is this?' }).locator('[data-slot="error-summary"]')).toContainText('cannot be marked as a spelling or format fix');
   });
 
   test('blockers of a fix: fresh acceptance, no changes, base already decided', async ({ page }) => {
-    await open(page, 'b11-revision-acceptance-required');
+    await open(page, 'bookform-revision-acceptance--finish');
     await expect(page.locator('main')).toContainText('Upload the customer’s acceptance of the changed booking.');
-    await open(page, 'b11-revision-no-changes');
+    await open(page, 'bookform-revision-no-changes--finish');
     await expect(page.locator('main')).toContainText('Nothing has changed from the returned version.');
-    await open(page, 'b11-revision-base-approved');
+    await open(page, 'bookform-revision-base-decided--finish');
     await expect(page.locator('main')).toContainText('Accounts has already decided on the returned version.');
   });
 
   test('saving the fix explains that version 1 stays in history and no new task is made', async ({ page }) => {
-    await open(page, 'b11-revision-confirm-dialog');
+    await open(page, 'bookform-revision-ready--finish');
+    await page.locator('#bf-submit-trigger').click();
     const dialog = page.getByRole('dialog', { name: 'Save fixed booking?' });
     await expect(dialog).toContainText('Replaces version 1 (kept in history).');
     await expect(dialog).toContainText('Accounts checks it again.');
     await expect(dialog).toContainText('No new tasks are created.');
     await expect(page.locator('main').getByRole('button', { name: 'Discard this fix' })).toHaveCount(0); // hidden behind the modal
   });
+});
 
+test.describe('B1.1 revision (fixed booking)', () => {
   test('after the fix: the history shows the replaced version and the price difference', async ({ page }) => {
     await open(page, 'b11-revision-confirmed');
     const versions = page.getByRole('region', { name: 'Versions' });

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { SectionTabs } from '@/components/ui/section-tabs';
 import { requireStaff } from '@/modules/identity/server/session';
 import {
   cancelSupplierRefundAction,
@@ -15,6 +16,7 @@ import { todayInIndia } from '@/views/accounts/supplier-kit';
 import { AccountsRefundsPage, RefundsNoAccess, type QueuedRefund } from '@/views/refunds/desk';
 import type { RefundActions } from '@/views/refunds/request-block';
 import { deskViewerOf } from '../records/desk-glue';
+import { accountsSectionViewer } from '../section-viewer';
 
 export const metadata: Metadata = { title: 'Refunds' };
 
@@ -40,9 +42,10 @@ export default async function AccountsRefundsRoute({ searchParams }: { searchPar
   if (!staff.memberships.some((m) => m.roleCode === 'accounts')) return <RefundsNoAccess />;
   const sp = await searchParams;
   const rawAfter = typeof sp.supplierAfter === 'string' && sp.supplierAfter.length <= 120 ? sp.supplierAfter : null;
-  const [payoutRes, supplierRes] = await Promise.all([
+  const [payoutRes, supplierRes, sectionViewer] = await Promise.all([
     loadRefundRequests(staff, { preset: 'payout_due' }, null).catch(() => ({ ok: false as const, invalid: null })),
     loadSupplierRefundsDue(staff, { state: 'open' }, rawAfter).catch(() => ({ ok: false as const, invalid: null })),
+    accountsSectionViewer(staff),
   ]);
   if (payoutRes.ok && payoutRes.data === null && supplierRes.ok && supplierRes.data === null) return <RefundsNoAccess />;
   const payouts: QueuedRefund[] | 'error' = payoutRes.ok && payoutRes.data ? payoutRes.data.items : 'error';
@@ -57,6 +60,7 @@ export default async function AccountsRefundsRoute({ searchParams }: { searchPar
       actions={ACTIONS}
       today={todayInIndia()}
       supplierNextHref={supplierNext}
+      sectionTabs={<SectionTabs section="money-in" currentHref="/app/accounts/refunds" viewer={sectionViewer} />}
     />
   );
 }

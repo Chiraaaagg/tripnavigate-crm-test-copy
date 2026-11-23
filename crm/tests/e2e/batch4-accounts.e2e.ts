@@ -5,7 +5,9 @@ import { accessibilitySuite, cspSuite, open, pillsHaveIconAndWord } from './b11-
 /**
  * Direction A Batch 4, Accounts (R7) through the design preview states
  * (synthetic view models, stand-in actions that save nothing): the "To check"
- * tabs, the Accounts deal page tabs Money · Review · Receipts · Documents,
+ * filters (R4: chips of one toolbar with the one search), the Accounts deal
+ * page tabs (R4: Receipts · Dues and plan · Documents · Refunds · Review; the
+ * old Money address opens Receipts),
  * the approve confirmation, billing saved after an approval, and Purchase
  * being refused. Visual and interaction evidence only; the real maker/checker
  * journey is accounts.real.e2e.ts on a local real stack.
@@ -13,7 +15,7 @@ import { accessibilitySuite, cspSuite, open, pillsHaveIconAndWord } from './b11-
 
 test.use(LOCAL_NETWORK_ACCESS_OFF);
 
-const DEAL_TABS = ['money', 'review', 'receipts', 'documents'] as const;
+const DEAL_TABS = ['receipts', 'dues', 'documents', 'refunds', 'review', 'money'] as const;
 
 const STATES = [
   'b4-accounts-to-check',
@@ -33,24 +35,25 @@ const STATES = [
 accessibilitySuite('Batch 4 Accounts: accessibility at 1440, 390 and 200 % zoom', STATES);
 cspSuite('Batch 4 Accounts: production style policy', STATES);
 
-test.describe('To check (DA-274)', () => {
-  test('tabs are links, the open one is marked and alone carries its count; Booking reviews is the bare address', async ({ page }) => {
+test.describe('To check (DA-274, R4)', () => {
+  test('filters are chips (links), the open one is marked and alone carries its count; Booking reviews is the bare address', async ({ page }) => {
     await open(page, 'b4-accounts-to-check');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('To check');
     await expect(page.getByRole('main')).toContainText('Bookings and payments to check.');
-    const tabs = page.getByRole('navigation', { name: 'To check tabs' });
-    const reviews = tabs.getByRole('link', { name: /^Booking reviews/ });
+    const chips = page.getByRole('navigation', { name: 'To check filters' });
+    const reviews = chips.getByRole('link', { name: /^Booking reviews/ });
     await expect(reviews).toHaveAttribute('aria-current', 'page');
     await expect(reviews).toHaveAttribute('href', '/app/accounts');
     await expect(reviews).toContainText('3');
-    const receipts = tabs.getByRole('link', { name: 'Receipts to verify', exact: true });
+    const receipts = chips.getByRole('link', { name: 'Receipts to verify', exact: true });
     await expect(receipts).toHaveAttribute('href', '/app/accounts?filter=awaiting_verification');
     await expect(receipts).not.toHaveAttribute('aria-current', 'page');
-    await expect(tabs.getByRole('link', { name: 'All', exact: true })).toHaveAttribute('href', '/app/accounts?filter=all');
-    // Nothing the old filter row offered is lost.
-    const more = page.getByRole('navigation', { name: 'More filters' });
-    await expect(more.getByRole('link', { name: 'Returned to Sales' })).toHaveAttribute('href', '/app/accounts?filter=returned');
-    await expect(more.getByRole('link', { name: 'Cheques awaiting clearance' })).toHaveAttribute('href', '/app/accounts?filter=cheques_pending');
+    await expect(chips.getByRole('link', { name: 'All', exact: true })).toHaveAttribute('href', '/app/accounts?filter=all');
+    // Nothing the old filter row offered is lost: the fourth chip shows, the fifth is under More.
+    await expect(chips.getByRole('link', { name: 'Returned to Sales' })).toHaveAttribute('href', '/app/accounts?filter=returned');
+    // The summary reads "More filters" (the word "filters" is for screen readers only).
+    await page.getByRole('main').getByText('More filters', { exact: true }).click();
+    await expect(page.getByRole('main').getByRole('link', { name: 'Cheques awaiting clearance' })).toHaveAttribute('href', '/app/accounts?filter=cheques_pending');
     await expect(page.getByRole('table')).toContainText('3 deals · Booking reviews');
     // The rule that the figures are never added up stays one click away.
     await page.getByText('Why are the amounts separate?').click();
@@ -58,60 +61,75 @@ test.describe('To check (DA-274)', () => {
     await pillsHaveIconAndWord(page);
   });
 
-  test('tabs are reachable by keyboard in order', async ({ page }) => {
+  test('the search, chips and row buttons are reachable by keyboard in order', async ({ page }) => {
     await open(page, 'b4-accounts-to-check');
-    const tabs = page.getByRole('navigation', { name: 'To check tabs' });
-    await tabs.getByRole('link', { name: /^Booking reviews/ }).focus();
+    const search = page.getByRole('searchbox', { name: 'Find a deal by its exact reference' });
+    await search.focus();
     await page.keyboard.press('Tab');
-    await expect(tabs.getByRole('link', { name: 'Receipts to verify', exact: true })).toBeFocused();
+    await expect(page.getByRole('search', { name: 'Find a deal to check' }).getByRole('button', { name: 'Search' })).toBeFocused();
+    const chips = page.getByRole('navigation', { name: 'To check filters' });
     await page.keyboard.press('Tab');
-    await expect(tabs.getByRole('link', { name: 'All', exact: true })).toBeFocused();
+    await expect(chips.getByRole('link', { name: /^Booking reviews/ })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(chips.getByRole('link', { name: 'Receipts to verify', exact: true })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(chips.getByRole('link', { name: 'All', exact: true })).toBeFocused();
   });
 
-  test('a secondary filter is marked when open; empty tabs say why', async ({ page }) => {
+  test('a filter under More is marked when open; empty filters say why', async ({ page }) => {
     await open(page, 'b4-accounts-to-check-returned');
-    await expect(page.getByRole('navigation', { name: 'To check tabs' }).locator('[aria-current="page"]')).toHaveCount(0);
-    await expect(page.getByRole('navigation', { name: 'More filters' }).getByRole('link', { name: /^Returned to Sales/ })).toHaveAttribute('aria-current', 'page');
+    const chips = page.getByRole('navigation', { name: 'To check filters' });
+    await expect(chips.getByRole('link', { name: /^Returned to Sales/ })).toHaveAttribute('aria-current', 'page');
+    await expect(chips.locator('[aria-current="page"]')).toHaveCount(1);
     await expect(page.getByRole('heading', { name: 'No bookings returned to Sales' })).toBeVisible();
     await open(page, 'b4-accounts-to-check-receipts-empty');
     await expect(page.getByRole('heading', { name: 'No receipts to verify' })).toBeVisible();
   });
 });
 
-test.describe('Accounts deal page tabs (DA-15, DA-275)', () => {
-  test('four tab links, the open one marked; only the open tab is on the page', async ({ page }) => {
+test.describe('Accounts deal page tabs (DA-15, DA-275, R4)', () => {
+  test('five tab links, the open one marked; only the open tab is on the page', async ({ page }) => {
     await open(page, 'finance-deal-detail--review');
     const tabs = page.getByRole('navigation', { name: 'Accounts deal sections' });
-    for (const name of ['Money', 'Review', 'Receipts', 'Documents']) await expect(tabs.getByRole('link', { name, exact: true })).toBeVisible();
+    for (const name of [/^Receipts/, /^Dues and plan$/, /^Documents$/, /^Refunds$/, /^Review$/]) await expect(tabs.getByRole('link', { name })).toBeVisible();
+    await expect(tabs.getByRole('link', { name: 'Money', exact: true })).toHaveCount(0);
     await expect(tabs.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page');
     await expect(page.getByRole('region', { name: 'Booking and review' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Customer billing details' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Record a receipt' })).toHaveCount(0);
-    await expect(page.getByRole('region', { name: 'Money for this deal' })).toHaveCount(0);
-    await open(page, 'finance-deal-detail--money');
-    await expect(page.getByRole('region', { name: 'Money for this deal' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Booking and review' })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Customer receipts' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Money for this deal' })).toHaveCount(0);
+    await open(page, 'finance-deal-detail--receipts');
+    await expect(page.getByRole('region', { name: 'Money for this deal' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Customer receipts' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Booking and review' })).toHaveCount(0);
   });
 
-  test('without a tab the page opens on the next action, with one Next line and no primary on that tab', async ({ page }) => {
-    // The fixture has a receipt waiting for a second Accounts person.
+  test('the old Money address opens Receipts', async ({ page }) => {
+    await open(page, 'finance-deal-detail--money');
+    const tabs = page.getByRole('navigation', { name: 'Accounts deal sections' });
+    await expect(tabs.getByRole('link', { name: /^Receipts/ })).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('region', { name: 'Money for this deal' })).toBeVisible();
+  });
+
+  test('without a tab the page opens on the next action; the header Next has the one primary', async ({ page }) => {
+    // The fixture has a receipt this person can verify.
     await open(page, 'finance-deal-detail');
     const tabs = page.getByRole('navigation', { name: 'Accounts deal sections' });
-    await expect(tabs.getByRole('link', { name: 'Receipts', exact: true })).toHaveAttribute('aria-current', 'page');
-    await expect(page.locator('[data-slot="accounts-deal-next"]')).toHaveText('Next: another Accounts person verifies the receipt');
-    await expect(page.locator('[data-slot="accounts-deal-primary"]')).toHaveCount(0);
-    // From another tab, the one primary leads to the tab of the next action.
-    await open(page, 'finance-deal-detail--money');
-    const primary = page.locator('[data-slot="accounts-deal-primary"]').getByRole('link');
-    await expect(primary).toHaveCount(1);
-    await expect(primary).toHaveAttribute('href', '/preview/finance-deal-detail--receipts');
+    await expect(tabs.getByRole('link', { name: /^Receipts/ })).toHaveAttribute('aria-current', 'page');
+    const next = page.locator('[data-slot="next-step"]');
+    await expect(next).toContainText('Next: verify receipt R-2026-27-000001 (₹25,000.00, Bank transfer)');
+    // "Record a receipt" stays at the top, as a secondary button while something else waits.
+    await expect(page.locator('[data-slot="accounts-deal-primary"]').getByRole('button', { name: 'Record a receipt' })).not.toHaveClass(/\bbg-brand-strong\b/);
+    // From another tab, the one primary leads to the Receipts tab.
+    await open(page, 'finance-deal-detail--review');
+    await expect(page.locator('[data-slot="next-step"]').getByRole('link', { name: 'Verify receipt' })).toHaveAttribute('href', '/preview/finance-deal-detail--receipts');
   });
 
-  test('nothing waiting: says so, offers no primary', async ({ page }) => {
-    await open(page, 'b4-accounts-deal-nothing-waiting--money');
-    await expect(page.locator('[data-slot="accounts-deal-next"]')).toHaveText('Nothing waiting.');
-    await expect(page.locator('[data-slot="accounts-deal-primary"]')).toHaveCount(0);
+  test('nothing waiting: says so; Record a receipt is the one primary', async ({ page }) => {
+    await open(page, 'b4-accounts-deal-nothing-waiting--receipts');
+    await expect(page.locator('[data-slot="next-step"]')).toContainText('Next: nothing waiting. Record a receipt when the customer pays.');
+    await expect(page.locator('[data-slot="next-step"]').getByRole('link')).toHaveCount(0);
+    await expect(page.locator('[data-slot="accounts-deal-primary"]').getByRole('button', { name: 'Record a receipt' })).toHaveClass(/\bbg-brand-strong\b/);
   });
 
   test('approve asks first: dialog with Cancel focused, Escape returns focus, a refusal stays in the dialog', async ({ page }) => {
@@ -151,7 +169,7 @@ test.describe('Accounts deal page tabs (DA-15, DA-275)', () => {
     const billing = page.getByRole('region', { name: 'Customer billing details' });
     await expect(billing.getByRole('button', { name: 'Check billing details' })).toHaveAccessibleDescription('Confirms they match the customer’s documents. Approves no money.');
     await expect(billing).toContainText('saving puts the review back to waiting');
-    await expect(page.locator('[data-slot="accounts-deal-next"]')).toHaveText('Next: check the billing details');
+    await expect(page.locator('[data-slot="next-step"]')).toContainText('Next: check the billing details');
   });
 
   test('Documents tab: ID proofs and private receipt proof files through the audited route only', async ({ page }) => {
@@ -163,8 +181,8 @@ test.describe('Accounts deal page tabs (DA-15, DA-275)', () => {
     const links = proofs.getByRole('link');
     expect(await links.count()).toBeGreaterThan(0);
     for (const link of await links.all()) await expect(link).toHaveAttribute('href', /^\/app\/accounts\/files\/[0-9a-f-]+$/);
-    // Nothing on this tab records, verifies or approves.
-    await expect(main.getByRole('button', { name: /Approve|Verify|Record/ })).toHaveCount(0);
+    // Nothing on this tab records, verifies or approves ("Record a receipt" sits in the page header, not on the tab).
+    await expect(main.locator('[data-slot="accounts-deal-tab"]').getByRole('button', { name: /Approve|Verify|Record/ })).toHaveCount(0);
   });
 });
 

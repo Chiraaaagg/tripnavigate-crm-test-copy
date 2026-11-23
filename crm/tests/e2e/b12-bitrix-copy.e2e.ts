@@ -11,13 +11,15 @@ import { accessibilitySuite, cspSuite, open } from './b11-helpers';
 
 test.use(LOCAL_NETWORK_ACCESS_OFF);
 
-const STATES = ['b12-book-copy-status', 'b12-submitted-copy-status', 'b12-admin-copy-alerts', 'b12-admin-copy-alerts-none', 'b12-admin-copy-alerts-unknown'];
+const STATES = ['b12-submitted-copy-status', 'b12-admin-copy-alerts', 'b12-admin-copy-alerts-none', 'b12-admin-copy-alerts-unknown'];
 
 accessibilitySuite('B1.2 Bitrix copy: accessibility', STATES);
 cspSuite('B1.2 Bitrix copy: production style policy', STATES);
 
 test.describe('B1.2 Bitrix copy of ID proofs', () => {
-  for (const state of ['b12-book-copy-status', 'b12-submitted-copy-status']) {
+  // The draft twin (b12-book-copy-status) opened the October step screen and was removed on
+  // 17 November 2026 (owner decision D2); the same component and assertions run here.
+  for (const state of ['b12-submitted-copy-status']) {
     test(`${state}: each file says where its copy stands; Try again or who can`, async ({ page }) => {
       await open(page, state);
       const a = page.getByRole('list', { name: 'ID proof files of Sample Traveller A' });

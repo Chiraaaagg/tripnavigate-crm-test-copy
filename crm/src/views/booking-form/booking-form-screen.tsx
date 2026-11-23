@@ -14,7 +14,7 @@ import { dateText } from '../b11/book-fields';
 import { DraftSyncProvider, useDraftSync, useSectionForm } from '../b11/draft-sync';
 import { PrefillInlineProvider } from '../b11/prefill-inline';
 import { AUTOSAVE_LABEL, AUTOSAVE_TARGET, SaveQueueProvider, useSaveQueue, type AutosaveKey } from './autosave-queue';
-import { ClaimCard, OkCard, PlanCard, ReviewCard, SubmitCard } from './before-submit';
+import { ClaimCard, OkCard, PlanCard, ReviewCard, SUBMIT_TRIGGER_ID, SubmitCard } from './before-submit';
 import { BillToCard } from './bill-to-card';
 import { countsOf, CustomerTripCard, customerInitial, customerIssues, dealBacked, travellersText, type CustomerValues } from './customer-trip-card';
 import { FormToastProvider } from './form-toast';
@@ -195,6 +195,19 @@ function ScreenBody({ vm, view, actions, links, ownerText, vn, messagePrefsCard 
     if (STEP_OF_KEY[key] !== step) go(STEP_OF_KEY[key], { fieldId: `${target}-heading` });
     else if (!focusField(`${target}-heading`)) focusField(target);
   };
+  // O1 (owner, 16 November 2026): the footer "Review and submit" moves to the submit card's own button and
+  // focuses it, so there is one final action. The scroll is instant under reduced motion. Without that
+  // button (no version yet, or a change version sent from the banner) it still opens "Before you submit".
+  const reviewAndSubmit = () => {
+    const trigger = document.getElementById(SUBMIT_TRIGGER_ID);
+    if (!trigger) {
+      focusField('bf-ready-heading');
+      return;
+    }
+    const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    trigger.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
+    trigger.focus({ preventScroll: true });
+  };
   const stepIndex = FORM_STEPS.indexOf(step);
   const back = stepIndex > 0 ? FORM_STEPS[stepIndex - 1] : null;
   const next = stepIndex < 2 ? FORM_STEPS[stepIndex + 1] : null;
@@ -324,7 +337,7 @@ function ScreenBody({ vm, view, actions, links, ownerText, vn, messagePrefsCard 
               <ArrowRight aria-hidden="true" />
             </Button>
           ) : (
-            <Button variant="primary" size="lg" onClick={() => focusField('bf-ready-heading')}>
+            <Button variant="primary" size="lg" onClick={reviewAndSubmit}>
               Review and submit
             </Button>
           )}

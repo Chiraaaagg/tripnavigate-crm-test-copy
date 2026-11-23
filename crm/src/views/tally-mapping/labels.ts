@@ -59,3 +59,19 @@ export function rowMissing(r: Pick<TallyMappingRow, 'debitLedger' | 'creditLedge
 export function mappingLine(r: TallyMappingRow): string {
   return `${ROW_KIND_LABEL[r.rowKind]} · ${SERVICE_LABEL[r.serviceClass]}`;
 }
+
+// ---------------------------------------------------------------------------
+// Settings › Accounts sub-tabs (UX redesign R1). Pure, so the server pages can
+// build them; the client view renders them.
+// ---------------------------------------------------------------------------
+
+export const ACCOUNTS_SETTINGS_PATH = '/app/admin/accounts';
+export const TALLY_MAPPING_PATH = '/app/admin/accounts/tally-mapping';
+
+/** Sub-tabs of Settings › Accounts: only the ones this person may open. */
+export function accountsSettingsTabs(opts: { switches: boolean; mapping: boolean; current: 'switches' | 'mapping'; mappingHref?: string }) {
+  return [
+    opts.switches ? { href: ACCOUNTS_SETTINGS_PATH, label: 'Switches', current: opts.current === 'switches' } : null,
+    opts.mapping ? { href: opts.mappingHref ?? TALLY_MAPPING_PATH, label: 'Tally mapping', current: opts.current === 'mapping' } : null,
+  ].filter((t): t is { href: string; label: string; current: boolean } => t !== null);
+}

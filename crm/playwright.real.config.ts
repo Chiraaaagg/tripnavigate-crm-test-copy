@@ -47,6 +47,9 @@ if (missing.length > 0 && (process.env.REQUIRE_REAL_STACK === '1' || process.env
 export default defineConfig({
   testDir: 'tests/e2e',
   testMatch: /.*\.real\.e2e\.ts/,
+  // Click counts are a measurement for the redesign, not a gate: run them on
+  // demand with CLICK_COUNTS=1 (about six minutes), never in the CI job.
+  testIgnore: process.env.CLICK_COUNTS === "1" ? [] : [/click-counts\.real\.e2e\.ts/],
   outputDir: 'test-results/real-journey',
   fullyParallel: false,
   workers: 1,

@@ -10,7 +10,7 @@ import type { DeskResult } from '@/views/accounts-desk/desk-kit';
 import { whenText } from '@/views/accounts-desk/labels';
 import { CustomerLanguageFields } from './language-fields';
 import { ChannelOffBox, EmailOverrideField, OffReasonField } from './prefs-fields';
-import { CHANNEL_LABEL, LANGUAGE_LABEL, PREFS_FIELD, TYPE_LABEL, messageStatusAt, messageStatusWord } from './labels';
+import { CHANNEL_LABEL, PREFS_FIELD, TYPE_LABEL, messageStatusAt, messageStatusWord } from './labels';
 import type { CustomerMessageRow, DealCustomerMessages } from './types';
 
 /*
@@ -19,6 +19,11 @@ import type { CustomerMessageRow, DealCustomerMessages } from './types';
  * Purchase, Flight and Visa get null from the database and the card renders
  * nothing. No amounts anywhere: the amount of a payment or refund message
  * lives only in the queued row's params, which no read returns.
+ *
+ * Owner decision D12 (UX redesign R1/R2): every customer message goes in
+ * English, so the card shows no language anywhere. The settings dialog still
+ * posts `language=en` (hidden, from CustomerLanguageFields) so the saved
+ * Deal stays valid. Since R2 the card is the body of the Deal's Messages tab.
  */
 
 export interface MessageActions {
@@ -63,7 +68,7 @@ export function DealCustomerMessagesCard({
   const d = data;
   const p = d.prefs;
   const last = d.messages[0];
-  const summary = `${LANGUAGE_LABEL[p.language]} · ${d.messages.length === 0 ? 'no messages yet' : `${d.messages.length} ${d.messages.length === 1 ? 'message' : 'messages'}, latest ${messageStatusWord(last!).label.split(' — ')[0]!.toLowerCase()}`}`;
+  const summary = d.messages.length === 0 ? 'No messages yet' : `${d.messages.length} ${d.messages.length === 1 ? 'message' : 'messages'}, latest ${messageStatusWord(last!).label.split(' — ')[0]!.toLowerCase()}`;
   return (
     <Frame description={summary}>
       {!d.contactConfirmed ? (
@@ -96,16 +101,15 @@ export function DealCustomerMessagesCard({
         </Notice>
       ) : null}
 
-      <dl className="m-0 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
-        <Fact label="Language" value={LANGUAGE_LABEL[p.language]} />
+      <dl className="m-0 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
         <Fact label="WhatsApp" value={p.whatsappMasked ?? 'No number'} state={p.whatsappOff ? 'Off on this Deal' : p.optedOut ? 'Stopped by the customer' : 'On'} on={!p.whatsappOff && !p.optedOut} />
         <Fact label="E-mail" value={p.emailMasked ?? 'No e-mail address'} state={p.emailOff ? 'Off on this Deal' : 'On'} on={!p.emailOff} />
       </dl>
 
       {d.can.editPrefs ? (
         <DialogAction
-          buttonLabel="Change language or channels"
-          title="Language and channels for this Deal"
+          buttonLabel="Change contact or channels"
+          title="Contact and channels for this Deal"
           description="Applies to messages queued from now on. Switching a channel off needs a reason; it is saved in the history."
           primaryLabel="Save"
           pendingLabel="Saving…"
@@ -116,7 +120,7 @@ export function DealCustomerMessagesCard({
           initialState={preview?.prefsState}
         >
           <div className="flex flex-col gap-4">
-            <CustomerLanguageFields idPrefix="cmsg-prefs" defaultLanguage={p.language} defaultSameAsMobile={p.whatsappSameAsMobile ?? true} mobileHint={p.whatsappMasked ? `Number now: ${p.whatsappMasked}` : undefined} />
+            <CustomerLanguageFields idPrefix="cmsg-prefs" defaultSameAsMobile={p.whatsappSameAsMobile ?? true} mobileHint={p.whatsappMasked ? `Number now: ${p.whatsappMasked}` : undefined} />
             <EmailOverrideField id="cmsg-prefs-email" />
             <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
               <legend className="mb-1 p-0 text-base font-semibold text-ink">Channels on this Deal</legend>
@@ -127,7 +131,7 @@ export function DealCustomerMessagesCard({
           </div>
         </DialogAction>
       ) : (
-        <p className="m-0 text-sm text-quiet">Only the Sales owner or the branch Manager can change the language or channels.</p>
+        <p className="m-0 text-sm text-quiet">Only the Sales owner or the branch Manager can change the contact or channels.</p>
       )}
 
       <section aria-labelledby="cmsg-list-heading" className="flex flex-col gap-3">
@@ -154,7 +158,7 @@ function MessageLine({ m, dealId, action, state }: { m: CustomerMessageRow; deal
     <li className="m-0 flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:justify-between sm:gap-4">
       <div className="flex min-w-0 flex-col gap-1">
         <p className="m-0 font-semibold text-ink">
-          {TYPE_LABEL[m.type]} <span className="font-normal text-quiet">· {CHANNEL_LABEL[m.channel]} · {LANGUAGE_LABEL[m.language]}</span>
+          {TYPE_LABEL[m.type]} <span className="font-normal text-quiet">· {CHANNEL_LABEL[m.channel]}</span>
         </p>
         <p className="m-0 flex flex-wrap items-center gap-x-2 text-sm text-quiet">
           {m.toMasked ? <span>To {m.toMasked}</span> : null}

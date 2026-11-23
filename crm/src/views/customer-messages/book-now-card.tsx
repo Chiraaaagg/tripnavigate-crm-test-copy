@@ -7,7 +7,7 @@ import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/compon
 import { Notice } from '@/components/ui/notice';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import { DeskResultLine, useDeskCommand } from '@/views/accounts-desk/desk-kit';
-import { LANGUAGE_LABEL, PREFS_FIELD } from './labels';
+import { PREFS_FIELD } from './labels';
 import { CustomerLanguageFields } from './language-fields';
 import type { Language } from './types';
 
@@ -30,7 +30,6 @@ export interface BookNowPrefs {
 
 export function BookNowMessagePrefsCard({ prefs, action }: { prefs: BookNowPrefs; action: DecisionAction | null }) {
   const [rowVersion, setRowVersion] = useState(prefs.rowVersion);
-  const [saved, setSaved] = useState<{ language: Language } | null>(null);
   const cmd = useDeskCommand(action ?? (async () => ({ ok: false, code: 'not_authorized', message: 'Not available to you.' })));
   const field = cmd.state && !cmd.state.ok ? ((cmd.state as { field?: string }).field ?? null) : null;
   return (
@@ -39,7 +38,7 @@ export function BookNowMessagePrefsCard({ prefs, action }: { prefs: BookNowPrefs
         <CardHeader>
           <div className="min-w-0">
             <CardTitle id="book-message-prefs-heading">Messages to the customer</CardTitle>
-            <CardDescription>Language: {LANGUAGE_LABEL[saved?.language ?? prefs.language]} · saved on the Deal, separate from the booking</CardDescription>
+            <CardDescription>Saved on the Deal, separate from the booking. Every message is in English.</CardDescription>
           </div>
           <MessageSquareText aria-hidden="true" className="size-4 text-faint" />
         </CardHeader>
@@ -51,9 +50,6 @@ export function BookNowMessagePrefsCard({ prefs, action }: { prefs: BookNowPrefs
                 if (r.ok) {
                   const data = (r as { data?: { rowVersion?: number } }).data;
                   if (typeof data?.rowVersion === 'number') setRowVersion(data.rowVersion);
-                  const fd = new FormData(e.currentTarget);
-                  const l = fd.get(PREFS_FIELD.language);
-                  if (l === 'en' || l === 'hi') setSaved({ language: l });
                 }
               })
             }

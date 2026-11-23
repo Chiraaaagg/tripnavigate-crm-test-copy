@@ -34,6 +34,7 @@ import {
   VOUCHER_STATUS,
 } from './acc3-messages-fixtures';
 import * as A from './acc3-messages-preview-actions';
+import { R1_S3_STATES } from './r1-settings-s3-states';
 import { inSettings, settingsOwner } from './settings-preview-frame';
 
 /*
@@ -110,7 +111,7 @@ function deal(viewer: ShellViewer, data: DealCustomerMessages | 'error' | null, 
   );
 }
 
-function bookNow(over: { language?: 'en' | 'hi'; same?: boolean; whatsapp?: string; error?: string } = {}) {
+function bookNow(over: { same?: boolean; whatsapp?: string; error?: string } = {}) {
   return shell(
     salesViewer,
     '/app/deals',
@@ -133,7 +134,7 @@ function bookNow(over: { language?: 'en' | 'hi'; same?: boolean; whatsapp?: stri
                 <Input id="bn-email" name="email" type="email" defaultValue="guest@example.test" />
               </Field>
             </div>
-            <CustomerLanguageFields idPrefix="bn-msg" defaultLanguage={over.language} defaultSameAsMobile={over.same} defaultWhatsapp={over.whatsapp} errorField={over.error} mobileHint="Messages go to the mobile above." />
+            <CustomerLanguageFields idPrefix="bn-msg" defaultSameAsMobile={over.same} defaultWhatsapp={over.whatsapp} errorField={over.error} mobileHint="Messages go to the mobile above." />
             {over.error ? <p className="m-0 text-sm font-semibold text-status-danger">Not saved: enter a 10-digit Indian mobile number for WhatsApp.</p> : null}
           </CardBody>
         </section>
@@ -150,7 +151,7 @@ const SETTINGS_ACTIONS: MessageSettingsActions = {
   setTemplateStatus: act(A.cmsgSettingOk),
   setTimer: act(A.cmsgSettingOk),
 };
-const settings = (body: ReactNode) => inSettings(settingsOwner, '/app/settings/customer-messages', body);
+const settings = (body: ReactNode) => inSettings(settingsOwner, '/app/admin/customer-messages', body);
 const VOUCHER_ACTIONS = { upload: act(A.cmsgUploadOk), markReady: act(A.cmsgReadyOk) };
 
 const states: Record<string, () => ReactNode> = {
@@ -164,7 +165,8 @@ const states: Record<string, () => ReactNode> = {
   'acc3-messages-booknow-card-read-only': () =>
     shell(salesViewer, '/app/deals', <BookNowMessagePrefsCard prefs={{ dealId: 'a0004401-0000-4000-8000-000000004401', language: 'en', whatsappSameAsMobile: true, whatsappMasked: null, rowVersion: 1 }} action={null} />),
   'acc3-messages-booknow-card-error': () => shell(salesViewer, '/app/deals', <BookNowMessagePrefsUnavailable />),
-  'acc3-messages-booknow-hindi-other-number': () => bookNow({ language: 'hi', same: false, whatsapp: '6000054321' }),
+  // D12: no language choice; a Deal stored as Hindi shows no language and posts English (see -card-refused).
+  'acc3-messages-booknow-other-number': () => bookNow({ same: false, whatsapp: '6000054321' }),
   'acc3-messages-booknow-number-refused': () => bookNow({ same: false, whatsapp: '12345', error: 'whatsappMobile' }),
 
   /* Deal page card */
@@ -243,6 +245,14 @@ const states: Record<string, () => ReactNode> = {
   'acc3-messages-settings': () => settings(<CustomerMessageSettingsView data={ADMIN} actions={SETTINGS_ACTIONS} />),
   'acc3-messages-settings-empty': () => settings(<CustomerMessageSettingsView data={{ ...ADMIN, pilot: [] }} actions={SETTINGS_ACTIONS} />),
   'acc3-messages-settings-running': () => settings(<CustomerMessageSettingsView data={ADMIN_RUNNING} actions={SETTINGS_ACTIONS} />),
+  /* UX redesign R1 (D12): the nine-by-two grid with blocked WhatsApp cells (text not approved; only the unused second text not approved), and the other sub-tabs. */
+  'acc3-messages-settings-whatsapp-blocked': () =>
+    settings(<CustomerMessageSettingsView data={{ ...ADMIN, switches: ADMIN.switches.map((x) => ({ ...x, enabled: x.channel === 'email' && x.enabled })) }} actions={SETTINGS_ACTIONS} />),
+  'acc3-messages-settings-texts': () => settings(<CustomerMessageSettingsView data={ADMIN} actions={SETTINGS_ACTIONS} tab="texts" />),
+  'acc3-messages-settings-pilot': () => settings(<CustomerMessageSettingsView data={ADMIN} actions={SETTINGS_ACTIONS} tab="pilot" />),
+  'acc3-messages-settings-pilot-everyone': () => settings(<CustomerMessageSettingsView data={ADMIN_RUNNING} actions={SETTINGS_ACTIONS} tab="pilot" />),
+  'acc3-messages-settings-setup': () => settings(<CustomerMessageSettingsView data={ADMIN} actions={SETTINGS_ACTIONS} tab="setup" />),
+  'acc3-messages-settings-setup-running': () => settings(<CustomerMessageSettingsView data={ADMIN_RUNNING} actions={SETTINGS_ACTIONS} tab="setup" />),
   'acc3-messages-settings-switch-open': () => settings(<CustomerMessageSettingsView data={ADMIN} actions={SETTINGS_ACTIONS} preview={{ open: { dialog: 'switch', type: 'e_ticket', channel: 'email' } }} />),
   'acc3-messages-settings-switch-refused': () =>
     settings(
@@ -252,19 +262,23 @@ const states: Record<string, () => ReactNode> = {
         preview={{ open: { dialog: 'switch', type: 'hotel_voucher', channel: 'whatsapp' }, typed: { reason: 'Owner approved the hotel voucher on WhatsApp.' }, state: refused('template_not_approved', 'WhatsApp has not approved this message text yet.') }}
       />,
     ),
-  'acc3-messages-settings-template-open': () => settings(<CustomerMessageSettingsView data={ADMIN} actions={SETTINGS_ACTIONS} preview={{ open: { dialog: 'template', templateCode: 'tn_hotel_voucher_hi_v1' } }} />),
+  'acc3-messages-settings-template-open': () => settings(<CustomerMessageSettingsView data={ADMIN} actions={SETTINGS_ACTIONS} tab="texts" preview={{ open: { dialog: 'template', templateCode: 'tn_e_ticket_en_v1' } }} />),
   'acc3-messages-settings-pilot-add-refused': () =>
     settings(
       <CustomerMessageSettingsView
         data={ADMIN}
+        tab="pilot"
         actions={{ ...SETTINGS_ACTIONS, addPilotDeal: act(A.cmsgPilotNotFound) }}
         preview={{ open: { dialog: 'add-pilot' }, typed: { dealReference: 'SYN-JOD-199', reason: 'Owner asked to pilot this Deal first.' }, state: refused('not_found', 'No Deal of this company has that reference. Check it on the Deal page.', 'dealReference') }}
       />,
     ),
-  'acc3-messages-settings-pilot-off-open': () => settings(<CustomerMessageSettingsView data={ADMIN} actions={SETTINGS_ACTIONS} preview={{ open: { dialog: 'pilot' } }} />),
+  'acc3-messages-settings-pilot-off-open': () => settings(<CustomerMessageSettingsView data={ADMIN} actions={SETTINGS_ACTIONS} tab="pilot" preview={{ open: { dialog: 'pilot' } }} />),
   'acc3-messages-settings-error': () => settings(<CustomerMessageSettingsView data="error" actions={SETTINGS_ACTIONS} />),
   'acc3-messages-settings-loading': () => settings(<CustomerMessageSettingsLoading />),
   'acc3-messages-settings-no-access': () => shell(managerViewer, '/app/settings', <CustomerMessageSettingsNoAccess />),
+
+  /* UX redesign R1, helper S3: Bitrix connection sub-tabs and the Imports index (r1-settings-s3-states.tsx). */
+  ...R1_S3_STATES,
 };
 
 export const ACC3_MESSAGES_STATES = Object.keys(states);

@@ -110,7 +110,8 @@ for (const device of ['desktop', 'phone'] as const) {
     });
     await timed('dues list (branch, first 50)', device, 1_500, async () => {
       const t0 = performance.now();
-      await page.goto('/app/accounts/dues');
+      // R4 (A9): the bare address opens on Overdue and Due today; the timed list is every status, as before.
+      await page.goto('/app/accounts/dues?status=all');
       await expect(page.getByRole('row').nth(1)).toBeVisible();
       return since(t0);
     });

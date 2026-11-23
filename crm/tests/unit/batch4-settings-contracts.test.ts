@@ -33,47 +33,50 @@ const NO_FLAGS: SettingsViewerFlags = {
 const ALL: SettingsViewerFlags = { canAdministerStaff: true, canManageGrants: true, canManageIntegration: true, canOpenBitrixConnection: true, canManageFinancePolicy: true };
 const cats = (v: Partial<SettingsViewerFlags>) => settingsTabsFor(v).map((t) => t.category);
 
-describe('settingsTabsFor: the Settings categories a person may open', () => {
-  it('a Super Admin with every right gets the six categories in DA-17 order, at today’s addresses', () => {
+describe('settingsTabsFor: the Settings areas a person may open (R1 area list)', () => {
+  it('a Super Admin with every right gets Overview first, then the areas in order, at today’s addresses', () => {
     const tabs = settingsTabsFor(ALL);
-    expect(tabs.map((t) => t.label)).toEqual(['People and access', 'Company and branches', 'Money rules', 'Accounts', 'Bitrix connection', 'Features', 'System health']);
-    expect(tabs.map((t) => t.href)).toEqual(['/app/admin/staff', '/app/admin/company', '/app/admin/finance-policy', '/app/admin/accounts', '/app/admin/integration', '/app/admin/workflow', '/app/admin/bookings']);
+    expect(tabs.map((t) => t.label)).toEqual(['Overview', 'People and access', 'Company and branches', 'Money rules', 'Accounts', 'Bitrix connection', 'Features', 'Customer messages', 'System health']);
+    expect(tabs.map((t) => t.href)).toEqual(['/app/admin', '/app/admin/staff', '/app/admin/company', '/app/admin/finance-policy', '/app/admin/accounts', '/app/admin/integration', '/app/admin/workflow', '/app/admin/customer-messages', '/app/admin/bookings']);
   });
 
-  it('nobody without an admin right gets a Settings tab (no menu item, no tab bar)', () => {
+  it('nobody without an admin right gets a Settings area (no menu item, no area list)', () => {
     expect(settingsTabsFor(NO_FLAGS)).toEqual([]);
     expect(settingsTabsFor({})).toEqual([]);
   });
 
-  it('each right opens only its own categories; Company and branches comes with any admin right (D1)', () => {
-    expect(cats({ canAdministerStaff: true })).toEqual(['people', 'company']);
-    expect(cats({ canManageGrants: true })).toEqual(['people', 'company']);
+  it('each right opens only its own areas; Overview and Company and branches come with any admin right (D1)', () => {
+    expect(cats({ canAdministerStaff: true })).toEqual(['overview', 'people', 'company']);
+    expect(cats({ canManageGrants: true })).toEqual(['overview', 'people', 'company']);
     // Accounts phase (10 Nov 2026): Settings · Accounts goes with Money rules.
-    expect(cats({ canManageFinancePolicy: true })).toEqual(['company', 'money', 'accounts']);
-    expect(cats({ canManageIntegration: true, canOpenBitrixConnection: true })).toEqual(['company', 'bitrix', 'features', 'health']);
+    expect(cats({ canManageFinancePolicy: true })).toEqual(['overview', 'company', 'money', 'accounts']);
+    expect(cats({ canManageIntegration: true, canOpenBitrixConnection: true })).toEqual(['overview', 'company', 'bitrix', 'features', 'messages', 'health']);
   });
 
-  it('voice-note batch: Imports comes with canImport only, after Bitrix connection, at /app/admin/imports', () => {
-    expect(cats({ ...ALL, canImport: true })).toEqual(['people', 'company', 'money', 'accounts', 'bitrix', 'imports', 'features', 'health']);
+  it('voice-note batch: Imports comes with canImport only, at /app/admin/imports, before System health', () => {
+    expect(cats({ ...ALL, canImport: true })).toEqual(['overview', 'people', 'company', 'money', 'accounts', 'bitrix', 'features', 'messages', 'imports', 'health']);
     expect(settingsTabsFor({ canImport: true })).toEqual([{ category: 'imports', label: 'Imports', href: '/app/admin/imports', matchPrefixes: ['/app/admin/imports'] }]);
     expect(cats(ALL)).not.toContain('imports');
   });
 
-  it('an integration manager who holds Purchase gets no Bitrix connection tab (the page refuses them)', () => {
-    expect(cats({ canManageIntegration: true, canOpenBitrixConnection: false })).toEqual(['company', 'features', 'health']);
+  it('an integration manager who holds Purchase gets no Bitrix connection area (the page refuses them)', () => {
+    expect(cats({ canManageIntegration: true, canOpenBitrixConnection: false })).toEqual(['overview', 'company', 'features', 'messages', 'health']);
   });
 
   it('People and access opens Staff, or Extra access for someone who may only grant access', () => {
-    expect(settingsTabsFor({ canAdministerStaff: true, canManageGrants: true })[0]).toMatchObject({ href: SETTINGS_PATH.staff, matchPrefixes: [SETTINGS_PATH.staff, SETTINGS_PATH.access] });
-    expect(settingsTabsFor({ canManageGrants: true })[0]).toMatchObject({ href: SETTINGS_PATH.access, matchPrefixes: [SETTINGS_PATH.access] });
+    expect(settingsTabsFor({ canAdministerStaff: true, canManageGrants: true })[1]).toMatchObject({ href: SETTINGS_PATH.staff, matchPrefixes: [SETTINGS_PATH.staff, SETTINGS_PATH.access] });
+    expect(settingsTabsFor({ canManageGrants: true })[1]).toMatchObject({ href: SETTINGS_PATH.access, matchPrefixes: [SETTINGS_PATH.access] });
   });
 
-  it('currentSettingsTab marks the tab of the page, including Extra access under People and access', () => {
+  it('currentSettingsTab marks the area of the page, including Extra access under People and access; Overview only on /app/admin', () => {
     const tabs = settingsTabsFor(ALL);
     expect(currentSettingsTab(tabs, '/app/admin/access')).toBe('people');
     expect(currentSettingsTab(tabs, '/app/admin/staff')).toBe('people');
+    expect(currentSettingsTab(tabs, '/app/admin/staff?tab=roles')).toBe('people');
     expect(currentSettingsTab(tabs, '/app/admin/workflow')).toBe('features');
+    expect(currentSettingsTab(tabs, '/app/admin/customer-messages')).toBe('messages');
     expect(currentSettingsTab(tabs, '/app/admin/finance-policy')).toBe('money');
+    expect(currentSettingsTab(tabs, '/app/admin')).toBe('overview');
     expect(currentSettingsTab(tabs, '/app/admin/staffing')).toBeUndefined();
     expect(currentSettingsTab(tabs, '/app/deals')).toBeUndefined();
     expect(currentSettingsTab(tabs, null)).toBeUndefined();

@@ -17,6 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Hidden, type DecisionAction } from '@/views/accounts/supplier-forms';
 import { DeskDialog, DeskResultLine, type DeskResult } from '@/views/accounts-desk/desk-kit';
+import { AccountsSettingsTabs } from '@/views/accounts-desk/settings';
 import { dayText, whenText } from '@/views/accounts-desk/labels';
 import { FIELD_LABEL, mappingLine, ROW_KIND_GROUPS, ROW_KIND_LABEL, rowMissing, SERVICE_LABEL } from './labels';
 import type { TallyMappingChange, TallyMappingPageView, TallyMappingRow } from './types';
@@ -30,6 +31,11 @@ import type { TallyMappingChange, TallyMappingPageView, TallyMappingRow } from '
  * typed value. The missing count sits at the top with a "Missing only"
  * toggle. A mapping change never marks anything "changed since export" (LD19):
  * the next export simply uses the new names.
+ *
+ * UX redesign R1 (audit S8): a sub-tab of Settings › Accounts, and it opens
+ * on "Missing only" whenever a row is missing a name (the work to do first);
+ * with nothing missing it opens on all rows. Editing a mapping is not a
+ * switch, so its reason stays required.
  */
 
 export const MAPPING_FIELD = {
@@ -50,14 +56,14 @@ export interface TallyMappingPreview {
 }
 
 export function TallyMappingView({ view, action, preview }: { view: TallyMappingPageView; /** null = read only (no edit). */ action: DecisionAction | null; preview?: TallyMappingPreview }) {
-  const [missingOnly, setMissingOnly] = useState(!!preview?.missingOnly);
+  const [missingOnly, setMissingOnly] = useState(preview?.missingOnly ?? (view.list !== 'error' && view.list.missingCount > 0));
   const [result, setResult] = useState<DeskResult | null>(null);
   const resultId = useId();
 
   if (view.list === 'error') {
     return (
       <section aria-labelledby="tm-h" className="flex flex-col gap-4">
-        <MappingHeading entityName={view.entityName} entities={view.entities} />
+        <MappingHeading entityName={view.entityName} entities={view.entities} tabs={view.tabs} />
         <Notice tone="warning" role="status" title="The Tally mapping did not load">
           <p>Nothing was changed. Reload the page. If it keeps happening, tell your admin.</p>
         </Notice>
@@ -68,7 +74,7 @@ export function TallyMappingView({ view, action, preview }: { view: TallyMapping
   if (list.rows.length === 0) {
     return (
       <section aria-labelledby="tm-h" className="flex flex-col gap-4">
-        <MappingHeading entityName={view.entityName} entities={view.entities} />
+        <MappingHeading entityName={view.entityName} entities={view.entities} tabs={view.tabs} />
         <Card>
           <EmptyState
             icon={TableProperties}
@@ -82,7 +88,7 @@ export function TallyMappingView({ view, action, preview }: { view: TallyMapping
   const rows = missingOnly ? list.rows.filter(rowMissing) : list.rows;
   return (
     <section aria-labelledby="tm-h" className="flex flex-col gap-4">
-      <MappingHeading entityName={view.entityName} entities={view.entities} />
+      <MappingHeading entityName={view.entityName} entities={view.entities} tabs={view.tabs} />
       <Card>
         <CardBody className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-3">
@@ -140,9 +146,10 @@ export function TallyMappingView({ view, action, preview }: { view: TallyMapping
   );
 }
 
-function MappingHeading({ entityName, entities }: { entityName: string; entities?: TallyMappingPageView['entities'] }) {
+function MappingHeading({ entityName, entities, tabs }: { entityName: string; entities?: TallyMappingPageView['entities']; tabs?: TallyMappingPageView['tabs'] }) {
   return (
     <div className="flex flex-col gap-2">
+      {tabs ? <AccountsSettingsTabs tabs={tabs} /> : null}
       <h2 id="tm-h" className="m-0 text-xl leading-tight font-display tracking-heading text-ink">
         Tally mapping · {entityName}
       </h2>

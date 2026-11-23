@@ -28,6 +28,10 @@ import {
  * carries one request id per form, renewed only after a confirmed success,
  * so a double press or a retry after a lost reply is the same request.
  * Refusals keep what was typed (HandForm is never reset).
+ *
+ * Redesign R4: the old approve-or-return form (reason box always open) is
+ * gone; the Accounts lists use the shared decision row (RowDecision in
+ * department/row-decision.tsx), whose Return opens the reason dialog.
  */
 
 /** The shape every Purchase-build action returns (procurement and supplier-money results both fit). */
@@ -123,112 +127,6 @@ export function UnavailableAction({ label, reason }: { label: string; reason: st
         {reason}
       </p>
     </div>
-  );
-}
-
-/**
- * Approve or return, in one form. "Return" needs a reason (10–500
- * characters); approve sends no reason. The pressed button is the decision.
- */
-export function DecisionForm({
-  action,
-  fields,
-  approveLabel,
-  returnLabel,
-  approveHelp,
-  reasonLabel = 'Reason for returning',
-  reasonHint = 'Required to return: 10 to 500 characters. The requester reads it.',
-  decisionField = 'decision',
-  reasonField = 'reason',
-  requestIdField = 'requestId',
-  label,
-  approveBlockedReason,
-  approveValue = 'approve',
-}: {
-  action: DecisionAction;
-  /** Hidden fields (ids and row versions). */
-  fields: Record<string, string | number>;
-  approveLabel: string;
-  returnLabel: string;
-  approveHelp?: string;
-  reasonLabel?: string;
-  reasonHint?: string;
-  decisionField?: string;
-  reasonField?: string;
-  requestIdField?: string;
-  /** Accessible name of the form, e.g. "Decide go-ahead for SYN-DEL-001". */
-  label: string;
-  /** Approve is not possible now (return still is): the button stays focusable with this one-line reason. */
-  approveBlockedReason?: string;
-  /** Value the approve button posts in `decisionField` (default 'approve'). */
-  approveValue?: string;
-}) {
-  const [state, run] = useActionState(guard(action), null);
-  const requestId = useRequestId(state);
-  const blockedId = useId();
-  const [reason, setReason] = useState('');
-  const [problem, setProblem] = useState<string | null>(null);
-  const base = useId();
-  const reasonId = `${base}-reason`;
-  const helpId = `${base}-help`;
-  if (state?.ok) {
-    return <ResultLine state={state} />;
-  }
-  return (
-    <HandForm
-      action={run}
-      noValidate
-      aria-label={label}
-      className="flex flex-col gap-3"
-      onSubmit={(e) => {
-        const submitter = (e.nativeEvent as globalThis.SubmitEvent).submitter as HTMLButtonElement | null;
-        if (submitter?.value === 'return') {
-          const len = reason.trim().length;
-          if (len < 10 || len > 500) {
-            e.preventDefault();
-            setProblem('Write a reason of 10 to 500 characters before returning.');
-            document.getElementById(reasonId)?.focus();
-            return;
-          }
-        }
-        setProblem(null);
-      }}
-    >
-      <ResultLine state={state} />
-      <Hidden fields={{ ...fields, [requestIdField]: requestId }} />
-      {approveHelp ? (
-        <p id={helpId} className="m-0 text-sm text-quiet">
-          {approveHelp}
-        </p>
-      ) : null}
-      <Field htmlFor={reasonId} label={reasonLabel} hint={reasonHint} error={problem} optional>
-        <Textarea
-          id={reasonId}
-          name={reasonField}
-          rows={2}
-          maxLength={500}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          invalid={!!problem}
-          aria-describedby={fieldDescribedBy(reasonId, { hint: reasonHint, error: problem })}
-        />
-      </Field>
-      <div className="flex flex-wrap gap-2">
-        {approveBlockedReason ? (
-          <Button type="button" variant="primary" aria-disabled="true" aria-describedby={blockedId} onClick={(e) => e.preventDefault()}>
-            {approveLabel}
-          </Button>
-        ) : (
-          <Submit label={approveLabel} pendingLabel="Saving…" name={decisionField} value={approveValue} describedBy={approveHelp ? helpId : undefined} />
-        )}
-        <Submit label={returnLabel} pendingLabel="Returning…" variant="secondary" name={decisionField} value="return" />
-      </div>
-      {approveBlockedReason ? (
-        <p id={blockedId} className="m-0 text-sm text-quiet">
-          {approveBlockedReason}
-        </p>
-      ) : null}
-    </HandForm>
   );
 }
 

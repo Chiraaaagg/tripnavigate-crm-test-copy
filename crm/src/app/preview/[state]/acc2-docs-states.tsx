@@ -159,8 +159,8 @@ const states: Record<string, () => ReactNode> = {
   'acc2-docs-list-no-access': () => list(purchaseViewer, <DocumentsNoAccess />),
 
   /* Print view */
-  'acc2-docs-print': () => shell(salesViewer, '/app/deals', <CustomerDocumentPrintView doc={DETAIL_RELEASED} dealHref={`/app/deals/${DEAL_ID}?tab=services#customer-documents`} document={<CustomerDocumentTemplate content={DETAIL_RELEASED.content} />} />),
-  'acc2-docs-print-cancelled': () => shell(managerViewer, '/app/deals', <CustomerDocumentPrintView doc={DETAIL_CANCELLED} dealHref={`/app/deals/${DEAL_ID}?tab=services#customer-documents`} document={<CustomerDocumentTemplate content={DETAIL_CANCELLED.content} />} />),
+  'acc2-docs-print': () => shell(salesViewer, '/app/deals', <CustomerDocumentPrintView doc={DETAIL_RELEASED} dealHref={`/app/deals/${DEAL_ID}?tab=documents#customer-documents`} document={<CustomerDocumentTemplate content={DETAIL_RELEASED.content} />} />),
+  'acc2-docs-print-cancelled': () => shell(managerViewer, '/app/deals', <CustomerDocumentPrintView doc={DETAIL_CANCELLED} dealHref={`/app/deals/${DEAL_ID}?tab=documents#customer-documents`} document={<CustomerDocumentTemplate content={DETAIL_CANCELLED.content} />} />),
 };
 
 export const ACC2_DOCS_STATES = Object.keys(states);

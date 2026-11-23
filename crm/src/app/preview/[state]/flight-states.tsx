@@ -260,6 +260,12 @@ const states: Record<string, () => ReactNode> = {
   'flight-queue-all': () => shell(flightViewer, '/app/flight', <FlightQueuePage queue={queue} canTakeTasks show="all" />),
   'flight-queue-empty': () => shell(flightViewer, '/app/flight', <FlightQueuePage queue={{ groups: [] }} canTakeTasks show="not_taken" />),
   'flight-queue-manager': () => shell(managerViewer, '/app/flight', <FlightQueuePage queue={queue} canTakeTasks={false} show="all" />),
+  /* UX redesign R3 (C2): the queue toolbar's search, filter chip, sort and "nothing matches" states. */
+  'flight-queue-search': () => shell(flightViewer, '/app/flight', <FlightQueuePage queue={queue} canTakeTasks show="all" q="goi" />),
+  'flight-queue-chip': () => shell(flightViewer, '/app/flight', <FlightQueuePage queue={queue} canTakeTasks show="mine" only="change_decision" />),
+  'flight-queue-sort-latest': () => shell(flightViewer, '/app/flight', <FlightQueuePage queue={queue} canTakeTasks show="all" sort="latest" />),
+  'flight-queue-no-match': () => shell(flightViewer, '/app/flight', <FlightQueuePage queue={queue} canTakeTasks show="all" q="nothing-like-this" />),
+  'flight-queue-manager-search': () => shell(managerViewer, '/app/flight', <FlightQueuePage queue={queue} canTakeTasks={false} show="all" q="JOD-904" />),
   'flight-ws-loading': () => shell(flightViewer, '/app/flight', <FlightWorkspaceLoading />),
   'flight-ws-not-found': () => shell(flightViewer, '/app/flight', <FlightWorkspaceNotFound />),
   'flight-ws-not-taken': () => ws('details', { ws: notTaken, money: null }),

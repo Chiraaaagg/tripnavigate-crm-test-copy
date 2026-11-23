@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { StaffShell, type ShellViewer } from '@/views/StaffShell';
 import { DealsListScreen } from '@/views/deals-list-view';
 import { LeadsListScreen, type LeadListRowVM } from '@/views/lead-views';
+import { LeadsListLoading } from '@/views/list-leads';
 import { WorkflowNoPermissionView } from '@/views/workflow-views';
 import { previewDealsProps, previewLeadsProps } from './batch1-fixtures';
 import { PREVIEW_SEARCH_DEALS, PREVIEW_SEARCH_LEADS } from './batch5-search-fixtures';
@@ -115,6 +116,13 @@ export function renderBatch5SearchState(state: string): ReactNode | null {
       return deals(previewSearchDealsNotInstalledAction);
     case 'b5-deals-search-error':
       return deals(previewSearchDealsErrorAction);
+    case 'leads-loading':
+      // UX redesign R2: the Leads list loading file (leads/(list)/loading.tsx) inside the frame.
+      return (
+        <StaffShell viewer={sales} currentPath="/app/leads">
+          <LeadsListLoading />
+        </StaffShell>
+      );
     case 'b5-features-no-permission-purchase':
       // N1: manages the Bitrix connection but also works in Purchase (not a Super Admin).
       return (

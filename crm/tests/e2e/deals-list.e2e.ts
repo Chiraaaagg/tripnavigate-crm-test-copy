@@ -9,7 +9,8 @@ import { waitForHydration } from './hydration';
  * with exact counts and their scope, "Search this page", a true pager, and the
  * freshness line apart from the live indicator. Also the layout: table on
  * desktop, labelled cards on a 390 px phone, accessible names, focus, loading
- * and the style policy.
+ * and the style policy. UX redesign R2 (C2, SL-12, SL-20): one toolbar row
+ * (search, chips, order) and the customer name as the row's one link.
  */
 
 test.use(LOCAL_NETWORK_ACCESS_OFF);
@@ -135,10 +136,16 @@ test.describe('Deals list: content, links and status words', () => {
     await expect(order.getByRole('link', { name: 'Oldest first' })).toHaveAttribute('href', '/app/deals?sort=id_asc');
   });
 
-  test('references link to the deal; statuses are words with an icon, not colour alone', async ({ page }) => {
+  test('the customer name is the row\'s one link (with the reference in its name); statuses are words with an icon, not colour alone', async ({ page }) => {
     await open(page, 'deals-mixed');
     const table = page.getByRole('table');
-    await expect(table.getByRole('link', { name: 'BX-900420' })).toHaveAttribute('href', '/app/deals/m1');
+    // SL-12 / design plan 1.2: the whole name is the target; the reference is read with it, so it still finds the Deal.
+    // The reference is screen-reader-only text; Chromium puts a space before it in the name, so it is matched with \W+.
+    await expect(table.getByRole('link', { name: /^Synthetic honeymoon, Andaman \(6 nights\)\W+BX-900420$/ })).toHaveAttribute('href', '/app/deals/m1');
+    const first = table.getByRole('row').nth(1);
+    await expect(first.getByRole('link')).toHaveCount(1);
+    await expect(first.getByRole('cell').first()).toHaveText('BX-900420');
+    await expect(first.getByRole('cell').first().getByRole('link')).toHaveCount(0);
     const waiting = table.locator('[data-slot="status-badge"]', { hasText: 'Waiting for owner' });
     await expect(waiting).toBeVisible();
     await expect(waiting.locator('svg[aria-hidden="true"]')).toHaveCount(1);
@@ -210,11 +217,11 @@ test.describe('Deals list: content, links and status words', () => {
     await expect(main).not.toContainText(/margin|selling price|payment proof/i);
   });
 
-  test('reference and order links show the design-system focus outline', async ({ page }) => {
+  test('name and order links show the design-system focus outline', async ({ page }) => {
     await open(page, 'deals-mixed');
     for (const link of [
       page.getByRole('group', { name: 'Order of deals' }).getByRole('link'),
-      page.getByRole('table').getByRole('link', { name: 'BX-900420' }),
+      page.getByRole('table').getByRole('link', { name: /BX-900420$/ }),
     ]) {
       await link.focus();
       await page.keyboard.press('Shift+Tab');
@@ -242,6 +249,32 @@ test.describe('Deals list: Batch 1 chips, search and freshness', () => {
     await expect(failed).toContainText('(count unavailable)');
     await expect(failed).not.toContainText('(0)');
     await expect(page.getByRole('navigation', { name: 'Deal pages' })).toContainText('total not known');
+  });
+
+  test('toolbar (C2): search, chips and order in that reading order, on one row where they fit; the order is last before the table', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, 'deals-mixed');
+    const toolbar = page.locator('main [data-slot="list-toolbar"]');
+    await expect(toolbar).toHaveCount(1);
+    const parts = [
+      toolbar.getByRole('searchbox', { name: 'Search this page' }),
+      toolbar.getByRole('navigation', { name: 'Filter deals' }),
+      toolbar.getByRole('group', { name: 'Order of deals' }),
+    ];
+    for (const part of parts) await expect(part).toBeVisible();
+    const tops: number[] = [];
+    for (let i = 0; i < parts.length; i += 1) {
+      tops.push((await parts[i]!.boundingBox())!.y);
+      if (i > 0) {
+        const follows = await parts[i - 1]!.evaluate((a, b) => !!(a.compareDocumentPosition(b!) & Node.DOCUMENT_POSITION_FOLLOWING), await parts[i]!.elementHandle());
+        expect(follows, `toolbar part ${i} follows part ${i - 1}`).toBe(true);
+      }
+    }
+    // The search box and the chips share the first row on a wide screen (the order may wrap to its own row).
+    expect(Math.abs(tops[1]! - tops[0]!)).toBeLessThan(40);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page, 'deals-mixed');
+    await noHorizontalScroll(page);
   });
 
   test('search this page: says it searches this page only, hides other rows, honest no-match line', async ({ page }) => {
@@ -318,6 +351,8 @@ test.describe('Deals list: loading state', () => {
   test('announces loading once, shows no table, and the shapes stop moving with reduced motion', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await open(page, 'deals-loading');
+    // UX redesign R2: the shapes follow the list's own layout, including the toolbar row.
+    await expect(page.locator('main [data-slot="list-toolbar-loading"]')).toHaveCount(1);
     await expect(page.getByRole('status').filter({ hasText: 'Loading deals…' })).toBeVisible();
     // One level-1 heading, from DealsListLoading itself (the route loading file renders only that).
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Deals');

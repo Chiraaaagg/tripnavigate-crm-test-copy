@@ -9,7 +9,7 @@ import {
   parsePage,
   parseSort,
 } from '@/modules/deals/server/queries';
-import { dealsHref } from '@/views/staff-views';
+import { dealsHref } from '@/views/deals-list-view';
 
 /**
  * Deals list paging (server side, RLS decides the rows). A fake Data API

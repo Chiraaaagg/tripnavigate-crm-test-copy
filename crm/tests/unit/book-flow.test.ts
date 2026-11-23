@@ -1,13 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { check, DEAL_ID, draftView, emptyDraft } from '@/app/preview/[state]/b11-fixtures';
+import { DEAL_ID, emptyDraft } from '@/app/preview/[state]/b11-fixtures';
 import {
-  BOOK_PRICE_AND_PAYMENT_LABEL,
-  BOOK_PRICE_NOTE,
   bookBlockingItems,
   bookFieldHref,
-  bookPriceAccess,
-  bookSectionNavState,
-  bookStepSections,
   errorSummary,
   nextSectionNeedingInput,
   orderSummaryItems,
@@ -48,35 +43,6 @@ describe('next section needing input (L3)', () => {
     expect(nextSectionNeedingInput(status(['review']), 'payment')).toBe('review');
     expect(nextSectionNeedingInput(status([]), 'review')).toBeNull();
     expect(nextSectionNeedingInput(status([]), 'trip')).toBeNull();
-  });
-});
-
-describe('section list and price access', () => {
-  it('states in words: to finish, check, saved, optional (nothing added and nothing asked)', () => {
-    const v = draftView({ checklist: [check('missing_acceptance_proof', true), check('billing_unverified', false)], items: [] });
-    expect(bookSectionNavState(v, 'review')).toBe('to_finish');
-    expect(bookSectionNavState(v, 'services')).toBe('optional');
-    expect(bookSectionNavState(v, 'identity')).toBe('optional');
-    expect(bookSectionNavState(v, 'price')).toBe('saved');
-  });
-
-  it('editor without price access (Echo M3): only payment leaves the list; price stays as "Price and payment" with one note', () => {
-    const without = bookStepSections(draftView({ canEditCommercials: false }), 'finish');
-    expect(without.priceAccess).toBe('note');
-    expect(without.items.map((i) => i.section)).toEqual(['services', 'identity', 'price', 'review']);
-    expect(without.items.find((i) => i.section === 'price')?.label).toBe(BOOK_PRICE_AND_PAYMENT_LABEL);
-    expect(without.priceNote).toBe('The price and payment plan are filled by Sales on this deal.');
-    expect(without.priceNote).toBe(BOOK_PRICE_NOTE);
-    const withAccess = bookStepSections(draftView(), 'finish', 'price');
-    expect(withAccess.items.map((i) => i.section)).toEqual(['services', 'identity', 'price', 'payment', 'review']);
-    expect(withAccess.items.map((i) => i.label)).toEqual(['Cabs, flights and other services', 'Passport and ID details', 'Selling price', 'Payment plan', 'Review and submit']);
-    expect(withAccess.items.find((i) => i.current)?.section).toBe('price');
-    expect(withAccess.priceNote).toBeNull();
-  });
-
-  it('read-only viewers are not told to ask for the price (no note)', () => {
-    expect(bookPriceAccess(draftView({ canEdit: false, canEditCommercials: false }))).toBe('edit');
-    expect(bookPriceAccess(draftView({ canEditCommercials: false, dealNotActive: true }))).toBe('edit');
   });
 });
 

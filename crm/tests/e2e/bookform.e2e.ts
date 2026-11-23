@@ -263,6 +263,45 @@ test.describe('Booking form prices and Bill To', () => {
   });
 });
 
+test.describe('Booking form "Review and submit" (O1)', () => {
+  // Owner-approved O1: the footer button keeps its label, scrolls to the submit card's own button and focuses it.
+  const footer = (page: Page) => page.locator('[data-slot="step-footer"]');
+
+  test('the footer button moves focus to the real submit button with the same label as before', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 640 });
+    for (const scenario of ['owner', 'gaps']) {
+      await open(page, `bookform-${scenario}--finish`);
+      const submit = page.locator('#bf-submit-trigger');
+      await expect(submit, scenario).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await expect(submit, `${scenario}: below the first screen`).not.toBeInViewport();
+      await footer(page).getByRole('button', { name: 'Review and submit', exact: true }).click();
+      await expect(submit, scenario).toBeFocused();
+      await expect(submit, scenario).toBeInViewport();
+      // Focus lands on the submit card's own button, not on a second "Review and submit".
+      await expect(main(page).getByRole('region', { name: 'Submit' }).locator('#bf-submit-trigger'), scenario).toBeFocused();
+      await expect(footer(page).getByRole('button', { name: 'Review and submit', exact: true }), scenario).toBeVisible();
+    }
+  });
+
+  test('under reduced motion the scroll is instant', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize({ width: 1280, height: 640 });
+    await open(page, 'bookform-owner--finish');
+    await page.evaluate(() => window.scrollTo(0, 0));
+    // Click and measure in the same task: an instant scroll has already landed, a smooth one has not.
+    const landed = await page.evaluate(() => {
+      const button = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-slot="step-footer"] button')).find((b) => b.textContent?.trim() === 'Review and submit');
+      const submit = document.getElementById('bf-submit-trigger');
+      if (!button || !submit) return { found: false, focused: false, inView: false };
+      button.click();
+      const box = submit.getBoundingClientRect();
+      return { found: true, focused: document.activeElement === submit, inView: box.top >= 0 && box.bottom <= window.innerHeight };
+    });
+    expect(landed).toEqual({ found: true, focused: true, inView: true });
+  });
+});
+
 test.describe('Booking form phone widths', () => {
   for (const width of [320, 375]) {
     test(`no sideways scroll at ${width} px on every step`, async ({ page }) => {

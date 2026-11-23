@@ -188,7 +188,11 @@ test.describe('accessibility (axe, WCAG 2.2 A/AA rules)', () => {
   for (const path of [...publicPages, ...galleryStates.map((s) => `/preview/${s}`)]) {
     test(`no detectable violations on ${path}`, async ({ page }) => {
       await page.goto(path);
-      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+      // A state with a drawer open on load (for example finance-destinations-add-error) makes the rest of the
+      // page aria-hidden, so the h1 is then counted in the markup (the R2 deal-page pattern).
+      const dialog = page.getByRole('dialog');
+      await expect(page.getByRole('heading', { level: 1 }).or(dialog).first()).toBeVisible();
+      if ((await dialog.count()) > 0) await expect(page.locator('h1')).toHaveCount(1);
       await expandAllDetails(page);
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
@@ -236,70 +240,87 @@ test.describe('staff security screens (preview gallery, synthetic props)', () =>
     await expect(page.getByRole('note').filter({ hasText: 'Design preview' })).toContainText('Not evidence of a real journey');
   });
 
+  // R1 (helper S1): the staff list is rows with a row menu; each action opens its own drawer.
+  const staffRow = (page: Page, name: string) => page.locator('[data-slot="staff-row"]').filter({ hasText: name });
+  async function openStaffAction(page: Page, name: string, item: string | RegExp) {
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.getByRole('button', { name: `Actions for ${name}` }).click();
+    await page.getByRole('menuitem', { name: item }).click();
+    return page.getByRole('dialog');
+  }
+
   test('admin staff page shows every recovery state and email status in text', async ({ page }) => {
     await page.goto('/preview/admin-staff-recovery');
-    const table = page.getByRole('table', { name: 'Staff in your entities' });
-    await expect(table).toContainText('Resetting their authenticator app — step 1 of 3: removing the old app');
-    await expect(table).toContainText('Resetting their authenticator app — step 1 of 3: removing the old app failed');
-    await expect(table).toContainText('Attempts: 3');
-    await expect(table).toContainText('Resetting their authenticator app — step 2 of 3: waiting for their new app');
-    await expect(table).toContainText('Resetting their authenticator app — step 3 of 3: waiting for your confirmation');
-    await expect(table).toContainText('Authenticator app reset finished');
-    await expect(table).toContainText('Reset confirmed: removing their other authenticator apps is not finished');
-    await expect(table).toContainText('Reset confirmed: removing their other authenticator apps failed');
-    await expect(table).toContainText('Last error: provider_unavailable:503');
-    await expect(table).toContainText('Reset confirmed: the clean-up cannot finish');
-    await expect(table).toContainText('Handed to the mail service at');
-    await expect(table).toContainText('Failed: smtp_rejected');
-    await expect(table).toContainText('Pending');
+    const list = page.getByRole('list', { name: 'Staff in your entities' });
+    await expect(list).toContainText('Resetting their authenticator app — step 1 of 3: removing the old app');
+    await expect(list).toContainText('Resetting their authenticator app — step 1 of 3: removing the old app failed');
+    await expect(list).toContainText('Attempts: 3');
+    await expect(list).toContainText('Resetting their authenticator app — step 2 of 3: waiting for their new app');
+    await expect(list).toContainText('Resetting their authenticator app — step 3 of 3: waiting for your confirmation');
+    await expect(list).toContainText('Authenticator app reset finished');
+    await expect(list).toContainText('Reset confirmed: removing their other authenticator apps is not finished');
+    await expect(list).toContainText('Reset confirmed: removing their other authenticator apps failed');
+    // Plain words first; the stored code only behind "Details" (audit S10).
+    await expect(staffRow(page, 'Synthetic Cleanup Failed')).toContainText('Last error: The sign-in service was not available.');
+    await expect(list).toContainText('Reset confirmed: the clean-up cannot finish');
+    await expect(list).toContainText('Handed to the mail service at');
+    await expect(staffRow(page, 'Synthetic Recovery Failed')).toContainText('Failed: The mail service refused the message.');
+    await expect(list.getByText('smtp_rejected')).toBeHidden();
+    await expect(list).toContainText('Pending');
     await expect(page.locator('body')).not.toContainText(/delivered/i);
   });
 
   test('admin actions: email, recovery warning, retry and confirm controls', async ({ page }) => {
     await page.goto('/preview/admin-staff-recovery');
-    await page.getByText('Actions for Synthetic Invited Staff').click();
-    await expect(page.getByRole('button', { name: 'Resend invitation' })).toBeVisible();
-    await page.getByText('Actions for Synthetic Recovery Done').click();
-    await expect(page.getByRole('button', { name: 'Send password reset email' }).first()).toBeVisible();
-    const start = page.getByRole('button', { name: 'Start authenticator recovery' });
+    let drawer = await openStaffAction(page, 'Synthetic Invited Staff', 'Resend invitation');
+    await expect(drawer.getByRole('button', { name: 'Resend invitation' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    drawer = await openStaffAction(page, 'Synthetic Recovery Done', 'Send password reset email');
+    await expect(drawer.getByRole('button', { name: 'Send password reset email' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    drawer = await openStaffAction(page, 'Synthetic Recovery Done', 'Start authenticator recovery');
+    const start = drawer.getByRole('button', { name: 'Start authenticator recovery' });
     await expect(start).toBeVisible();
     await expect(start).toHaveAccessibleDescription(/immediately blocks every current session/);
-    await page.getByText('Actions for Synthetic Recovery Failed').click();
-    await expect(page.getByRole('button', { name: /Retry removing the old authenticator/ })).toBeVisible();
+    await page.keyboard.press('Escape');
+    drawer = await openStaffAction(page, 'Synthetic Recovery Failed', 'Retry the authenticator recovery');
+    await expect(drawer.getByRole('button', { name: /Retry removing the old authenticator/ })).toBeVisible();
+    await page.keyboard.press('Escape');
     // A provider step with no recorded result is reconciled on the same case, never restarted.
-    await page.getByText('Actions for Synthetic Recovery Pending').click();
-    const check = page.getByRole('button', { name: 'Check and finish removing the old authenticator for Synthetic Recovery Pending' });
+    drawer = await openStaffAction(page, 'Synthetic Recovery Pending', 'Check the authenticator recovery');
+    const check = drawer.getByRole('button', { name: 'Check and finish removing the old authenticator for Synthetic Recovery Pending' });
     await expect(check).toBeVisible();
     await expect(check).toHaveAccessibleDescription(/does not start a new one/);
+    await page.keyboard.press('Escape');
     // Cleanup pending or failed: retry cleanup on the same case; no code, no new recovery.
     for (const who of ['Synthetic Cleanup Pending', 'Synthetic Cleanup Failed']) {
-      const row = page.getByRole('row').filter({ hasText: who });
-      await page.getByText(`Actions for ${who}`).click();
-      const retry = row.getByRole('button', { name: `Retry removing other authenticators for ${who}` });
+      drawer = await openStaffAction(page, who, 'Retry removing other authenticators');
+      const retry = drawer.getByRole('button', { name: `Retry removing other authenticators for ${who}` });
       await expect(retry).toBeVisible();
       await expect(retry).toHaveAccessibleDescription(/do not need a new confirmation code/);
-      await expect(row.getByRole('button', { name: 'Start authenticator recovery' })).toHaveCount(0);
-      await expect(row.getByLabel('Confirmation code')).toHaveCount(0);
+      await expect(drawer.getByRole('button', { name: 'Start authenticator recovery' })).toHaveCount(0);
+      await expect(drawer.getByLabel('Confirmation code')).toHaveCount(0);
+      await page.keyboard.press('Escape');
     }
     // Cleanup refused by the database (registered authenticator missing): a new recovery is the only way on.
-    const stuck = page.getByRole('row').filter({ hasText: 'Synthetic Cleanup Stuck' });
-    await page.getByText('Actions for Synthetic Cleanup Stuck').click();
-    await expect(stuck.getByRole('note').filter({ hasText: 'Cleanup of the last recovery cannot finish' })).toBeVisible();
-    await expect(stuck.getByRole('button', { name: 'Start authenticator recovery' })).toBeVisible();
-    await expect(stuck.getByRole('button', { name: /Retry removing other authenticators/ })).toHaveCount(0);
-    await page.getByText('Actions for Synthetic Recovery Confirm').click();
-    await expect(page.getByLabel('How you verified their identity')).toBeVisible();
-    await expect(page.getByLabel('Confirmation code')).toHaveAttribute('maxlength', '6');
-    await expect(page.getByRole('button', { name: 'Confirm and restore access' })).toBeVisible();
+    drawer = await openStaffAction(page, 'Synthetic Cleanup Stuck', 'Start authenticator recovery');
+    await expect(drawer.getByRole('note').filter({ hasText: 'Cleanup of the last recovery cannot finish' })).toBeVisible();
+    await expect(drawer.getByRole('button', { name: 'Start authenticator recovery' })).toBeVisible();
+    await expect(drawer.getByRole('button', { name: /Retry removing other authenticators/ })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    drawer = await openStaffAction(page, 'Synthetic Recovery Confirm', 'Confirm identity and restore access');
+    await expect(drawer.getByLabel('How you verified their identity')).toBeVisible();
+    await expect(drawer.getByLabel('Confirmation code')).toHaveAttribute('maxlength', '6');
+    await expect(drawer.getByRole('button', { name: 'Confirm and restore access' })).toBeVisible();
   });
 
   test('without an approved verification method, confirmation is not offered', async ({ page }) => {
     await page.goto('/preview/admin-staff-recovery-no-method');
-    await page.getByText('Actions for Synthetic Recovery Confirm').click();
+    const drawer = await openStaffAction(page, 'Synthetic Recovery Confirm', 'Confirm identity and restore access');
     await expect(
-      page.getByText('No identity-verification method has been approved yet; recovery cannot be completed in this environment').first(),
+      drawer.getByText('No identity-verification method has been approved yet; recovery cannot be completed in this environment').first(),
     ).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Confirm and restore access' })).toHaveCount(0);
+    await expect(drawer.getByRole('button', { name: 'Confirm and restore access' })).toHaveCount(0);
   });
 
   test('account recovery pages show state-specific instructions', async ({ page }) => {

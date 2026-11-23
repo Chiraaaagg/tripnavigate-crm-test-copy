@@ -30,7 +30,8 @@ import { requireStaff } from '@/modules/identity/server/session';
 import { uploadBoardingPassAction } from '@/modules/customer-messages/server/actions';
 import { loadTaskCustomerFiles } from '@/modules/customer-messages/server/queries';
 import { TaskBoardingPassPanel } from '@/views/customer-messages/task-panels';
-import { parseTaskTab, type DepartmentTaskHistoryRecord, type TaskTab } from '@/modules/settings/contracts';
+import type { DepartmentTaskHistoryRecord, TaskTab } from '@/modules/settings/contracts';
+import { taskTabFor } from '@/views/department/task-default-tab';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import { TravellerIdProofsCard } from '@/views/b11/id-proofs-list';
 import { toTaskHistoryVM } from '@/views/department/task-history-vm';
@@ -105,7 +106,8 @@ export default async function FlightWorkspaceRoute({
   const staff = await requireStaff();
   const dto = await loadFlightWorkspace(staff, dealId);
   if (!dto) return <FlightWorkspaceNotFound />;
-  const current = parseTaskTab(tab, TABS);
+  // D6: without ?tab=, the person who holds these flights opens on Work; everyone else on Details. Every ?tab= keeps working.
+  const current = taskTabFor(tab, TABS, dto.assignee.isYou);
   const taskIds = dto.flights.map((f) => f.taskId);
   const focus = typeof flight === 'string' && taskIds.includes(flight) ? flight : null;
 

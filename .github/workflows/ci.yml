@@ -84,6 +84,15 @@ jobs:
         env:
           NODE_OPTIONS: ${{ env.NODE_HEAP_OPTIONS }}
       - run: npm run lint
+      # UX redesign (build plan 4.3): the owner-approved forms, the shared parts
+      # they import and the guard itself change only through the current slice's
+      # exceptions (scripts/ci/frozen-forms.json), measured against main.
+      - name: Frozen approved forms (only the slice's listed exceptions)
+        # Pull requests only: a push build is a shallow clone of main itself, with no change to measure.
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/ci/check-frozen-forms.mjs --base origin/main
       # Phase 5: the Bitrix receiver Edge Function runs on Deno; type-check it as Deno would.
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
@@ -516,7 +525,9 @@ jobs:
   # runner (same system, browser and fonts on both sides).
   frozen-forms-visual:
     name: Frozen forms pictures (pull request against its base, zero tolerance)
-    if: github.event_name == 'pull_request'
+    # Also on a manual run, compared against main (owner, 18 November 2026:
+    # the public test copy runs no pull requests).
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
@@ -549,7 +560,11 @@ jobs:
             echo "::warning title=frozen forms pictures::skipped: $test_file still runs on macOS only; apply the CI patch (build-notes/ci-fix.md) to run it here"
             echo "present=false" >> "$GITHUB_OUTPUT"
           else
-            base_sha="$(git -C head rev-parse HEAD^1)"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              base_sha=main
+            else
+              base_sha="$(git -C head rev-parse HEAD^1)"
+            fi
             echo "present=true" >> "$GITHUB_OUTPUT"
             echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
             echo "BASE_SHA=$base_sha" >> "$GITHUB_ENV"

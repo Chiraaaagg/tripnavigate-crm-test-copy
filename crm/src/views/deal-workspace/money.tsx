@@ -1,4 +1,5 @@
 import { Info } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { NotEntered, SummaryList, SummaryRow } from '@/components/ui/summary-list';
 import type { DealMoneyVM } from '@/modules/deals/workspace-contract';
@@ -28,13 +29,15 @@ function SubHeading({ id, children }: { id: string; children: string }) {
   );
 }
 
-export function DealMoneyTab({ money }: { money: DealMoneyVM }) {
+export function DealMoneyTab({ money, reportPayment }: { money: DealMoneyVM; reportPayment?: ReactNode }) {
   const { dealValue, booking, claims, versionTotals } = money;
   return (
-    <Card>
+    <Card id="deal-money">
       <section aria-labelledby="deal-money-heading">
         <CardHeader>
           <CardTitle id="deal-money-heading">Money</CardTitle>
+          {/* R2: "Tell Accounts about a payment" (the existing claim panel in a dialog), price readers who may report only. */}
+          {reportPayment}
         </CardHeader>
         <CardBody className="flex flex-col gap-6">
           {/* DA-118: deal_commercials holds test rows only, so the block shows only when a value is recorded. */}

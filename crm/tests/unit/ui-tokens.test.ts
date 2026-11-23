@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Scanner } from '@tailwindcss/oxide';
 import { compile } from 'tailwindcss';
 import { describe, expect, it } from 'vitest';
 
@@ -8,9 +9,11 @@ import { describe, expect, it } from 'vitest';
  * Guards for the shared design system (src/components/ui) living next to the
  * legacy stylesheet (src/app/globals.css) without changing existing screens:
  *  1. token names never reuse a legacy custom property name;
- *  2. Tailwind only scans the design-system folders, and never generates a
- *     utility whose class name the legacy markup or stylesheet uses
- *     (mt-1, mt-2, mt-15, mb-0 exist there with different values);
+ *  2. Tailwind scans the source folders named in app.css (UX redesign R0,
+ *     CQ-3: folders instead of a hand-kept list of files), and never
+ *     generates a utility whose class name the legacy stylesheet or legacy
+ *     markup uses (mt-1, mt-2, mt-15, mb-0 exist there with different
+ *     values; app.css blocks them);
  *  3. the Direction A colour pairs keep their WCAG contrast.
  */
 
@@ -21,79 +24,12 @@ const read = (path: string) => readFileSync(path, 'utf8');
 const entryPath = join(src, 'app/app.css');
 const tokensPath = join(src, 'components/ui/tokens.css');
 const legacyPath = join(src, 'app/globals.css');
-const UI_DIRS = [join(src, 'components/ui'), join(src, 'app/preview/ui-gallery'), join(src, 'views/b11'), join(src, 'views/b12'), join(src, 'views/deal-workspace'), join(src, 'views/booking-form'), join(src, 'views/settings'), join(src, 'views/department'), join(src, 'views/accounts'), join(src, 'views/purchase'),
-  // Flight build (4 November 2026, Track C): the new Flight screens folder (matches the new @source line in app.css).
-  join(src, 'views/flight'),
-  // Visa build (8 November 2026, Track D): the new Visa desk screens folder (matches the new @source line in app.css).
-  join(src, 'views/visa'),
-  // Accounts phase (10 November 2026, Track D): Accounts desk screens and the notification bell (match the new @source lines in app.css).
-  join(src, 'views/accounts-desk'),
-  join(src, 'views/notices'),
-  // Accounts phase 2 (11 November 2026, Track E): the new screen folders (match the new @source lines in app.css).
-  join(src, 'views/customer-documents'),
-  join(src, 'views/refunds'),
-  join(src, 'views/suppliers'),
-  join(src, 'views/tally-mapping'),
-  join(src, 'views/cancellations'),
-  // Accounts phase 3 (13 November 2026, Track U): the new screen folders (match the new @source lines in app.css).
-  join(src, 'views/customer-messages'),
-  join(src, 'views/write-offs'),
-  join(src, 'views/tally-file'),
-  join(src, 'views/rate-contracts'),
-  join(src, 'views/booking-changes')];
-/** Single files of screens already moved to the design system (one @source line each). */
-const UI_FILES = [
-  join(src, 'views/StaffShell.tsx'),
-  join(src, 'views/user-menu-dismiss.tsx'),
-  join(src, 'components/NavLinks.tsx'),
-  join(src, 'app/app/loading.tsx'),
-  // Direction A R0 (19 October 2026): the staff frame's page error.
-  join(src, 'app/app/error.tsx'),
-  join(src, 'app/layout.tsx'),
-  join(src, 'views/home-view.tsx'),
-  join(src, 'views/deals-list-view.tsx'),
-  join(src, 'views/deal-page-view.tsx'),
-  // B1 (10 October 2026)
-  join(src, 'views/service-labels.tsx'),
-  join(src, 'views/deal-services-view.tsx'),
-  join(src, 'views/intake-views.tsx'),
-  join(src, 'views/intake-forms.tsx'),
-  join(src, 'views/flight-views.tsx'),
-  join(src, 'views/flight-forms.tsx'),
-  join(src, 'views/workflow-views.tsx'),
-  join(src, 'views/workflow-forms.tsx'),
-  // Direction A Batch 1 (19 October 2026)
-  join(src, 'views/list-leads.tsx'),
-  join(src, 'views/list-parts.tsx'),
-  join(src, 'views/list-rows.tsx'),
-  join(src, 'views/list-search.tsx'),
-  join(src, 'views/bitrix-names-card.tsx'),
-  // Direction A Batch 4 (23 October 2026)
-  join(src, 'views/booking-health-views.tsx'),
-  join(src, 'views/purchase-views.tsx'),
-  join(src, 'views/purchase-forms.tsx'),
-  join(src, 'views/procurement-views.tsx'),
-  join(src, 'views/finance-views.tsx'),
-  join(src, 'views/finance-common.tsx'),
-  join(src, 'views/finance-cash-views.tsx'),
-  join(src, 'views/finance-destination-views.tsx'),
-  join(src, 'app/preview/[state]/batch4-dept-states.tsx'),
-  // Flight build (4 November 2026, Track C): the flight preview states (matches the new @source line in app.css).
-  join(src, 'app/preview/[state]/flight-states.tsx'),
-  // Visa build (8 November 2026, Track D): the visa preview states (matches the new @source line in app.css).
-  join(src, 'app/preview/[state]/visa-states.tsx'),
-  // Accounts phase (10 November 2026, Track D): the Accounts phase preview states.
-  join(src, 'app/preview/[state]/acc-states.tsx'),
-  // Accounts phase 2 (Track E): preview states with their own layout classes.
-  join(src, 'app/preview/[state]/acc2-docs-states.tsx'),
-  join(src, 'app/preview/[state]/acc2-refund-states.tsx'),
-  join(src, 'app/preview/[state]/acc2-supplier-states.tsx'),
-  join(src, 'app/preview/[state]/acc2-settings-states.tsx'),
-  join(src, 'app/preview/[state]/acc2-cancel-states.tsx'),
-  // Accounts phase 3 (Track U): preview states with their own layout classes.
-  ...['messages', 'bills', 'writeoffs', 'tally', 'alerts', 'rates', 'changes'].map((f) => join(src, `app/preview/[state]/acc3-${f}-states.tsx`)),
-];
-const scannedFiles = () => [...UI_DIRS.flatMap((d) => filesUnder(d, /\.(tsx?|css)$/)), ...UI_FILES];
+/** CQ-3 (17 November 2026): every view and component, the preview pages and the staff app pages. */
+const SOURCE_DIRS = [join(src, 'views'), join(src, 'components'), join(src, 'app/preview'), join(src, 'app/app')];
+/** Single files outside those folders. */
+const SOURCE_FILES = [join(src, 'app/layout.tsx')];
+/** Legacy helper classes that are also Tailwind utilities with other values. */
+const CLASHING = ['mt-0', 'mt-1', 'mt-2', 'mt-15', 'mb-0'];
 
 function filesUnder(dir: string, pattern: RegExp): string[] {
   const out: string[] = [];
@@ -104,6 +40,8 @@ function filesUnder(dir: string, pattern: RegExp): string[] {
   }
   return out;
 }
+
+const isSource = (file: string) => SOURCE_FILES.includes(file) || SOURCE_DIRS.some((d) => file.startsWith(`${d}/`));
 
 function customPropertyNames(css: string): Set<string> {
   const names = new Set<string>();
@@ -130,14 +68,13 @@ const compileUtilitiesOnly = () =>
     `@import 'tailwindcss/theme.css' layer(theme);\n@import 'tailwindcss/utilities.css' layer(utilities) source(none);\n@import '../components/ui/tokens.css';`,
   );
 
-/** Class names the legacy screens use: legacy stylesheet selectors plus className strings outside the design system. */
+/** Class names with a legacy meaning: legacy stylesheet selectors plus className strings in files Tailwind does not scan. */
 function legacyClassNames(): Set<string> {
   const names = new Set<string>();
   const legacyCss = read(legacyPath).replace(/\/\*[\s\S]*?\*\//g, '');
   for (const m of legacyCss.matchAll(/\.(-?[a-zA-Z_][a-zA-Z0-9_-]*)/g)) names.add(m[1]!);
-  const uiFiles = new Set(scannedFiles());
   for (const file of filesUnder(src, /\.tsx?$/)) {
-    if (uiFiles.has(file)) continue;
+    if (isSource(file)) continue;
     for (const m of read(file).matchAll(/className=(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\}|\{([^}]*)\})/g)) {
       const value = m[1] ?? m[2] ?? m[3] ?? m[4] ?? '';
       for (const token of value.match(/[a-zA-Z][a-zA-Z0-9_-]*/g) ?? []) names.add(token);
@@ -164,32 +101,35 @@ describe('design tokens and the legacy stylesheet', () => {
     expect(tailwindDefaults.filter((name) => legacy.has(name))).toEqual([]);
   });
 
-  it('Tailwind scans only the design-system folders and migrated screen files (no whole-project detection)', async () => {
+  it('Tailwind scans the source folders of app.css (no whole-project detection, no per-file list)', async () => {
     const compiled = await compileEntry();
     expect(compiled.root).toBe('none');
-    const bases = compiled.sources.map((s) => resolve(s.base, s.pattern));
-    expect(bases.sort()).toEqual([...UI_DIRS, ...UI_FILES].sort());
+    const bases = compiled.sources.filter((s) => !s.negated).map((s) => resolve(s.base, s.pattern));
+    expect(bases.sort()).toEqual([...SOURCE_DIRS, ...SOURCE_FILES].sort());
     // Preflight (Tailwind's reset) stays out until the legacy screens move over.
     const entryRules = read(entryPath).replace(/\/\*[\s\S]*?\*\//g, '');
     expect(entryRules).not.toMatch(/@import\s+['"]tailwindcss['"]|preflight/);
     expect(entryRules).toMatch(/@import\s+'\.\/globals\.css'\s+layer\(legacy\)/);
+    // The safety net that keeps the clashing legacy helpers out of the generated utilities.
+    expect(entryRules).toMatch(new RegExp(`@source not inline\\('${CLASHING.join(' ')}'\\)`));
   });
 
   it('never generates a utility that a legacy class name would pick up', async () => {
-    const compiled = await compileUtilitiesOnly();
+    const utilities = await compileUtilitiesOnly();
     const legacy = [...legacyClassNames()];
-    const asUtility = legacy.filter((name) => compiled.build([name]).includes(`.${name} {`));
-    // The check is live: these legacy helpers ARE Tailwind utilities with other values.
+    const asUtility = legacy.filter((name) => utilities.build([name]).includes(`.${name} {`));
+    // The check is live: these legacy helpers ARE Tailwind utilities with other values...
     expect(asUtility).toEqual(expect.arrayContaining(['mt-1', 'mt-2', 'mt-15', 'mb-0']));
+    // ...and the scanned legacy markup uses them, so without the safety net they would be generated.
+    const entry = await compileEntry();
+    const candidates = new Scanner({ sources: entry.sources.map((s) => ({ ...s, base: resolve(s.base) })) }).scan();
+    expect(candidates).toEqual(expect.arrayContaining(['mt-1', 'mt-2', 'mb-0']));
 
-    const offenders: string[] = [];
-    for (const file of scannedFiles()) {
-      const text = read(file);
-      for (const name of asUtility) {
-        const escaped = name.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
-        if (new RegExp(`(?<![\\w:/\\[.-])${escaped}(?![\\w./\\]-])`).test(text)) offenders.push(`${file}: ${name}`);
-      }
-    }
+    // Exactly what app.css generates (the same scan as the build), utilities layer only.
+    const built = entry.build(candidates);
+    const generated = built.slice(built.indexOf('@layer utilities {'));
+    expect(generated.length).toBeGreaterThan(10_000);
+    const offenders = asUtility.filter((name) => generated.includes(`.${name.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c}`)} {`));
     expect(offenders).toEqual([]);
   });
 });

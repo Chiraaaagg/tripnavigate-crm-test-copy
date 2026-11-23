@@ -73,7 +73,7 @@ export async function enrolTotpViaUi(page: Page): Promise<string> {
   await expect(page).toHaveURL(/\/mfa\/enroll/);
   await page.getByRole('button', { name: 'Set up authenticator app' }).click();
   await page.getByText('Cannot scan? Enter this setup key instead').click();
-  const secret = ((await page.locator('p.secret').textContent()) ?? '').trim();
+  const secret = ((await page.getByLabel('Setup key').textContent()) ?? '').trim();
   expect(secret, 'setup key shown on the enrollment page').toMatch(/^[A-Z2-7]+=*$/);
   await page.getByLabel('6-digit code').fill(await totpCode(secret));
   await page.getByRole('button', { name: 'Verify and continue' }).click();

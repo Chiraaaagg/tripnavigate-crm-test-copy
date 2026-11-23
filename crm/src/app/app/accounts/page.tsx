@@ -1,11 +1,14 @@
 import type { Metadata } from 'next';
+import { SectionTabs } from '@/components/ui/section-tabs';
 import { isAccountsQueueCursor } from '@/modules/finance/dto';
 import { lookupAccountsDeal, loadAccountsQueue } from '@/modules/finance/server/queries';
 import { requireStaff } from '@/modules/identity/server/session';
 import { AccountsQueueView, FinanceNoAccessView, FinanceUnavailableView, type LookupOutcome, parseQueueFilter } from '@/views/finance-views';
 import { financeRead } from './finance-page-support';
+import { accountsSectionViewer } from './section-viewer';
 
-// DA-276 / DA-274: the queue is "To check" (default tab Booking reviews; every ?filter= value kept).
+// DA-276 / DA-274: the queue is "To check" (default filter Booking reviews; every ?filter= value kept).
+// R4: one search (?ref=, exact reference), the filters as chips, one row button per deal.
 export const metadata: Metadata = { title: 'To check' };
 
 export default async function AccountsQueuePage({ searchParams }: { searchParams: Promise<{ filter?: string | string[]; ref?: string | string[]; after?: string | string[] }> }) {
@@ -29,8 +32,11 @@ export default async function AccountsQueuePage({ searchParams }: { searchParams
     const found = await financeRead(() => lookupAccountsDeal(staff, reference));
     lookup = { reference, result: found.ok ? (found.value ?? null) : null };
   }
+  // D5: the To check section tabs under the header; the same flags as the menu (the frame's cached read).
+  const viewer = await accountsSectionViewer(staff);
   return (
     <AccountsQueueView
+      sectionTabs={<SectionTabs section="to-check" currentHref="/app/accounts" viewer={viewer} />}
       items={queue.value.items}
       filter={filter}
       lookup={lookup}

@@ -1,39 +1,74 @@
-import { TriangleAlert } from 'lucide-react';
+import { ChevronLeft, TriangleAlert } from 'lucide-react';
+import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { StatusBadge } from '@/components/ui/badge';
+import { cn, focusRing } from '@/components/ui/cn';
 import { Notice } from '@/components/ui/notice';
+import { PageHeader } from '@/components/ui/page-header';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { MEAL_PLAN_LABEL, RATE_SHEET_COLUMNS, SHEET_REASON_WORD, SHEET_WARNING_WORD } from './labels';
 import type { MealPlanCode, RateSheetImportSummary } from './types';
 
 /*
- * Settings › Imports › Rate sheet (Accounts phase 3 contract §9.4, §15 item 9).
- * Two parts the import screen slots in for kind `rate_sheet`: the column
+ * Rate sheet import parts (Accounts phase 3 contract §9.4, §15 item 9), used
+ * by Settings › Imports › Rate sheets and, since UX redesign R3, by the
+ * upload page inside Suppliers › Rate contracts. Two parts: the column
  * help (shown before a file is chosen) and the check result (counts, warnings
  * that never block, and each row with its outcome and the reasons it is left
  * out). Applying makes DRAFT contracts only; an active contract is never
  * touched, and a Manager approves each draft.
  */
 
-/** Column help for the rate-sheet CSV / Excel file. */
+/** Plain titles beside the column names the file must use (DM-24). The names themselves are unchanged. */
+const COLUMN_TITLE: Record<string, string> = {
+  supplierRef: 'Supplier',
+  hotelRef: 'Hotel',
+  city: 'City',
+  validFrom: 'Contract from',
+  validTo: 'Contract to',
+  seasonFrom: 'Season from',
+  seasonTo: 'Season to',
+  roomType: 'Room type',
+  mealPlan: 'Meal plan',
+  rate: 'Rate per night',
+  weekendRate: 'Weekend rate',
+  extraAdult: 'Extra adult',
+  childWithBed: 'Child with bed',
+  childWithoutBed: 'Child without bed',
+  blackoutDates: 'Blackout dates',
+  cancellationTerms: 'Cancellation terms',
+};
+
+/** Plain title of a rate-sheet column (the name itself when there is none). */
+export function rateSheetColumnTitle(name: string): string {
+  return COLUMN_TITLE[name] ?? name;
+}
+
+/** Column help for the rate-sheet CSV / Excel file: plain title, the exact column name, what to put in it. */
 export function RateSheetColumns() {
   return (
     <section aria-labelledby="rate-sheet-columns" className="flex flex-col gap-2 font-sans text-base text-copy">
       <h3 id="rate-sheet-columns" className="m-0 text-base font-semibold text-ink">
         Columns in the rate sheet
       </h3>
-      <p className="m-0 text-sm text-quiet">One row per rate line. Rows with the same supplier, hotel and contract dates become one draft contract. Formula cells are refused.</p>
+      <p className="m-0 text-sm text-quiet">One row per rate line. The first row of the file holds the column names exactly as written in the middle column. Rows with the same supplier, hotel and contract dates become one draft contract. Formula cells are refused.</p>
       <Table stackOnMobile label="Rate sheet columns" wrapperClassName="rounded-control border border-line">
         <TableCaption className="sr-only">Rate sheet columns and what each needs</TableCaption>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead>Column</TableHead>
+            <TableHead>What it holds</TableHead>
+            <TableHead>Column name in the file</TableHead>
             <TableHead>What to put in it</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {RATE_SHEET_COLUMNS.map((c) => (
             <TableRow key={c.name}>
-              <TableCell label="Column" className="font-mono text-sm">
+              <TableCell label="What it holds" className="font-medium text-ink">
+                {rateSheetColumnTitle(c.name)}
+              </TableCell>
+              <TableCell label="Column name in the file" className="font-mono text-sm">
                 {c.name}
               </TableCell>
               <TableCell label="What to put in it">{c.need}</TableCell>
@@ -42,6 +77,52 @@ export function RateSheetColumns() {
         </TableBody>
       </Table>
     </section>
+  );
+}
+
+/**
+ * The rate-sheet upload inside the Suppliers area (UX redesign R3, S14 and
+ * DM-24): back link to Rate contracts, the page's own heading, no Settings
+ * frame or banner. The body is the same check and import (same actions, same
+ * access rule) as Settings › Imports › Rate sheets, which keeps working.
+ */
+export function RateSheetImportArea({ backHref = '/app/purchase/rate-contracts', children }: { backHref?: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-5 font-sans text-base text-copy">
+      <div>
+        <p className="m-0 mb-3">
+          <Link href={backHref} className={cn('inline-flex items-center gap-1 rounded-chip text-sm font-medium text-brand-strong no-underline hover:text-brand-deep hover:underline', focusRing)}>
+            <ChevronLeft aria-hidden="true" className="size-4" />
+            Back to rate contracts
+          </Link>
+        </p>
+        <PageHeader
+          eyebrow="Suppliers › Rate contracts"
+          title="Upload a rate sheet"
+          description="Check a supplier’s rate sheet, then import it. Nothing is saved until you import, and every contract starts as a draft for a Manager to approve."
+          className="mb-[0]"
+        />
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Loading shape of the upload page. */
+export function RateSheetImportLoading() {
+  return (
+    <div className="flex flex-col gap-4 font-sans">
+      <h1 className="sr-only">Upload a rate sheet</h1>
+      <p role="status" aria-live="polite" className="m-0 text-sm font-medium text-quiet">
+        Loading…
+      </p>
+      <div aria-busy="true" className="flex flex-col gap-4">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-7 w-64" />
+        <Skeleton className="h-4 w-96 max-w-full" />
+        <Skeleton className="h-64 w-full rounded-card" />
+      </div>
+    </div>
   );
 }
 

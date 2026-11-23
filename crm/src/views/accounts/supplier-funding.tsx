@@ -1,5 +1,6 @@
 import { CircleCheck, CircleX, Hourglass, PiggyBank, Undo2 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
+import { parseTab } from '@/lib/parse-tab';
 import {
   FUNDING_STATUS_LABEL,
   ROUTE_LABEL,
@@ -8,9 +9,12 @@ import {
   type CompanyFundingRow,
   type FundingStatus,
 } from '@/modules/supplier-money/contracts';
-import { DecisionForm, SingleActionForm, type DecisionAction } from './supplier-forms';
+import type { AccountsSectionViewer } from '@/views/accounts-desk/sections';
+import { RowDecision } from '../department/row-decision';
+import { SingleActionForm, type DecisionAction } from './supplier-forms';
 import { PaymentStatusBadge } from './supplier-payments';
-import { AmountAside, byText, DecisionPanel, Facts, ItemCard, ItemList, ListEmpty, ListTabs, Status, whenText } from './supplier-kit';
+import { AmountAside, byText, DecisionPanel, Facts, ItemCard, ItemList, LimitLine, ListEmpty, ListTabs, NeedsManager, Status, whenText } from './supplier-kit';
+import { MoneyOutTabs } from './money-out-tabs';
 
 /*
  * Accounts · Company funding (owner decision 3). When customer money for a
@@ -18,15 +22,23 @@ import { AmountAside, byText, DecisionPanel, Facts, ItemCard, ItemList, ListEmpt
  * The amount is computed by the database. Up to ₹50,000 of company funding
  * per Deal is approved by Accounts, above that by the branch Manager. Once
  * customer money is verified, Accounts marks the funding recovered.
+ *
+ * Redesign R4 (A7): Money out tab strip under the header; the ₹50,000 rule
+ * said once per page; one decision row per request ("Approve company
+ * funding", then "Return with reason" opening the shared reason dialog). A
+ * request routed to the branch Manager shows "Needs the branch Manager" and
+ * no Approve to Accounts. Same actions, fields and words.
  */
 
 export const FUNDING_TABS: readonly AccountsFundingTab[] = ['to_approve', 'to_recover', 'all'];
 const TAB_LABEL: Record<AccountsFundingTab, string> = { to_approve: 'To approve', to_recover: 'To recover', all: 'All' };
 
 export function parseFundingTab(raw: string | string[] | undefined): AccountsFundingTab {
-  const v = Array.isArray(raw) ? raw[0] : raw;
-  return (FUNDING_TABS as readonly string[]).includes(v ?? '') ? (v as AccountsFundingTab) : 'to_approve';
+  return parseTab(raw, FUNDING_TABS, 'to_approve');
 }
+
+/** The ₹50,000 rule for company funding, said once on the page. */
+export const FUNDING_LIMIT_TEXT = 'Accounts approves company funding up to ₹50,000 on one Deal; above that, the branch Manager approves.';
 
 const LOOK: Record<FundingStatus, { tone: 'warning' | 'info' | 'danger' | 'success'; icon: typeof Hourglass }> = {
   pending: { tone: 'warning', icon: Hourglass },
@@ -79,22 +91,27 @@ export function FundingItem({ row, actions, headingLevel = 2 }: { row: CompanyFu
           !!row.recoveryNote && ['Recovery note', <span key="rn" className="whitespace-pre-wrap">{row.recoveryNote}</span>],
         ]}
       />
-      {row.canDecide ? (
-        <DecisionPanel title="Approve or return">
-          <DecisionForm
+      {row.canDecide || row.status === 'pending' ? (
+        !row.canDecide && row.route === 'manager' ? (
+          <NeedsManager />
+        ) : (
+          <RowDecision
+            recordName={`company funding for payment ${row.paymentRefNo}`}
             action={actions.decide}
-            label={`Decide company funding for payment ${row.paymentRefNo}`}
             fields={{ [SM_FIELD.fundingId]: row.id, [SM_FIELD.expectedRowVersion]: row.rowVersion }}
             decisionField={SM_FIELD.decision}
             reasonField={SM_FIELD.reason}
             requestIdField={SM_FIELD.requestId}
             approveLabel="Approve company funding"
-            returnLabel="Return to Purchase"
-            approveHelp="The company pays this part before customer money arrives. The payment itself still needs its own approval and recording."
+            help="The company pays this part before customer money arrives. The payment itself still needs its own approval and recording."
+            ret={{
+              title: `Return the company funding for ${row.paymentRefNo} to Purchase?`,
+              effect: `It goes back to ${row.requestedByName ?? 'the Purchase colleague'} with your reason. Nothing is approved or paid.`,
+              confirmLabel: 'Return to Purchase',
+            }}
+            disabledReason={row.canDecide ? undefined : 'Another colleague decides this. Nobody approves their own request.'}
           />
-        </DecisionPanel>
-      ) : row.status === 'pending' ? (
-        <p className="m-0 text-sm text-quiet">{row.route === 'manager' ? 'The branch Manager decides this request.' : 'Another colleague decides this. Nobody approves their own request.'}</p>
+        )
       ) : null}
       {row.canMarkRecovered && actions.recover ? (
         <DecisionPanel title="Customer money arrived">
@@ -114,15 +131,28 @@ export function FundingItem({ row, actions, headingLevel = 2 }: { row: CompanyFu
   );
 }
 
-export function AccountsCompanyFundingPage({ rows, tab, actions }: { rows: CompanyFundingRow[]; tab: AccountsFundingTab; actions: FundingActions }) {
+export function AccountsCompanyFundingPage({
+  rows,
+  tab,
+  actions,
+  sectionViewer,
+}: {
+  rows: CompanyFundingRow[];
+  tab: AccountsFundingTab;
+  actions: FundingActions;
+  /** The menu flags (Money out tab strip); absent: no strip. */
+  sectionViewer?: AccountsSectionViewer;
+}) {
   return (
     <div className="font-sans text-base text-copy">
       <PageHeader
         eyebrow="Accounts"
         title="Company funding"
-        description="Supplier payments the company pays before the customer’s money arrives. Up to ₹50,000 of company funding on a Deal is approved by Accounts; above that by the branch Manager."
+        description="Supplier payments the company pays before the customer’s money arrives. Once the customer’s payment is verified, mark the funding recovered."
       />
+      <MoneyOutTabs viewer={sectionViewer} currentHref="/app/accounts/funding" />
       <ListTabs label="Company funding filters" basePath="/app/accounts/funding" current={tab} defaultTab="to_approve" tabs={FUNDING_TABS.map((key) => ({ key, label: TAB_LABEL[key], count: key === tab ? rows.length : undefined }))} />
+      <LimitLine>{FUNDING_LIMIT_TEXT}</LimitLine>
       {rows.length === 0 ? (
         <ListEmpty
           icon={PiggyBank}

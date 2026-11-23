@@ -19,13 +19,16 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
+import { mayOpenAddress, type SectionsViewer } from '@/app/app/sections';
 import { buttonVariants } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { cn, focusRing } from '@/components/ui/cn';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Fold } from '@/components/ui/fold';
 import { Notice } from '@/components/ui/notice';
 import { PageHeader } from '@/components/ui/page-header';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { plural } from '@/lib/format';
 import type { MyWorkCounts } from '@/modules/fulfilment/contracts';
 import { SUPPLIER_MONEY_HOME_LABEL, type SupplierMoneyHomeCounts } from '@/modules/supplier-money/contracts';
 import { HOME_QUOTATION_ROW_FILTER, type HomeQuotationRowKey } from '@/modules/quotations/work-contract';
@@ -33,6 +36,9 @@ import type { MembershipLine } from './staff-views';
 import type { FlightHomeCounts } from './flight/types';
 import { VISA_HOME_ROW_LABEL } from '@/modules/visa/contracts';
 import type { VisaHomeCounts } from './visa/types';
+import { type FlightMoneyHomeKey, type HomeRow, homeRowButtonText, homeRowsFor } from './home-rows';
+
+export { type FlightMoneyHomeKey, type HomeRow, homeRowButtonText, homeRowsFor } from './home-rows';
 
 const numberFormat = new Intl.NumberFormat('en-IN');
 
@@ -54,16 +60,6 @@ export interface HomeRoles {
 
 /** No role applies (start from this when building HomeRoles by hand, e.g. in the preview gallery). */
 export const NO_HOME_ROLES: HomeRoles = { bookings: false, branchManager: false, purchase: false, flight: false, visa: false, accounts: false };
-
-/** One "What needs you" row: what, how many, and one button to an existing address. */
-export interface HomeRow {
-  key: keyof MyWorkCounts | keyof SupplierMoneyHomeCounts | keyof FlightHomeCounts | FlightMoneyHomeKey | keyof VisaHomeCounts | 'purchaseBookingChanged';
-  label: string;
-  count: number;
-  href: string;
-  action: string;
-  icon: LucideIcon;
-}
 
 export const MY_WORK_UNAVAILABLE_TEXT = 'Counts unavailable. Reload; nothing is affected.';
 export const NOTHING_NEEDS_YOU_TEXT = 'Nothing needs you right now';
@@ -194,9 +190,6 @@ export function supplierMoneyRows(counts: SupplierMoneyHomeCounts, roles: HomeRo
   return rows;
 }
 
-/** Flight build: the flight payment keys Track B adds to supplier_money_home_counts (read defensively: absent = hidden). */
-export type FlightMoneyHomeKey = 'flightPaymentsReturned' | 'flightPaymentsMissing' | 'flightFaresToApprove';
-
 /**
  * Flight build (4 Nov 2026): the personal Flight and Sales rows from
  * flight_home_counts, plus the flight payment rows from
@@ -284,15 +277,24 @@ export function homeQuotationHref(key: HomeQuotationRowKey): string {
   return `/app/quotations?filter=${HOME_QUOTATION_ROW_FILTER[key]}&scope=all`;
 }
 
-/** The page's one primary action: the person's main queue (FP-008: the Visa desk is one click from Home). */
-function primaryAction(roles: HomeRoles, adminPrimary?: { href: string; label: string }): { href: string; label: string } {
-  if (roles.bookings) return { href: '/app/deals', label: 'Go to deals' };
-  if (roles.visa) return { href: '/app/visa', label: 'Open Visa and passport tasks' };
-  if (roles.purchase) return { href: '/app/purchase', label: 'Open Purchase tasks' };
-  if (roles.flight) return { href: '/app/flight', label: 'Open Flight tasks' };
-  if (roles.accounts) return { href: '/app/accounts', label: 'Open To check' };
-  // Echo L10: no work role (Super Admin): their work is in Settings, not an empty Deals list.
-  return adminPrimary ?? { href: '/app/deals', label: 'Go to deals' };
+/**
+ * The person's main queue, used as the page's one primary action when no row
+ * is waiting (FP-008: the Visa desk is one click from Home). With `open` (the
+ * menu's answer, sections.ts) only a queue this person may open is offered.
+ */
+function primaryAction(roles: HomeRoles, adminPrimary: { href: string; label: string } | undefined, open: (href: string) => boolean): { href: string; label: string } {
+  const candidates: Array<{ href: string; label: string } | false | undefined> = [
+    roles.bookings && { href: '/app/deals', label: 'Go to deals' },
+    roles.visa && { href: '/app/visa', label: 'Open Visa and passport tasks' },
+    roles.purchase && { href: '/app/purchase', label: 'Open Purchase tasks' },
+    roles.flight && { href: '/app/flight', label: 'Open Flight tasks' },
+    roles.accounts && { href: '/app/accounts', label: 'Open To check' },
+    // Echo L10: no work role (Super Admin): their work is in Settings, not an empty Deals list.
+    adminPrimary,
+  ];
+  const first = candidates.find((c): c is { href: string; label: string } => !!c && open(c.href));
+  // Deals is in every person's menu (sections.ts), so it is always a safe last choice.
+  return first ?? { href: '/app/deals', label: 'Go to deals' };
 }
 
 /** DA-134: "Work is waiting for you below." / "Nothing needs you right now." — never a total of overlapping rows. */
@@ -300,22 +302,18 @@ export function homeSummary(rows: HomeRow[]): string {
   return rows.some((r) => r.count > 0) ? 'Work is waiting for you below.' : `${NOTHING_NEEDS_YOU_TEXT}.`;
 }
 
-const chipClass = cn(
-  'inline-flex min-h-9 max-w-full items-center gap-2 rounded-control border border-line bg-card px-3 py-1.5 text-base text-copy no-underline',
-  'hover:border-line-strong hover:bg-wash hover:text-ink',
-  focusRing,
-);
-
 /**
- * Home "What needs you" (Direction A HO-01, R0). Greeting with the page's one
- * primary action; the deal counts it has always shown, each a link to the
- * Deals list (FP-006); the role-scoped counts as rows with one button each
- * (FP-007, T4); and the "Not available yet" note on demand (FP-009). Reads
- * nothing new. "Counts unavailable" is never shown as zero.
+ * Home "What needs you" (Direction A HO-01; UX redesign R2, SL-1, SL-19,
+ * DM-18). The greeting, then straight to the work: rows with something
+ * waiting, each with one button named for the count; rows with nothing
+ * waiting have no button and sit folded under the table. The page's one
+ * primary action is the top waiting row's button, else the person's main
+ * queue. The "Your deals" counts are gone (they repeated the Deals list
+ * chips and were noise for desk roles), so Home makes one read fewer.
+ * Reads nothing new. "Counts unavailable" is never shown as zero.
  */
 export function HomeView({
   displayName,
-  counts,
   canUseAccounts = false,
   canSeePurchaseTasks = false,
   canSeeFlightTasks = false,
@@ -326,6 +324,7 @@ export function HomeView({
   visa,
   purchaseChanges,
   adminPrimary,
+  sections,
 }: {
   /** Accounts phase: purchase_home_counts (null or absent = hidden, never zero). */
   purchaseChanges?: PurchaseChangeHomeCounts | null;
@@ -340,7 +339,8 @@ export function HomeView({
   displayName: string;
   /** Kept for older callers; memberships are listed in the account panel now (FP-004). */
   memberships?: MembershipLine[];
-  counts: { visible: number; owned: number; assigned: number };
+  /** Kept for older callers; the "Your deals" counts are no longer shown (UX redesign R2, SL-19, DM-18). */
+  counts?: { visible: number; owned: number; assigned: number };
   /** Same rule as the Accounts menu group; the finance commands still decide every read. */
   canUseAccounts?: boolean;
   /** Same rule as the Leads menu item (kept for older callers). */
@@ -356,6 +356,8 @@ export function HomeView({
    * null = the read failed ("counts unavailable"); absent = not loaded.
    */
   myWork?: MyWorkCounts | null;
+  /** The frame's menu flags (sections.ts): rows and the primary action only open addresses the menu offers. */
+  sections?: SectionsViewer;
 }) {
   const roles: HomeRoles = rolesProp ?? {
     bookings: !canUseAccounts && !canSeePurchaseTasks && !canSeeFlightTasks,
@@ -365,14 +367,20 @@ export function HomeView({
     visa: false,
     accounts: canUseAccounts,
   };
-  const rows = [
-    ...(myWork ? homeRows(myWork, roles) : []),
-    ...(supplierMoney ? supplierMoneyRows(supplierMoney, roles) : []),
-    ...flightRows(flight, supplierMoney, roles),
-    ...visaRows(visa, roles),
-    ...purchaseChangeRows(purchaseChanges, roles),
-  ];
-  const primary = primaryAction(roles, adminPrimary);
+  const open = (href: string) => !sections || mayOpenAddress(sections, href);
+  const rows = homeRowsFor(
+    [
+      ...(myWork ? homeRows(myWork, roles) : []),
+      ...(supplierMoney ? supplierMoneyRows(supplierMoney, roles) : []),
+      ...flightRows(flight, supplierMoney, roles),
+      ...visaRows(visa, roles),
+      ...purchaseChangeRows(purchaseChanges, roles),
+    ],
+    sections,
+  );
+  // The first waiting row is the page's one primary action (shown only when the counts were read).
+  const top = myWork ? rows.find((r) => r.count > 0) : undefined;
+  const fallback = primaryAction(roles, adminPrimary, open);
   // DA-134 (Echo M3, Mercury F4): no total. The rows overlap (drafts missing details are drafts;
   // a returned booking is also a draft), so a sum would overstate the work.
   const summary = myWork === undefined || myWork === null ? undefined : homeSummary(rows);
@@ -383,35 +391,18 @@ export function HomeView({
         title={`Welcome, ${displayName}`}
         description={summary}
         actions={
-          <Link href={primary.href} className={buttonVariants({ variant: 'primary' })}>
-            {primary.label}
-          </Link>
+          top ? (
+            <Link href={top.href} className={buttonVariants({ variant: 'primary' })} data-slot="home-primary">
+              {homeRowButtonText(top)}
+              <span className="sr-only">: {top.label}</span>
+            </Link>
+          ) : (
+            <Link href={fallback.href} className={buttonVariants({ variant: 'primary' })} data-slot="home-primary">
+              {fallback.label}
+            </Link>
+          )
         }
       />
-
-      <section aria-labelledby="deals-heading" className="mb-6">
-        <h2 id="deals-heading" className="sr-only">
-          Your deals
-        </h2>
-        <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
-          {/* DA-135 (Echo M4): each chip opens the Deals list with the same filter and the same scope words. */}
-          {[
-            { label: 'Deals you can open', value: counts.visible, href: '/app/deals' },
-            { label: 'Owned by you', value: counts.owned, href: '/app/deals?filter=owned' },
-            { label: 'Assigned to you', sr: ', owned by someone else', value: counts.assigned, href: '/app/deals?filter=assigned' },
-          ].map((c) => (
-            <li key={c.label} className="m-0 max-w-full">
-              <Link href={c.href} className={chipClass}>
-                <span>
-                  {c.label}
-                  {c.sr ? <span className="sr-only">{c.sr}</span> : null}
-                </span>
-                <strong className="font-semibold text-ink tabular-nums">{numberFormat.format(c.value)}</strong>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </section>
 
       {myWork !== undefined ? <WhatNeedsYou counts={myWork} rows={rows} /> : null}
 
@@ -441,19 +432,24 @@ export function HomeView({
 
 /**
  * "What needs you" (catalog gap G9: the arrangement is a composition of the
- * design-system table rows). One row per applicable count, with one button.
+ * design-system table rows). Waiting rows in the table, one button each named
+ * for the count; rows with nothing waiting folded below without a button
+ * (SL-19). The section keeps its name for screen readers; the table's first
+ * column header is the only visible heading (no repeated heading).
  */
 function WhatNeedsYou({ counts, rows }: { counts: MyWorkCounts | null; rows: HomeRow[] }) {
+  const waiting = rows.filter((r) => r.count > 0);
+  const quiet = rows.filter((r) => !(r.count > 0));
   return (
     <section aria-labelledby="needs-heading">
-      <h2 id="needs-heading" className="m-0 mb-3 text-lg leading-6 font-semibold text-ink">
+      <h2 id="needs-heading" className="sr-only">
         What needs you
       </h2>
       {counts === null ? (
         <Notice tone="warning" role="status" icon={RefreshCw}>
           <p>{MY_WORK_UNAVAILABLE_TEXT}</p>
         </Notice>
-      ) : rows.length === 0 ? (
+      ) : waiting.length === 0 ? (
         <Card>
           <EmptyState icon={Sparkles} title={NOTHING_NEEDS_YOU_TEXT} description="New work appears here when it is assigned to you." />
         </Card>
@@ -468,7 +464,7 @@ function WhatNeedsYou({ counts, rows }: { counts: MyWorkCounts | null; rows: Hom
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
+              {waiting.map((row) => (
                 <TableRow key={row.key}>
                   <TableCell>
                     <span className="flex items-center gap-2.5 font-medium text-ink">
@@ -477,17 +473,13 @@ function WhatNeedsYou({ counts, rows }: { counts: MyWorkCounts | null; rows: Hom
                     </span>
                   </TableCell>
                   <TableCell numeric label="Waiting">
-                    {row.count > 0 ? (
-                      <span className="inline-flex min-w-7 justify-center rounded-full bg-brand-accent px-2 text-sm leading-6 font-semibold text-brand-accent-ink">
-                        {numberFormat.format(row.count)}
-                      </span>
-                    ) : (
-                      <span className="font-normal text-quiet">Nothing waiting</span>
-                    )}
+                    <span className="inline-flex min-w-7 justify-center rounded-full bg-brand-accent px-2 text-sm leading-6 font-semibold text-brand-accent-ink">
+                      {numberFormat.format(row.count)}
+                    </span>
                   </TableCell>
                   <TableCell label="Next step" className="text-right">
                     <Link href={row.href} className={buttonVariants({ variant: 'secondary', size: 'sm' })}>
-                      {row.action}
+                      {homeRowButtonText(row)}
                       <span className="sr-only">: {row.label}</span>
                     </Link>
                   </TableCell>
@@ -497,6 +489,23 @@ function WhatNeedsYou({ counts, rows }: { counts: MyWorkCounts | null; rows: Hom
           </Table>
         </Card>
       )}
+      {counts !== null && quiet.length > 0 ? (
+        <Fold
+          id="home-nothing-waiting"
+          className="mt-4"
+          summary={waiting.length > 0 ? `Nothing waiting in ${plural(quiet.length, 'other list')}` : `Nothing waiting in ${plural(quiet.length, 'list')}`}
+        >
+          <ul className="m-0 flex list-none flex-col gap-2 p-0" aria-label="Lists with nothing waiting">
+            {quiet.map((row) => (
+              <li key={row.key} className="m-0 flex items-center gap-2.5 text-copy" data-slot="home-quiet-row">
+                <row.icon aria-hidden="true" className="size-4 shrink-0 text-quiet" />
+                <span>{row.label}</span>
+                <span className="sr-only">: nothing waiting</span>
+              </li>
+            ))}
+          </ul>
+        </Fold>
+      ) : null}
     </section>
   );
 }

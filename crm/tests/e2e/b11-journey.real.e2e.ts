@@ -342,10 +342,11 @@ test.describe('B1.1 browser-only fresh-Deal journey (real local stack)', () => {
       await expect(sales.locator('#bf-ready').getByRole('heading', { name: 'Ready to submit' })).toBeVisible({ timeout: 30_000 });
       await expect(sales.locator('#bf-ready')).toContainText('7 of 7 done');
       await sales.screenshot({ path: `${shotDir}/03-finish.png`, fullPage: true });
-      // Book now v2 (prototype footSubmit): the footer "Review and submit" only scrolls to "Before you submit";
-      // the dialog opens from the submit card's own button.
+      // Book now v2 with O1 (owner, 16 November 2026): the footer "Review and submit" scrolls to the submit
+      // card's own button and focuses it; the dialog opens from that button.
       await sales.locator('main').getByRole('button', { name: 'Review and submit' }).click();
-      await expect(sales.locator('#bf-ready')).toBeInViewport();
+      await expect(sales.locator('#bf-submit-trigger')).toBeFocused();
+      await expect(sales.locator('#bf-submit-trigger')).toBeInViewport();
       await sales.locator('main').getByRole('region', { name: 'Submit' }).getByRole('button', { name: SUBMIT_BUTTON }).click();
       const dialog = sales.getByRole('dialog', { name: SUBMIT_DIALOG });
       await expect(dialog).toContainText('It creates 2 internal tasks', { timeout: 30_000 });

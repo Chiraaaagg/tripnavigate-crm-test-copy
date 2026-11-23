@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { asRpcClient } from '@/modules/fulfilment/commands';
 import { requireStaff } from '@/modules/identity/server/session';
+import { withOptionalReason } from '@/modules/settings/reason';
 import {
   NoticeCommandError,
   adminSetNoticesEnabled,
@@ -117,9 +118,13 @@ export async function setNoticePreferencesAction(_prev: PreferencesPrev, formDat
 
 type SwitchPrev = NoticeActionResult<NoticeSwitchResult> | null;
 
-/** Admin settings: the notices switch (Super Admin; form fields `enabled` = 'true' | 'false' and `reason`). */
-export async function setNoticesEnabledAction(_prev: SwitchPrev, formData: FormData): Promise<NoticeActionResult<NoticeSwitchResult>> {
+/**
+ * Admin settings: the notices switch (Super Admin; form fields `enabled` = 'true' | 'false' and `reason`).
+ * D9 / Q1 (R1): the reason is optional; an empty one is saved as "No reason given".
+ */
+export async function setNoticesEnabledAction(_prev: SwitchPrev, input: FormData): Promise<NoticeActionResult<NoticeSwitchResult>> {
   const staff = await requireStaff();
+  const formData = withOptionalReason(input);
   const enabled = formData.get('enabled');
   const reason = formData.get('reason');
   if ((enabled !== 'true' && enabled !== 'false') || typeof reason !== 'string') {

@@ -123,17 +123,23 @@ export type DealRowFact = { label: string; value: ReactNode };
 export function DealListRow({ deal: d, extraCells, extraFacts = [] }: { deal: DealListRowVM; extraCells?: ReactNode; extraFacts?: DealRowFact[] }) {
   return (
     <TableRow className="align-top" data-search={rowSearchText(d.reference, d.title)}>
-      <TableCell label="Reference" className="align-top">
+      <TableCell label="Reference" className="align-top font-semibold whitespace-nowrap text-ink">
+        {d.reference}
+      </TableCell>
+      {/*
+       * UX redesign R2 (SL-12, design plan 1.2): the customer name is the row's one link (the whole name is
+       * the target). The reference is part of its accessible name, so "BX-900420" still finds the link.
+       * On phones the label column never shrinks below its words (SL-20: no "Custom er and trip").
+       */}
+      <TableCell label="Customer and trip" className="align-top wrap-anywhere max-sm:before:shrink-0">
         <Link
           href={`/app/deals/${d.id}`}
-          className={cn('rounded-chip font-semibold whitespace-nowrap text-brand-strong underline-offset-4 hover:text-brand-deep', focusRing)}
+          className={cn('rounded-chip font-semibold text-brand-strong underline-offset-4 hover:text-brand-deep hover:underline', focusRing)}
           data-slot="row-link"
         >
-          {d.reference}
+          {d.title}
+          <span className="sr-only">, {d.reference}</span>
         </Link>
-      </TableCell>
-      <TableCell label="Customer and trip" className="align-top font-medium wrap-anywhere text-ink">
-        {d.title}
         {d.late ? (
           <span className="mt-1.5 block font-normal">
             <LateBadge />

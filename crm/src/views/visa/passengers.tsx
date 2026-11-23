@@ -1,6 +1,6 @@
 'use client';
 
-import { CalendarDays, Check, CircleCheck, CircleX, EllipsisVertical, PencilLine, Trash2, X } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, CircleCheck, CircleX, PencilLine, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,7 +22,11 @@ import { appTarget, isPassportTask, salesJurisdictionBlank, salesKindBlank, type
 /*
  * Passengers and documents (contract 11.1, HTML passengerTable H:14676,
  * passengerRead H:14643, passengerEdit H:14656). One row per current
- * application, removed ones last. The pencil turns the row into small fields
+ * application, removed ones last. O14 (owner, 16 November 2026): each row
+ * has one control with a visible label. "Edit" alone when editing is the only
+ * action; otherwise one menu ("Edit", or "Actions" when the row cannot be
+ * edited) with Edit details, Add other visa cost and Withdrawn by customer,
+ * instead of a pencil plus a three-dot menu. Edit details turns the row into small fields
  * in place (one row at a time): passport number (assignee only), appointment
  * date and time, tick boxes that move documents between the two columns,
  * Upload / Add links, remark, and the visa kind / jurisdiction when Sales
@@ -73,7 +77,6 @@ function draftOf(a: VisaApplicant): Draft {
 }
 
 const pencilId = (a: VisaApplicant) => `pax-edit-${a.applicationId}`;
-const menuId = (a: VisaApplicant) => `pax-more-${a.applicationId}`;
 
 function DocList({ docs, icon: Icon, tone, empty }: { docs: VisaDocument[]; icon: typeof CircleCheck; tone: string; empty: string }) {
   if (docs.length === 0) return <span className="text-quiet">{empty}</span>;
@@ -131,7 +134,9 @@ function ReadRow({ ctx, a, onEdit, editingOther }: { ctx: WorkCtx; a: VisaApplic
   const why = !a.removed && a.state === 'docs_pending' && !a.ready ? notReadyLine(a.notReady) : null;
   const canWithdraw = a.can.withdraw && a.state === 'docs_pending';
   const canOther = ctx.managingFees;
+  // O14: a menu as soon as the row has another action besides editing; editing alone is one plain Edit button.
   const canMore = canWithdraw || canOther;
+  const editChosen = useRef(false);
   return (
     <TableRow className={cn('align-top', a.removed && 'bg-wash')}>
       <TableCell className="align-top">
@@ -162,34 +167,48 @@ function ReadRow({ ctx, a, onEdit, editingOther }: { ctx: WorkCtx; a: VisaApplic
       <TableCell className="align-top text-sm">{a.remark ? <span className="wrap-anywhere">{a.remark}</span> : '—'}</TableCell>
       <TableCell className="align-top">
         <div className="flex flex-col items-center gap-1.5">
-          {a.can.edit ? (
-            <Button
-              id={pencilId(a)}
-              variant="secondary"
-              size="icon"
-              className="size-11 sm:size-9"
-              aria-label={`Edit ${nameOf(a)}`}
-              aria-describedby={editingOther ? `pax-one-${ctx.ws.taskId}` : undefined}
-              onClick={onEdit}
-            >
+          {canMore ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button id={pencilId(a)} variant="secondary" className="min-h-11 gap-1.5 px-3 sm:min-h-0" aria-describedby={a.can.edit && editingOther ? `pax-one-${ctx.ws.taskId}` : undefined}>
+                  {a.can.edit ? 'Edit' : 'Actions'}
+                  <span className="sr-only"> {nameOf(a)}</span>
+                  <ChevronDown aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                onCloseAutoFocus={(e) => {
+                  // Edit details moves focus into the row's first field; the menu must not pull it back to its button.
+                  if (editChosen.current) {
+                    e.preventDefault();
+                    editChosen.current = false;
+                  }
+                }}
+              >
+                {a.can.edit ? (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      editChosen.current = true;
+                      onEdit();
+                    }}
+                  >
+                    <PencilLine aria-hidden="true" />
+                    Edit details
+                  </DropdownMenuItem>
+                ) : null}
+                {canOther ? <DropdownMenuItem onSelect={() => ctx.open({ kind: 'otherCost', id: a.applicationId }, pencilId(a))}>Add other visa cost</DropdownMenuItem> : null}
+                {canWithdraw ? <DropdownMenuItem onSelect={() => ctx.open({ kind: 'withdraw', id: a.applicationId }, pencilId(a))}>Withdrawn by customer</DropdownMenuItem> : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : a.can.edit ? (
+            <Button id={pencilId(a)} variant="secondary" className="min-h-11 gap-1.5 px-3 sm:min-h-0" aria-describedby={editingOther ? `pax-one-${ctx.ws.taskId}` : undefined} onClick={onEdit}>
               <PencilLine aria-hidden="true" />
+              Edit
+              <span className="sr-only"> {nameOf(a)}</span>
             </Button>
           ) : (
             <span aria-hidden="true">—</span>
           )}
-          {canMore ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button id={menuId(a)} variant="ghost" size="icon" className="size-11 sm:size-9" aria-label={`More for ${nameOf(a)}`}>
-                  <EllipsisVertical aria-hidden="true" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                {canOther ? <DropdownMenuItem onSelect={() => ctx.open({ kind: 'otherCost', id: a.applicationId }, menuId(a))}>Add other visa cost</DropdownMenuItem> : null}
-                {canWithdraw ? <DropdownMenuItem onSelect={() => ctx.open({ kind: 'withdraw', id: a.applicationId }, menuId(a))}>Withdrawn by customer</DropdownMenuItem> : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
         </div>
       </TableCell>
     </TableRow>
@@ -471,7 +490,7 @@ export function PassengersCard({ ctx, rows, initialEditId = null }: { ctx: WorkC
             <CardTitle id={`visa-pax-${ctx.ws.taskId}`}>Passengers and documents</CardTitle>
             <CardDescription>
               {isPassportTask(ctx.ws) ? 'Documents, appointment date and passport number for each applicant.' : 'Documents, appointment date and passport number for each passenger.'}
-              {ctx.working ? ' Use the pencil to edit. Ready passengers are copied to Appointment.' : ''}
+              {ctx.working ? ' Use Edit to change a row. Ready passengers are copied to Appointment.' : ''}
             </CardDescription>
           </div>
         </CardHeader>
@@ -501,7 +520,7 @@ export function PassengersCard({ ctx, rows, initialEditId = null }: { ctx: WorkC
                 <TableHead className="w-[19%]">Received documents</TableHead>
                 <TableHead className="w-[19%]">Not received documents</TableHead>
                 <TableHead>Remark</TableHead>
-                <TableHead className="w-16 text-center">Edit</TableHead>
+                <TableHead className="w-32 text-center">Edit</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

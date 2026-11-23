@@ -12,6 +12,8 @@ import { Notice } from '@/components/ui/notice';
 import { PageHeader } from '@/components/ui/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs } from '@/components/ui/tabs';
+import { workListHref } from '@/modules/quotations/work-model';
 import type {
   ItineraryListPageVM,
   QuotationListPageVM,
@@ -24,6 +26,7 @@ import type {
   WorkQuotationRowVM,
   WorkSubjectVM,
 } from '@/modules/quotations/work-contract';
+import type { ListFiltersVM } from '@/modules/deals/workspace-contract';
 import { ListSearch } from '../list-search';
 import { QuoteStatusWordPill } from './quote-views';
 
@@ -39,6 +42,12 @@ import { QuoteStatusWordPill } from './quote-views';
  * Table 89 and the Batch 1 chips and search (register §10, §12); the pager
  * keeps the ListPager look with keyset links (21st.dev "cursor pagination"
  * returned numbered pagers only, not adopted).
+ *
+ * UX redesign R2 (SL-10): one list page with two tabs, Quotations and
+ * Itineraries (C5 pill tabs). Each tab is its own address, so /app/quotations
+ * and /app/itineraries both keep working; the chosen scope (Mine / All) is
+ * carried across. The tabs carry no counts: a count for the other list would
+ * be a second read on every page load (build plan: no new reads here).
  */
 
 const textLink = cn('rounded-chip font-semibold text-brand-strong underline decoration-1 underline-offset-4 hover:text-brand-deep hover:decoration-2', focusRing);
@@ -104,6 +113,34 @@ export function WorkListPager({ pager, label, className }: { pager: WorkListPage
       )}
     </nav>
   );
+}
+
+/** Quotations · Itineraries: one list page with two tabs (both addresses kept; the scope travels along). */
+function WorkListTabs({ kind, scope }: { kind: WorkListKind; scope: WorkListScopeVM }) {
+  const kinds: WorkListKind[] = ['quotations', 'itineraries'];
+  return (
+    <Tabs
+      variant="pill"
+      label="Quotations and itineraries"
+      className="mb-4"
+      items={kinds.map((k) => ({ href: workListHref(k, { scope: scope.current }), label: KIND_WORDS[k].title, current: k === kind }))}
+    />
+  );
+}
+
+/**
+ * The view model's chip label already ends in the count ("Open (5)") and the
+ * chip prints the count itself, so the count showed twice ("Open (5) (5)").
+ * Keep the label's words only; the chip adds the count once.
+ */
+export function chipsWithPlainLabels<F extends string>(filters: ListFiltersVM<F>): ListFiltersVM<F> {
+  return {
+    ...filters,
+    chips: filters.chips.map((c) => {
+      const suffix = c.count === null ? null : ` (${c.count})`;
+      return suffix && c.label.endsWith(suffix) ? { ...c, label: c.label.slice(0, -suffix.length) } : c;
+    }),
+  };
 }
 
 /** Mine / All you can open: two links, so each scope is a real address (counts are exact for the chosen scope). */
@@ -247,10 +284,11 @@ function WorkListFrame({ page, table }: { page: WorkListPageVM<unknown, string>;
           )
         }
       />
+      {page.state === 'not_applicable' ? null : <WorkListTabs kind={page.kind} scope={page.scope} />}
       {ok ? (
         <div className="mb-4 flex flex-col gap-4">
           <ScopeSwitch scope={page.scope} kind={page.kind} />
-          <FilterChips filters={page.filters} label={`Filter ${words.noun}`} />
+          <FilterChips filters={chipsWithPlainLabels(page.filters)} label={`Filter ${words.noun}`} />
           <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
             {page.rows.length > 0 ? <ListSearch tableId={tableId} noun={words.noun} /> : <span aria-hidden="true" />}
             <OpenByReference page={page} />

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { settingsTabsFor } from '@/modules/settings/contracts';
+import { settingsTabsFor, type SettingsTabVM, type SettingsViewerFlags } from '@/modules/settings/contracts';
 import { StaffShell, type ShellViewer } from '@/views/StaffShell';
 import { SettingsFrame } from '@/views/settings/settings-frame';
 
@@ -43,15 +43,30 @@ export const settingsStaffOnly: ShellViewer = {
   canManageGrants: false,
 };
 
-export function inSettings(viewer: ShellViewer, path: string, children: ReactNode): ReactNode {
-  const tabs = settingsTabsFor({
+/**
+ * The Settings flags of a synthetic viewer, as the admin layout derives them
+ * (settingsAreasFor in shell-permissions.ts). Customer messages answers only a
+ * Super Admin, so the area shows only for a viewer whose role is Super Admin.
+ */
+export function previewSettingsFlags(viewer: ShellViewer): Partial<SettingsViewerFlags> {
+  return {
     canAdministerStaff: viewer.canAdministerStaff,
     canManageGrants: viewer.canManageGrants,
     canManageIntegration: !!viewer.canManageIntegration,
     canOpenBitrixConnection: !!viewer.canOpenBitrixConnection,
     canManageFinancePolicy: !!viewer.canManageFinancePolicy,
     canImport: !!viewer.canImport,
-  });
+    canOpenCustomerMessages: viewer.primaryRole === 'Super Admin',
+  };
+}
+
+/** The Settings areas of a synthetic viewer (the frame and the Overview rows use the same list). */
+export function previewSettingsTabs(viewer: ShellViewer): SettingsTabVM[] {
+  return settingsTabsFor(previewSettingsFlags(viewer));
+}
+
+export function inSettings(viewer: ShellViewer, path: string, children: ReactNode): ReactNode {
+  const tabs = previewSettingsTabs(viewer);
   return (
     <StaffShell viewer={viewer} currentPath={path}>
       <SettingsFrame tabs={tabs} currentPath={path}>

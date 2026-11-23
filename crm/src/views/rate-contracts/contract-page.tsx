@@ -5,7 +5,9 @@ import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/compon
 import { cn, focusRing } from '@/components/ui/cn';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Notice } from '@/components/ui/notice';
+import { JumpLinks, type JumpLink } from '@/components/ui/jump-links';
 import { PageHeader } from '@/components/ui/page-header';
+import { RecordHeader } from '@/components/ui/record-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
@@ -125,25 +127,40 @@ export function RateContractPageView({
       />
     ) : null;
 
+  const step = nextStepText(c.status, viewer);
+  const nextLine = step.startsWith('Next: ') ? { mine: true, text: step.slice('Next: '.length) } : { mine: false, text: step };
+  const jumps: JumpLink[] = [
+    { targetId: 'contract-details', label: 'Contract' },
+    { targetId: 'rate-lines', label: 'Rate lines' },
+    ...(viewer === 'purchase' && roomTypes ? [{ targetId: 'room-types', label: 'Room types' }] : []),
+    { targetId: 'contract-files', label: 'File' },
+    { targetId: 'contract-history', label: 'Earlier versions' },
+  ];
+
   return (
     <div className="flex flex-col gap-5 font-sans text-base text-copy">
-      <div>
-        <TaskBackLink href={basePath}>Back to rate contracts</TaskBackLink>
-        <PageHeader
-          eyebrow={`${c.contractNo} · version ${c.versionNo}${c.source === 'import' ? ' · from a rate sheet' : ''}`}
-          title={c.hotelName}
-          description={`${c.supplierName}${c.city ? ` · ${c.city}` : ''} · ${rangeText(c.validFrom, c.validTo)}`}
-          status={
-            <>
-              <ContractStatusBadge status={c.status} daysLeft={c.daysLeft} />
-              {c.isMine ? <span>Entered by you</span> : c.enteredByName ? <span>Entered by {c.enteredByName}</span> : null}
-            </>
-          }
-          actions={primary ?? undefined}
-          className="mb-[0]"
-        />
-        <p className="m-0 mt-3 text-base text-copy">{nextStepText(c.status, viewer)}</p>
-      </div>
+      <RecordHeader
+        className="mb-[0]"
+        back={{ href: basePath, label: 'Back to rate contracts' }}
+        recordId={`${c.contractNo} · version ${c.versionNo}${c.source === 'import' ? ' · from a rate sheet' : ''}`}
+        title={<span className="block wrap-anywhere">{c.hotelName}</span>}
+        status={
+          <>
+            <ContractStatusBadge status={c.status} daysLeft={c.daysLeft} />
+            <span className="text-copy">
+              {c.supplierName}
+              {c.city ? ` · ${c.city}` : ''} · <span className="whitespace-nowrap">{rangeText(c.validFrom, c.validTo)}</span>
+            </span>
+          </>
+        }
+        owner={c.isMine ? 'You' : (c.enteredByName ?? undefined)}
+        ownerLabel="Entered by"
+        // The one primary action sits beside the title (a confirm dialog or a command, not a jump or a link).
+        next={nextLine.mine ? { text: nextLine.text } : null}
+        nextWho={nextLine.mine ? undefined : nextLine.text}
+        actions={primary ?? undefined}
+      />
+      <JumpLinks links={jumps} className="mb-[0]" />
 
       {!enabled ? (
         <Notice tone="locked" role="status" title="Rate contracts are not switched on yet">
@@ -161,7 +178,7 @@ export function RateContractPageView({
         </Notice>
       ) : null}
 
-      <Card>
+      <Card id="contract-details">
         <CardHeader>
           <div className="min-w-0">
             <CardTitle>Contract</CardTitle>

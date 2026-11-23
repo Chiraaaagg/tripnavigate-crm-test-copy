@@ -22,7 +22,7 @@ export default async function CustomerDocumentPrintViewRoute({ params }: { param
   return (
     <CustomerDocumentPrintView
       doc={doc}
-      dealHref={doc.viewer === 'accounts' ? `/app/accounts/deals/${id}?tab=documents` : `/app/deals/${id}?tab=services#customer-documents`}
+      dealHref={doc.viewer === 'accounts' ? `/app/accounts/deals/${id}?tab=documents` : `/app/deals/${id}?tab=documents#customer-documents`}
       document={<CustomerDocumentTemplate content={doc.content} id="customer-document" />}
     />
   );

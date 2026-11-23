@@ -240,7 +240,8 @@ test('2. messages: nine types on a pilot Deal, Hindi, STOP, failure and "Send ag
   expect(afterStop.find((m) => m.channel === 'email')!.status).toBe('queued');
   // The Deal card shows the banner with "Restart WhatsApp" to the Sales owner.
   const so = await session(browser, 'sales', secrets);
-  await so.page.goto(ROUTES.deal(hindi, 'services'));
+  // UX redesign R2: the customer messages card is on the Deal's Messages tab.
+  await so.page.goto(ROUTES.deal(hindi, 'messages'));
   await expect(so.page.getByText('Customer stopped WhatsApp').first()).toBeVisible();
   await expect(so.page.getByRole('button', { name: 'Restart WhatsApp' }).first()).toBeVisible();
   await messagesDueNow(hindi);
@@ -258,7 +259,7 @@ test('2. messages: nine types on a pilot Deal, Hindi, STOP, failure and "Send ag
   expect((await q<{ status: string; last_error_code: string }>('select status, last_error_code from public.customer_messages where id = $1', [failing.id]))[0])
     .toMatchObject({ status: 'failed', last_error_code: 'provider_error' });
   await setPrefs(deal, { emailOverride: `e2e.acc3.corrected.${stamp}@example.test` });
-  await so.page.goto(ROUTES.deal(deal, 'services'));
+  await so.page.goto(ROUTES.deal(deal, 'messages'));
   await expect(so.page.getByText(/^Failed/).first()).toBeVisible();
   await so.page.getByRole('button', { name: 'Send again: Hotel voucher by E-mail' }).first().click();
   await expect.poll(async () => (await q<{ n: number }>('select count(*)::int as n from public.customer_messages where resend_of = $1', [failing.id]))[0]!.n).toBe(1);

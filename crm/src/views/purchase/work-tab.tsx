@@ -1,8 +1,9 @@
-import { Ban, CircleCheck, CircleDot, FileCheck2, Hourglass, Mail, MinusCircle, PlayCircle, RotateCcw, TriangleAlert, HandCoins } from 'lucide-react';
+import { Ban, ChevronRight, CircleCheck, CircleDot, FileCheck2, Hourglass, Mail, MinusCircle, PlayCircle, RotateCcw, TriangleAlert, HandCoins } from 'lucide-react';
 import type React from 'react';
 import { StatusBadge, type StatusTone } from '@/components/ui/badge';
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn, focusRing } from '@/components/ui/cn';
+import { JumpLinks } from '@/components/ui/jump-links';
 import { Notice } from '@/components/ui/notice';
 import { formatPaise } from '@/modules/deals/dto';
 import {
@@ -47,7 +48,7 @@ import { SupplierEmailDrawer } from './email-drawer';
 import { WorkFlashProvider } from './work-flash';
 import { GO_AHEAD_HELP, GoAheadBadge } from './go-ahead';
 import { budgetDelta, budgetDeltaText, lowestPaise, type BudgetDelta } from './purchase-vm';
-import { BookedFacts } from './what-sales-booked';
+import { BookedFacts, bookedLineText, SpecialRequestNotice } from './what-sales-booked';
 import type { CatalogueHotelSearch } from '../suppliers/types';
 import { CancellationChargeForm, OnePressForm, PaymentRequestDrawer, UseFinalRateForm, AddRateForm } from './work-forms';
 import type { RawRateLookupAction } from '@/views/rate-contracts/offer-block';
@@ -84,6 +85,45 @@ export interface PurchaseWorkActions {
 }
 
 const metaClass = 'm-0 text-sm text-quiet';
+
+/**
+ * O5, O6, O7 (owner, 16 November 2026; design plan 2.4): a plain fold-out
+ * inside a card, the same native <details> as the shared Fold (no script, no
+ * height animation, find-in-page opens it), drawn here so the approved form
+ * imports no new shared part (frozen-forms guard). Without `open` the browser
+ * keeps the person's own open or closed choice across re-renders.
+ */
+function WorkFold({ id, summary, meta, children }: { id?: string; summary: React.ReactNode; meta?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <details id={id} className="group/fold rounded-control border border-line bg-canvas" data-slot="fold">
+      <summary
+        className={cn(
+          'flex min-h-11 cursor-pointer list-none items-center gap-2.5 rounded-control px-3.5 py-2 font-medium text-ink hover:bg-wash group-open/fold:rounded-b-none [&::-webkit-details-marker]:hidden',
+          focusRing,
+          'focus-visible:-outline-offset-2',
+        )}
+      >
+        <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-quiet group-open/fold:rotate-90" />
+        <span className="min-w-0 flex-1">{summary}</span>
+        {meta ? <span className="text-sm font-normal text-quiet">{meta}</span> : null}
+      </summary>
+      <div className="flex flex-col gap-4 border-t border-line px-3.5 py-3">{children}</div>
+    </details>
+  );
+}
+
+/**
+ * O6: ids of the controls the task header's "Next:" button (helper C1,
+ * purchaseNextStep in purchase-views.tsx) jumps to and focuses, one per step
+ * of purchaseNextText. Only these ids were added to the form for O6.
+ */
+const NEXT_TARGET = {
+  charges: 'purchase-next-charges',
+  addRate: 'purchase-next-add-rate',
+  finalRate: 'purchase-next-final-rate',
+  bookingRequest: 'purchase-next-booking-request',
+  confirmation: 'purchase-next-confirmation',
+} as const;
 
 function WorkCard({ id, title, description, actions, children }: { id: string; title: React.ReactNode; description?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -197,7 +237,11 @@ function FinalTileActions({ ws, latest, quote, actions, senderName, confirmState
     return <>{parts}</>;
   }
   if (!sent) {
-    parts.push(<div key="send">{drawer(T.bookingRequestLabel, 'primary')}</div>);
+    parts.push(
+      <div key="send" id={NEXT_TARGET.bookingRequest}>
+        {drawer(T.bookingRequestLabel, 'primary')}
+      </div>,
+    );
     return <>{parts}</>;
   }
   parts.push(
@@ -212,7 +256,9 @@ function FinalTileActions({ ws, latest, quote, actions, senderName, confirmState
       <Notice key="ga" tone={goAhead === 'returned' ? 'danger' : 'warning'} title={goAhead === 'returned' ? 'Accounts returned the go-ahead' : 'The go-ahead is out of date'}>
         <p>{ws.goAhead.returnReason && goAhead === 'returned' ? ws.goAhead.returnReason : GO_AHEAD_HELP[goAhead]}</p>
       </Notice>,
-      <div key="again">{drawer(T.bookingRequestAgainLabel, 'primary')}</div>,
+      <div key="again" id={NEXT_TARGET.bookingRequest}>
+        {drawer(T.bookingRequestAgainLabel, 'primary')}
+      </div>,
     );
     return <>{parts}</>;
   }
@@ -221,7 +267,7 @@ function FinalTileActions({ ws, latest, quote, actions, senderName, confirmState
     parts.push(<UnavailableAction key="conf" label="Record supplier confirmation" reason="Waiting for Accounts go-ahead. Accounts approves every hotel commitment." />);
   } else {
     parts.push(
-      <div key="conf" data-slot="work-primary">
+      <div key="conf" id={NEXT_TARGET.confirmation} data-slot="work-primary">
         <ConfirmSupplierForm taskId={ws.task.taskId} latestVersionNo={latest.versionNo} issues={blockers} initialState={confirmState ?? null} action={actions.confirmSupplier} />
         {blockers.length > 0 ? (
           <ul className="m-0 mt-2.5 flex list-disc flex-col gap-1 pl-5 text-sm text-quiet" aria-label="Still needed before the confirmation">
@@ -245,10 +291,13 @@ function RateTile({
   actions,
   senderName,
   confirmState,
+  nextTargetId,
 }: {
   ws: PurchaseWorkspaceView;
   quote: QuoteView;
   final: boolean;
+  /** O6: the first rate that can become the final rate carries the "Next:" target. */
+  nextTargetId?: string;
   latest: CostVersionView | null;
   actions: PurchaseWorkActions;
   senderName: string;
@@ -298,7 +347,7 @@ function RateTile({
           <FinalTileActions ws={ws} latest={latest} quote={quote} actions={actions} senderName={senderName} confirmState={confirmState} />
         </div>
       ) : ws.canWork && !confirmed && !withdrawn && !ws.cancellation ? (
-        <div className="mt-1.5 flex flex-wrap items-start gap-2">
+        <div id={nextTargetId} className="mt-1.5 flex flex-wrap items-start gap-2">
           <UseFinalRateForm taskId={ws.task.taskId} quoteId={quote.quoteId} amountPaise={quote.quotedCostPaise} latestVersionNo={latestNo} supplierName={quote.supplierName} action={actions.useFinalRate} />
           <WithdrawQuoteForm taskId={ws.task.taskId} quoteId={quote.quoteId} label={quote.supplierName} />
         </div>
@@ -351,6 +400,26 @@ export function RateNegotiationCard({ ws, actions, senderName, confirmState }: {
   const tiles = [...ws.quotes].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const confirmed = ws.task.status === 'supplier_confirmed';
   const hotel = ws.task.serviceType === 'hotel';
+  // O6: "Choose the final rate" jumps to the first rate that can become the final rate.
+  const firstChoosable = !latest && ws.canWork && !ws.cancellation ? tiles.find((q) => q.status !== 'withdrawn') : undefined;
+  const addRateForm = (
+    <AddRateForm
+      taskId={ws.task.taskId}
+      action={actions.addRate}
+      suppliers={ws.supplierChoices}
+      serviceName={ws.task.hotelName ?? ws.task.itemTitle}
+      rooms={ws.task.rooms}
+      nights={ws.task.nights}
+      hotel={hotel}
+      catalogue={hotel ? { catalogueHotelId: ws.catalogueHotelId ?? null, catalogueHotelName: ws.catalogueHotelName ?? null, hotelSuppliers: ws.hotelSuppliers ?? [] } : null}
+      searchHotels={hotel ? (actions.searchHotels ?? null) : null}
+      contract={
+        hotel && actions.rateContract?.enabled && ws.task.checkIn && ws.task.checkOut
+          ? { enabled: true, rawLookup: actions.rateContract.rawLookup, stay: { checkIn: ws.task.checkIn, checkOut: ws.task.checkOut, rooms: ws.task.rooms } }
+          : null
+      }
+    />
+  );
   const askButton =
     ws.canWork && !confirmed ? (
       ws.cancellation ? (
@@ -413,32 +482,32 @@ export function RateNegotiationCard({ ws, actions, senderName, confirmState }: {
       ) : (
         <ul className="m-0 grid list-none grid-cols-1 gap-3 p-0 md:grid-cols-2 xl:grid-cols-3" aria-label="Rates from suppliers">
           {tiles.map((q) => (
-            <RateTile key={q.quoteId} ws={ws} quote={q} final={!!finalQuote && q.quoteId === finalQuote.quoteId} latest={latest} actions={actions} senderName={senderName} confirmState={confirmState} />
+            <RateTile
+              key={q.quoteId}
+              ws={ws}
+              quote={q}
+              final={!!finalQuote && q.quoteId === finalQuote.quoteId}
+              latest={latest}
+              actions={actions}
+              senderName={senderName}
+              confirmState={confirmState}
+              nextTargetId={q === firstChoosable ? NEXT_TARGET.finalRate : undefined}
+            />
           ))}
         </ul>
       )}
       {ws.canWork && !confirmed && !ws.cancellation ? (
-        <section aria-labelledby="work-add-rate" className="flex flex-col gap-2 border-t border-line pt-4">
-          <h3 id="work-add-rate" className="m-0 text-base font-semibold text-ink">
-            Add a rate
-          </h3>
-          <AddRateForm
-            taskId={ws.task.taskId}
-            action={actions.addRate}
-            suppliers={ws.supplierChoices}
-            serviceName={ws.task.hotelName ?? ws.task.itemTitle}
-            rooms={ws.task.rooms}
-            nights={ws.task.nights}
-            hotel={hotel}
-            catalogue={hotel ? { catalogueHotelId: ws.catalogueHotelId ?? null, catalogueHotelName: ws.catalogueHotelName ?? null, hotelSuppliers: ws.hotelSuppliers ?? [] } : null}
-            searchHotels={hotel ? (actions.searchHotels ?? null) : null}
-            contract={
-              hotel && actions.rateContract?.enabled && ws.task.checkIn && ws.task.checkOut
-                ? { enabled: true, rawLookup: actions.rateContract.rawLookup, stay: { checkIn: ws.task.checkIn, checkOut: ws.task.checkOut, rooms: ws.task.rooms } }
-                : null
-            }
-          />
-        </section>
+        latest ? (
+          // O7: once a final rate is chosen, "Add a rate" folds to one line (one click opens it).
+          <WorkFold summary="Add a rate">{addRateForm}</WorkFold>
+        ) : (
+          <section id={NEXT_TARGET.addRate} aria-labelledby="work-add-rate" className="flex flex-col gap-2 border-t border-line pt-4">
+            <h3 id="work-add-rate" className="m-0 text-base font-semibold text-ink">
+              Add a rate
+            </h3>
+            {addRateForm}
+          </section>
+        )
       ) : null}
       <SentEmails emails={ws.emails} />
     </WorkCard>
@@ -457,6 +526,18 @@ const PAYMENT_LOOK: Record<SupplierPaymentStatus, { tone: StatusTone; icon: type
   paid: { tone: 'info', icon: HandCoins },
   verified: { tone: 'success', icon: CircleCheck },
 };
+
+/** The words of the payment status badge (also the one-line summary of a finished request). */
+function paymentStatusText(r: Pick<PurchasePaymentRequestView, 'status' | 'route' | 'onHold' | 'holdReason'>): string {
+  if (r.onHold && r.holdReason === 'bank_details_on_hold' && r.status === 'approved') return 'Approved · on hold';
+  return r.status === 'pending' ? (r.route === 'manager' ? 'Waiting for the branch Manager' : 'Waiting for Accounts') : PAYMENT_STATUS_LABEL[r.status];
+}
+
+/** O7: a request nobody needs to act on any more (paid, verified, cancelled, or returned and sent again). */
+function paymentFinished(r: PurchasePaymentRequestView): boolean {
+  if (r.canCancel || r.canResubmit || r.onHold) return false;
+  return r.status === 'paid' || r.status === 'verified' || r.status === 'cancelled' || (r.status === 'returned' && !!r.resubmittedAs);
+}
 
 export function PaymentStatusBadge({ r }: { r: Pick<PurchasePaymentRequestView, 'status' | 'route' | 'onHold' | 'holdReason'> }) {
   if (r.onHold && r.holdReason === 'bank_details_on_hold' && r.status === 'approved') {
@@ -573,9 +654,28 @@ export function SupplierPaymentsCard({ ctx, actions }: { ctx: PaymentContextView
         <p className="m-0 text-quiet">No payment requests yet.</p>
       ) : (
         <ul className="m-0 flex list-none flex-col gap-2 p-0" aria-label="Payment requests on this service">
-          {ctx.requests.map((r) => (
-            <PaymentRequestItem key={r.id} r={r} ctx={ctx} actions={actions} />
-          ))}
+          {ctx.requests.map((r) =>
+            paymentFinished(r) ? (
+              // O7: a finished request is one line; its full details open below it.
+              <li key={r.id} className="m-0">
+                <WorkFold
+                  summary={
+                    <>
+                      <span className="whitespace-nowrap">{r.refNo}</span> · <span className="tabular-nums">{formatPaise(r.amountPaise)}</span> · {PAYMENT_PART_LABEL[r.part]} · {paymentStatusText(r)}
+                      {r.resubmittedAs ? ` · sent again as ${r.resubmittedAs}` : ''}
+                      <span className="sr-only">. Show details</span>
+                    </>
+                  }
+                >
+                  <ul className="m-0 list-none p-0">
+                    <PaymentRequestItem r={r} ctx={ctx} actions={actions} />
+                  </ul>
+                </WorkFold>
+              </li>
+            ) : (
+              <PaymentRequestItem key={r.id} r={r} ctx={ctx} actions={actions} />
+            ),
+          )}
         </ul>
       )}
       {!confirmed && ctx.canRequest ? <p className="m-0 text-sm text-quiet">You can ask for an advance before the supplier confirms. It does not mark the booking as confirmed.</p> : null}
@@ -647,7 +747,9 @@ export function CancellationCard({ ws, latestCostPaise, actions }: { ws: Purchas
       )}
       {c.canEnter ? (
         <details className="rounded-control border border-line px-3.5 py-2.5" open={!charge}>
-          <summary className={cn('cursor-pointer rounded-chip font-medium text-ink', focusRing)}>{charge ? 'Change charges' : 'Enter charges'}</summary>
+          <summary id={NEXT_TARGET.charges} className={cn('cursor-pointer rounded-chip font-medium text-ink', focusRing)}>
+            {charge ? 'Change charges' : 'Enter charges'}
+          </summary>
           <div className="mt-3">
             {charge && c.status === 'sent_to_manager' ? <p className="m-0 mb-2 text-sm text-quiet">Changing a charge takes the case back from the Manager until you send it again.</p> : null}
             <CancellationChargeForm
@@ -706,6 +808,15 @@ export function PurchaseWorkTab({
   return (
     <section className="flex flex-col gap-5" aria-label="Purchase work">
       <WorkFlashProvider>
+      {/* O7: "Jump to: Rates · Payments · Files" under the tabs; a jump opens a folded card and moves focus (shared JumpLinks). */}
+      <JumpLinks
+        className="mb-0"
+        links={[
+          { targetId: 'work-rates', label: 'Rates' },
+          ...(payments ? [{ targetId: 'work-payments', label: 'Payments' }] : []),
+          { targetId: 'work-files', label: 'Files' },
+        ]}
+      />
       {ws.gateIssue ? <Notice tone="warning">{PROCUREMENT_ISSUE_TEXT[ws.gateIssue]}</Notice> : null}
       {!ws.canWork && !ws.canApproveOverBudget && !confirmed ? (
         <Notice tone="locked" role="status">
@@ -729,8 +840,15 @@ export function PurchaseWorkTab({
               </StatusBadge>
             )}
           </CardHeader>
-          <CardBody>
-            <BookedFacts task={t} idPrefix="work-booked" />
+          <CardBody className="flex flex-col gap-4">
+            {/* O5: one line, the special request in full, and everything Sales entered one click away. */}
+            <p className="m-0 text-copy tabular-nums" data-slot="booked-line">
+              {bookedLineText(t)}
+            </p>
+            <SpecialRequestNotice task={t} />
+            <WorkFold id="work-booked" summary="Show what Sales booked">
+              <BookedFacts task={t} idPrefix="work-booked" withSpecialRequest={false} />
+            </WorkFold>
           </CardBody>
         </section>
       </Card>

@@ -2,11 +2,12 @@ import { Eye, FilterX, Inbox, Search, SearchX, SlidersHorizontal, X } from 'luci
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { buttonVariants } from '@/components/ui/button';
-import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn, focusRing } from '@/components/ui/cn';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/field';
+import { Fold } from '@/components/ui/fold';
 import { Notice } from '@/components/ui/notice';
 import { PageHeader } from '@/components/ui/page-header';
 import { Select } from '@/components/ui/select';
@@ -19,6 +20,7 @@ import type { DeskRowActions, LinkTaskOption, LoadLinkTargets } from './row-acti
 import { RECORD_KINDS, TALLY_STATUSES, type DailyCheck, type DeskViewer, type RecordsFilter, type RecordsPage, type RecordsTotals } from './types';
 import { Acc3DailyCheckItems } from './acc3-daily-check';
 import type { DeskResult } from './desk-kit';
+import { dailyCheckWaiting } from './r4-address';
 
 /*
  * Accounts › Documents and money (contract 11.1). One read over every money
@@ -28,6 +30,10 @@ import type { DeskResult } from './desk-kit';
  * read only when asked ("Show totals"). Look: the CRM table and filter
  * chips; 21st.dev "Flexi Filter Table" and "ReUI Filters" ideas only
  * (DESIGN-NOTES.md).
+ *
+ * UX redesign R4 (audit A5): the daily check is a fold that closes to one
+ * line when nothing waits (open otherwise); each count is a link that
+ * applies its filter; each row's status is one line (record-cells.tsx).
  */
 
 export interface RecordsWorkspaceProps {
@@ -49,6 +55,8 @@ export interface RecordsWorkspaceProps {
   linkOptions?: Record<string, LinkTaskOption[]>;
   loadLinkTargets?: LoadLinkTargets;
   previewOpen?: { rowId: string; dialog: 'match' | 'exception' | 'reopen' | 'link'; state?: DeskResult | null };
+  /** R4 (D5): the Records tab strip, rendered under the header. */
+  sectionTabs?: ReactNode;
 }
 
 function scopeLine(viewer: DeskViewer): string {
@@ -72,6 +80,7 @@ export function RecordsWorkspace(p: RecordsWorkspaceProps) {
           ) : undefined
         }
       />
+      {p.sectionTabs}
       {p.daily !== null ? <DailyCheckCard daily={p.daily} /> : null}
       <SearchBox filter={filter} />
       <FilterBar filter={filter} suppliers={p.suppliers} branches={p.branches} showBranch={p.branches.length > 1} />
@@ -123,6 +132,7 @@ export function RecordsWorkspace(p: RecordsWorkspaceProps) {
               linkOptions={p.linkOptions}
               loadLinkTargets={p.loadLinkTargets}
               previewOpen={p.previewOpen}
+              branches={p.branches}
             />
           </>
         )}
@@ -166,13 +176,12 @@ function NoRecords({ filter }: { filter: RecordsFilter }) {
 /* ---------- Daily check (contract 8.2) ---------- */
 
 function DailyCheckCard({ daily }: { daily: DailyCheck | 'error' }) {
+  const waiting = daily === 'error' ? null : dailyCheckWaiting(daily);
+  const meta = waiting === null ? 'Could not be loaded' : waiting === 0 ? 'Nothing waiting' : `${waiting} to look at`;
   return (
-    <Card className="mb-5">
-      <section aria-labelledby="daily-heading">
-        <CardHeader>
-          <CardTitle id="daily-heading">Daily check</CardTitle>
-        </CardHeader>
-        <CardBody className="flex flex-col gap-3">
+    <section aria-label="Daily check" className="mb-5">
+      <Fold id="daily-check" summary="Daily check" meta={meta} open={waiting !== 0}>
+        <div className="flex flex-col gap-3">
           {daily === 'error' ? (
             <p className="m-0 text-copy">The daily check could not be loaded. The list below is not affected.</p>
           ) : (
@@ -190,7 +199,8 @@ function DailyCheckCard({ daily }: { daily: DailyCheck | 'error' }) {
                   </>
                 )}
               </p>
-              <ul className="m-0 grid list-none grid-cols-2 gap-2 p-0 lg:grid-cols-3" aria-label="Daily check counts">
+              <p className="m-0 text-sm text-quiet">Each count opens the matching records.</p>
+              <ul className="m-0 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-2 lg:grid-cols-3" aria-label="Daily check counts">
                 <CheckItem n={daily.exceptionsOpen.count} text="Tally exceptions open" href={recordsHref(daily.filters?.exceptionsOpen ?? { tallyStatus: 'exception' })} extra={daily.exceptionsOpen.oldestAt ? `oldest ${dayText(daily.exceptionsOpen.oldestAt)}` : undefined} />
                 <CheckItem n={daily.changedAfterExport} text="Changed after export" href={recordsHref(daily.filters?.changedAfterExport ?? { changedSinceExport: true })} />
                 <CheckItem n={daily.originalsMissing} text="Originals missing" href={recordsHref(daily.filters?.originalsMissing ?? MISSING_ORIGINALS_FILTER)} />
@@ -220,9 +230,9 @@ function DailyCheckCard({ daily }: { daily: DailyCheck | 'error' }) {
               </ul>
             </>
           )}
-        </CardBody>
-      </section>
-    </Card>
+        </div>
+      </Fold>
+    </section>
   );
 }
 

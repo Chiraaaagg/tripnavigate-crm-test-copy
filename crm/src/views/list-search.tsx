@@ -21,6 +21,7 @@ import {
   type SearchKind,
   searchQueryLength,
 } from '@/modules/search/contracts';
+import { ListToolbar } from './list-parts';
 import { DealListRow, DealsTableHeader, LeadListRow, LeadsTableHeader } from './list-rows';
 import { SEARCH_TEXT, type SearchNoun } from './list-search-text';
 
@@ -373,11 +374,14 @@ function ServerSearch<R extends SearchRow>({
 
   return (
     <div className="flex flex-col gap-4 font-sans" data-slot="server-search" data-search-state={!mounted ? 'no-script' : mode === 'page' ? 'page' : view.state}>
-      {results ? null : chips}
-      {/* Without script (and before hydration) the box could not work, so only the order control shows; the list keeps its place in the tree. */}
-      <div className={cn('flex flex-wrap items-end gap-3', mounted ? 'justify-between' : 'justify-end')}>
+      {/*
+       * UX redesign R2 (C2, design plan 1.2): one toolbar row on wide screens: the search box, the filter chips,
+       * the order control. Without script (and before hydration) the box could not work, so only the chips and the
+       * order control show; the list keeps its place in the tree. Chips and order step aside while results show.
+       */}
+      <ListToolbar>
         {mounted ? (
-          <HandForm action={runSearch} onSubmit={onSubmit} role="search" aria-label={label} className="flex w-full max-w-xl min-w-0 flex-col gap-1">
+          <HandForm action={runSearch} onSubmit={onSubmit} role="search" aria-label={label} className="flex w-full max-w-xl min-w-0 flex-col gap-1 lg:w-auto lg:max-w-md lg:min-w-64 lg:flex-1">
             <label htmlFor={id} className="text-sm font-semibold text-ink">
               {label}
             </label>
@@ -446,8 +450,9 @@ function ServerSearch<R extends SearchRow>({
             </p>
           </HandForm>
         ) : null}
-        {results ? null : aside}
-      </div>
+        {results || !chips ? null : <div className={cn('min-w-0', mounted && 'lg:pt-6')}>{chips}</div>}
+        {results || !aside ? null : <div className={cn('lg:ml-auto', mounted && 'lg:pt-6')}>{aside}</div>}
+      </ListToolbar>
 
       {mode === 'page' ? (
         <Notice tone="info" role="none">

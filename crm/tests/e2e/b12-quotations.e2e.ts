@@ -1,6 +1,17 @@
 import { expect, test } from '@playwright/test';
 import { LOCAL_NETWORK_ACCESS_OFF } from '../helpers/production-style-policy';
+import { primaryActions } from '../helpers/primary-actions';
 import { accessibilitySuite, COMMERCIAL_WORDS, cspSuite, open, pillsHaveIconAndWord } from './b11-helpers';
+
+/**
+ * The bracketed placeholders of a customer document: every element carrying the document
+ * placeholder marker. This is a document contract, not a style class: the app's own check
+ * counts the same marker (src/modules/documents/render/checks.ts and pdf-url.ts) and any
+ * placeholder blocks the PDF. The marker has no role, name or data-slot, so the exact count
+ * uses it (UX redesign R0: kept on purpose; finding 2 retires app styling classes only).
+ */
+const PLACEHOLDER_MARKER = '.fill';
+const placeholders = (doc: import('@playwright/test').Locator) => doc.locator(PLACEHOLDER_MARKER);
 
 /**
  * B1.2 quotations (Phase E) through the design preview states (synthetic
@@ -38,6 +49,9 @@ const STATES = [
   'b2-quote-inline',
   'b2-quote-prices-refused',
   'b2-quote-draft-saving',
+  'r2-quote-copy-ready',
+  'r2-quote-copy-shared',
+  'r2-quote-copy-draft',
 ];
 
 accessibilitySuite('B1.2 quotations: accessibility', STATES);
@@ -219,7 +233,7 @@ test.describe('B1.2 quotations: read-only states', () => {
     await expect(status).toContainText('Day plan covers 1 of 7 days. Fine for a summary; the itinerary carries the full plan.');
     await expect(status).toContainText('You can still share it. Fill the missing details first if you can.');
     const doc = page.locator('#quote-document');
-    await expect(doc.locator('.fill').filter({ hasText: 'Day plan' })).toHaveCount(1);
+    await expect(placeholders(doc).filter({ hasText: 'Day plan' })).toHaveCount(1);
     await expect(doc).not.toContainText('Day plan covers');
   });
 
@@ -241,7 +255,8 @@ test.describe('B1.2 quotations: read-only states', () => {
     const doc = page.locator('#quote-document');
     await expect(page.locator('main').getByRole('status')).toContainText('Checked: no internal or pushy words.');
     await expect(page.locator('main').getByRole('status')).toContainText('1 detail missing (shown in [brackets])');
-    await expect(doc.locator('.fill')).toHaveCount(1);
+    await expect(placeholders(doc)).toHaveCount(1);
+    await expect(placeholders(doc)).toHaveText(['Room type']);
     await expect(doc).toContainText('₹68,100 per person');
     await expect(doc).toContainText('total for 3 travellers');
     await expect(doc).toContainText('GST as applicable. Quotation — not a tax invoice.');
@@ -260,7 +275,7 @@ test.describe('B1.2 quotations: read-only states', () => {
     await expect(page.locator('main')).not.toContainText('Company GSTIN missing on this quotation');
     await open(page, 'b12-quote-preview-gstin-pending');
     await expect(page.locator('#quote-document')).toContainText('GSTIN 08AAFCH9191M1ZV (Rajasthan)');
-    await expect(page.locator('#quote-document .fill')).toHaveText(['Room type']);
+    await expect(placeholders(page.locator('#quote-document'))).toHaveText(['Room type']);
 
     const warning = 'The branch of this document is not known, so the company GSTIN cannot be printed. Tell the CRM team.';
     await open(page, 'b12-quote-ready-gstin-unknown-branch');
@@ -271,7 +286,7 @@ test.describe('B1.2 quotations: read-only states', () => {
     await expect(page.locator('main').getByRole('status')).toContainText(warning);
     // The GSTIN is not counted as a fact to fill in; the fixture's one other missing fact still is.
     await expect(page.locator('main').getByRole('status')).toContainText('1 detail missing (shown in [brackets]): Room type.');
-    await expect(page.locator('#quote-document .fill')).toHaveText(['Room type', 'GSTIN for branch']);
+    await expect(placeholders(page.locator('#quote-document'))).toHaveText(['Room type', 'GSTIN for branch']);
   });
 
   test('Lead card: Create quotation; lost Deal says why there is none; unknown quotation is "not available"', async ({ page }) => {
@@ -286,12 +301,12 @@ test.describe('B1.2 quotations: read-only states', () => {
   });
 });
 
-const primaries = (page: import('@playwright/test').Page) => page.locator('main').locator('button.bg-brand-strong, a.bg-brand-strong');
+const primaries = (page: import('@playwright/test').Page) => primaryActions(page.locator('main'));
 
 test.describe('Batch 2 quotation: one primary per state, focus and guard', () => {
   test('shared: one primary, "Record the customer’s answer", which moves focus to the answer card', async ({ page }) => {
     await open(page, 'b12-quote-sent');
-    await expect(primaries(page)).toHaveCount(1);
+    expect(await primaries(page)).toHaveLength(1);
     await page.locator('main').getByRole('link', { name: 'Record the customer’s answer' }).click();
     await expect(page.locator('#quote-answer-heading')).toBeFocused();
   });
@@ -299,7 +314,7 @@ test.describe('Batch 2 quotation: one primary per state, focus and guard', () =>
   test('accepted: one primary in each accepted state', async ({ page }) => {
     for (const state of ['b12-quote-accepted-ready', 'b12-quote-accepted-candidate', 'b12-quote-converted']) {
       await open(page, state);
-      await expect(primaries(page), state).toHaveCount(1);
+      expect(await primaries(page), state).toHaveLength(1);
     }
   });
 
@@ -388,6 +403,55 @@ test.describe('Batch 2 quotation editor (QU-02..QU-05)', () => {
     await expect(page.locator('#q-details-tripStart')).toHaveValue('2026-11-14');
     await expect(page.locator('#q-details-tripStart')).toHaveAccessibleDescription(/From Bitrix\. Check with the customer\./);
     await expect(main.getByText('Use Bitrix value')).toHaveCount(0);
+  });
+
+  test('R2 (D1): customer copy ready to share: "Print or save as PDF" opens the print window; "Mark as shared" is the existing dialog', async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as unknown as { __printed: number }).__printed = 0;
+      window.print = () => {
+        (window as unknown as { __printed: number }).__printed += 1;
+      };
+    });
+    await open(page, 'r2-quote-copy-ready');
+    const header = page.locator('main [data-slot="page-header"]');
+    await header.getByRole('button', { name: 'Print or save as PDF' }).click();
+    expect(await page.evaluate(() => (window as unknown as { __printed: number }).__printed)).toBe(1);
+    await expect(page.locator('main [data-slot="quote-share-line"]')).toContainText('The CRM sends nothing.');
+    await header.getByRole('button', { name: 'Mark as shared' }).click();
+    const dialog = page.getByRole('dialog', { name: /Mark version 3 as shared\?/ });
+    await expect(dialog).toContainText('The CRM does not send anything.');
+    await expect(dialog.getByLabel('How did you share it?')).toBeVisible();
+    // No PDF file is made: nothing on the page downloads.
+    await expect(page.locator('main a[download]')).toHaveCount(0);
+  });
+
+  test('R2 (D1): shared and draft versions: print stays, Mark as shared does not; the line says why', async ({ page }) => {
+    await open(page, 'r2-quote-copy-shared');
+    const main = page.locator('main');
+    await expect(main.getByRole('button', { name: 'Print or save as PDF' })).toBeVisible();
+    await expect(main.getByRole('button', { name: 'Mark as shared' })).toHaveCount(0);
+    await expect(main.locator('[data-slot="quote-share-line"]')).toContainText('Version 2 marked as shared by WhatsApp on 12 Oct 2026.');
+    await open(page, 'r2-quote-copy-draft');
+    await expect(main.getByRole('button', { name: 'Mark as shared' })).toHaveCount(0);
+    await expect(main.locator('[data-slot="quote-share-line"]')).toContainText('Not ready to share yet. Press “Check and mark ready” on the quotation first');
+    // Only the document is printed: no app frame, header, switch or checks.
+    await page.emulateMedia({ media: 'print' });
+    await expect(page.locator('#quote-document')).toBeVisible();
+    await expect(main.locator('[data-slot="page-header"]')).toBeHidden();
+    await expect(main.getByRole('navigation', { name: 'Edit or customer copy' })).toBeHidden();
+    await expect(main.locator('[data-slot="quote-share-line"]')).toBeHidden();
+    await expect(main.getByRole('link', { name: 'Back to the quotation' })).toBeHidden();
+    await expect(page.getByRole('navigation', { name: 'Main' }).first()).toBeHidden();
+    await page.emulateMedia({ media: 'screen' });
+  });
+
+  test('R2 (D1): one primary action on every customer copy; when ready to share it is "Mark as shared"', async ({ page }) => {
+    for (const state of ['b12-quote-preview', 'r2-quote-copy-ready', 'r2-quote-copy-shared', 'r2-quote-copy-draft']) {
+      await open(page, state);
+      expect((await primaryActions(page.locator('main'))).length, state).toBeLessThanOrEqual(1);
+    }
+    await open(page, 'r2-quote-copy-ready');
+    expect(await primaryActions(page.locator('main'))).toEqual(['Mark as shared']);
   });
 
   test('customer copy page: the same Edit / Customer copy switch, Customer copy current', async ({ page }) => {

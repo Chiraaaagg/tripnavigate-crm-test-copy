@@ -800,5 +800,5 @@ export function previewServicesView(viewer: 'sales' | 'purchase' | 'sales-draft'
 /** Today's services card for the Services and tasks tab, from the same synthetic read. */
 export function previewServicesTabCard(viewer: 'sales' | 'purchase' | 'sales-draft'): ReactNode {
   const editor = viewer !== 'purchase';
-  return <DealServicesCard services={previewServicesView(viewer)} intakeHref={editor ? '/preview/b11-book-travellers' : null} linkLabel={editor ? 'Open the booking' : undefined} />;
+  return <DealServicesCard services={previewServicesView(viewer)} intakeHref={editor ? '/preview/bookform-owner--travellers' : null} linkLabel={editor ? 'Open the booking' : undefined} />;
 }

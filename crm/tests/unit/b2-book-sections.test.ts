@@ -1,17 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { BookSection, BookStepStatus } from '@/modules/fulfilment/contracts';
 import type { ErrorSummaryItem } from '@/modules/fulfilment/book-flow-contract';
-import { bookStepSections, nextSectionNeedingInput } from '@/modules/fulfilment/book-flow';
+import { nextSectionNeedingInput } from '@/modules/fulfilment/book-flow';
 import type { BookSectionNavItem } from '@/modules/fulfilment/book-flow-contract';
 import { initialCurrentSection, initialOpenSections } from '@/views/b11/step-sections-model';
 import { orderSummaryItems } from '@/views/b11/summary-model';
 
 const FINISH: BookSection[] = ['services', 'identity', 'price', 'payment', 'review'];
-
-function status(over: Partial<Record<BookSection, BookStepStatus>> = {}): Record<BookSection, BookStepStatus> {
-  const all: BookSection[] = ['customer', 'passengers', 'trip', 'hotels', ...FINISH];
-  return { ...(Object.fromEntries(all.map((s) => [s, 'complete'])) as Record<BookSection, BookStepStatus>), ...over };
-}
 
 describe('Batch 2 step 3 section list (screen side)', () => {
   const item = (section: BookSection, state: BookSectionNavItem['state']): BookSectionNavItem => ({ section, label: section, state, href: `#${section}`, current: false });
@@ -33,15 +28,6 @@ describe('Batch 2 step 3 section list (screen side)', () => {
     expect(nextSectionNeedingInput(status({ price: 'needs_input', payment: 'needs_input' }), 'identity')).toBe('price');
     expect(nextSectionNeedingInput(status({ services: 'needs_input' }), 'payment')).toBe('services');
     expect(nextSectionNeedingInput(status({}), 'payment')).toBe('review');
-  });
-
-  it('an editor without price access gets one "Price and payment" entry from the route builder (Echo M3)', () => {
-    const vm = bookStepSections(
-      { dealId: 'd', sectionStatus: status(), items: [], travellers: [], canEdit: true, canEditCommercials: false, version: { status: 'draft' } as never, dealNotActive: false },
-      'finish',
-    );
-    expect(vm.priceAccess).toBe('note');
-    expect(vm.items.map((i) => i.section)).not.toContain('payment');
   });
 });
 

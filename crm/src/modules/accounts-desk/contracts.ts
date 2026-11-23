@@ -79,7 +79,7 @@ export const LINK_KINDS = [
   'visa_task',
   'purchase_task',
   'cash',
-  /** Branch Manager: the Deal page dues card (/app/deals/{id}?tab=services#dues). */
+  /** Branch Manager: the Deal page dues card (/app/deals/{id}?tab=money#dues; Money tab since UX redesign R2). */
   'deal_dues',
   /** No screen this viewer can open. */
   'none',

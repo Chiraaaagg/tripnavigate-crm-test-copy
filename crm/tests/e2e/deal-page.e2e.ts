@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { enforceProductionStylePolicy, LOCAL_NETWORK_ACCESS_OFF, trackViolations } from '../helpers/production-style-policy';
+import { primaryActions } from '../helpers/primary-actions';
 
 /**
  * Deal page through the design preview states (synthetic props). Direction A
@@ -10,6 +11,9 @@ import { enforceProductionStylePolicy, LOCAL_NETWORK_ACCESS_OFF, trackViolations
  * errors; plus not-found, could-not-load, the loading skeleton, accessibility,
  * reflow, focus, money per role (every tab and the raw page source) and the
  * style policy. The hotel booking panel keeps its markup on Services and tasks.
+ * UX redesign R2: record header with the "Next:" row, tabs Overview · Services
+ * and tasks · Money · Documents · Messages · History (`-quotations` opens
+ * Documents), Overview summary, the payment report dialog, Messages tab.
  */
 
 test.use(LOCAL_NETWORK_ACCESS_OFF);
@@ -58,6 +62,12 @@ const DEAL_STATES = [
   'ws-deal-error-history',
   'ws-deal-error-documents',
   'ws-deal-error-services',
+  // UX redesign R2.
+  'ws-deal-sales-messages',
+  'ws-deal-manager-messages',
+  'ws-deal-purchase-messages',
+  'ws-deal-sales-services-full',
+  'ws-deal-sales-money-report-open',
 ];
 
 async function axe(page: Page) {
@@ -117,7 +127,9 @@ test.describe('Deal page: accessibility and reflow', () => {
       await page.setViewportSize({ width: 1440, height: 900 });
       await open(page, state);
       expect(await axe(page)).toEqual([]);
-      expect(await page.getByRole('heading', { level: 1 }).count()).toBe(1);
+      // A modal dialog open on load (R2: the payment report) hides the page (aria-modal), so the page's own h1 is counted in the markup then.
+      const dialogOpen = (await page.getByRole('dialog').or(page.getByRole('alertdialog')).count()) > 0;
+      expect(await (dialogOpen ? page.locator('h1') : page.getByRole('heading', { level: 1 })).count()).toBe(1);
       // 390: the phone layout. 320 x 800: WCAG 1.4.10 reflow width. 640 x 400: a 1280 x 800
       // window at 200% browser zoom (same CSS pixel viewport). 768: tablet, where the fact cards
       // go two per row. 1024 and 1280: small laptops, either side of the two-column switch (xl).
@@ -171,7 +183,7 @@ test.describe('Deal page: accessibility and reflow', () => {
     // Where the text itself ends (a Range), not the element box: an unbroken word can spill out of its box.
     const spill = await page.evaluate(() => {
       const main = document.querySelector('main')!.getBoundingClientRect();
-      const header = document.querySelector('[data-slot="page-header"]')!;
+      const header = document.querySelector('[data-slot="deal-header"]')!;
       const out: string[] = [];
       for (const el of [header.querySelector('h1')!, ...header.querySelectorAll('p, span')]) {
         const range = document.createRange();
@@ -191,13 +203,16 @@ test.describe('Deal page: accessibility and reflow', () => {
 test.describe('Deal page: header (P-HEADER)', () => {
   test('customer and trip in the one h1, reference above, stage, owner, From lead and live status under it', async ({ page }) => {
     await open(page, 'deal-page-bitrix-booking');
-    const header = page.locator('[data-slot="page-header"]');
+    const header = page.locator('[data-slot="deal-header"]');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Synthetic honeymoon, Andaman (6 nights)');
-    await expect(header.locator('p').first()).toHaveText('BX-900420');
+    // Line 1 of the record header: the way back, then the Deal reference.
+    await expect(header.locator('p').first()).toContainText('BX-900420');
     await expect(header).toContainText('Stage:Quote sent');
     await expect(header).toContainText('Owner: You');
     await expect(header.getByRole('link', { name: 'BXL-700311' })).toHaveAttribute('href', '/app/leads/c6000000-0000-4000-8000-000000000001');
     await expect(header).toContainText('From lead BXL-700311');
+    // The Bitrix stage is folded under Details (R2); the live-update status stays outside the fold.
+    await header.locator('#deal-system-details > summary').click();
     // Not colour alone (WCAG 1.4.1): the link is underlined.
     expect(await header.getByRole('link', { name: 'BXL-700311' }).evaluate((a) => getComputedStyle(a).textDecorationLine)).toBe('underline');
     await expect(header.getByRole('status')).toHaveText(/Live/);
@@ -220,17 +235,17 @@ test.describe('Deal page: header (P-HEADER)', () => {
     ];
     for (const [state, word] of cases) {
       await open(page, state);
-      const pill = page.locator('[data-slot="page-header"] [data-slot="status-badge"]', { hasText: word });
+      const pill = page.locator('[data-slot="deal-header"] [data-slot="status-badge"]', { hasText: word });
       await expect(pill, state).toBeVisible();
       await expect(pill.locator('svg[aria-hidden="true"]'), state).toHaveCount(1);
     }
     await open(page, 'ws-deal-state-waiting-owner-stale');
-    await expect(page.locator('[data-slot="page-header"]')).not.toContainText('Owner:');
+    await expect(page.locator('[data-slot="deal-header"]')).not.toContainText('Owner:');
     const late = page.getByRole('main').getByRole('note').filter({ hasText: 'Not updated from Bitrix for over a day' });
     await expect(late).toContainText('Check the stage in Bitrix before you rely on it.');
     await expect(late.locator('svg[aria-hidden="true"]')).toHaveCount(1);
     await open(page, 'deal-page-purchase-stale');
-    await expect(page.locator('[data-slot="page-header"]')).toContainText('Owner: Synthetic Sales Delhi C');
+    await expect(page.locator('[data-slot="deal-header"]')).toContainText('Owner: Synthetic Sales Delhi C');
   });
 
   test('exactly one primary action per booking state (copy §16.3); none when the viewer does not act next', async ({ page }) => {
@@ -250,13 +265,13 @@ test.describe('Deal page: header (P-HEADER)', () => {
     ];
     for (const [state, label] of cases) {
       await open(page, state);
-      const primary = page.locator('[data-slot="page-header"] [data-slot="deal-primary"]');
+      const primary = page.locator('[data-slot="deal-header"] [data-slot="deal-primary"]');
       if (label === null) {
         await expect(primary, state).toHaveCount(0);
         await expect(page.locator('[data-slot="deal-next"]'), state).toBeVisible();
       } else {
         await expect(primary.getByRole(state === 'ws-deal-state-not-started' ? 'button' : 'link', { name: label, exact: true }), state).toBeVisible();
-        expect(await page.locator('[data-slot="page-header"] .bg-brand-strong').count(), state).toBe(1);
+        expect(await primaryActions(page.locator('[data-slot="deal-header"]')), state).toHaveLength(1);
       }
     }
     await open(page, 'ws-deal-state-not-started');
@@ -271,9 +286,8 @@ test.describe('Deal page: header (P-HEADER)', () => {
     await open(page, 'ws-deal-sales-quotations');
     const main = page.getByRole('main');
     await expect(main.getByRole('button', { name: 'Create quotation' })).toBeVisible();
-    expect(await main.locator('a.bg-brand-strong, button.bg-brand-strong').count()).toBe(1);
+    expect(await primaryActions(main)).toEqual(['Continue booking']);
     await expect(main.locator('[data-slot="deal-primary"]').getByRole('link', { name: 'Continue booking' })).toBeVisible();
-    await expect(main.getByRole('button', { name: 'Create quotation' })).not.toHaveClass(/bg-brand-strong/);
   });
 
   test('returned by Accounts: the reason under the title when shared, an honest line when not', async ({ page }) => {
@@ -290,10 +304,10 @@ test.describe('Deal page: header (P-HEADER)', () => {
 });
 
 test.describe('Deal page: tabs (P-TABS)', () => {
-  test('server-rendered link tabs in DA-10 order, current marked, never a count', async ({ page }) => {
+  test('server-rendered link tabs in the R2 order, current marked, never a count', async ({ page }) => {
     await open(page, 'ws-deal-sales-money');
     const tabs = page.getByRole('navigation', { name: 'Deal sections' });
-    await expect(tabs.getByRole('link')).toHaveText(['Overview', 'Services and tasks', 'Quotations', 'Documents', 'Money', 'History']);
+    await expect(tabs.getByRole('link')).toHaveText(['Overview', 'Services and tasks', 'Money', 'Documents', 'Messages', 'History']);
     await expect(tabs.getByRole('link', { name: 'Money' })).toHaveAttribute('aria-current', 'page');
     await expect(tabs.getByRole('link', { name: 'Overview' })).toHaveAttribute('href', '/preview/ws-deal-sales');
     expect(await tabs.innerText()).not.toMatch(/\d/);
@@ -303,17 +317,24 @@ test.describe('Deal page: tabs (P-TABS)', () => {
     const overview = await (await page.request.get('/preview/ws-deal-sales')).text();
     expect(overview).toContain('id="deal-overview-heading"');
     expect(overview).not.toMatch(/deal-money-heading|deal-history-heading|deal-documents-heading/);
-    // A price reader's Overview carries no money (prototype's "Selling price" row not adopted).
-    expect(overview).not.toMatch(/₹|sellingTotal|estimatedMargin|Selling price/);
+    // A price reader's Overview shows at most the two money summary lines (R2); never the margin or a "Selling price" row.
+    expect(overview).not.toMatch(/estimatedMargin|Estimated margin|Selling price/);
   });
 
-  test('Purchase and Sales without price access have no Money tab; Purchase has no Quotations tab and no From lead', async ({ page }) => {
+  test('Purchase and Sales without price access have no Money tab; Purchase has no Messages tab and no From lead', async ({ page }) => {
     await open(page, 'ws-deal-purchase');
     const tabs = page.getByRole('navigation', { name: 'Deal sections' });
     await expect(tabs.getByRole('link')).toHaveText(['Overview', 'Services and tasks', 'Documents', 'History']);
-    await expect(page.locator('[data-slot="page-header"]')).not.toContainText('From lead');
+    await expect(page.locator('[data-slot="deal-header"]')).not.toContainText('From lead');
     await open(page, 'ws-deal-noprice');
-    await expect(page.getByRole('navigation', { name: 'Deal sections' }).getByRole('link')).toHaveText(['Overview', 'Services and tasks', 'Quotations', 'Documents', 'History']);
+    await expect(page.getByRole('navigation', { name: 'Deal sections' }).getByRole('link')).toHaveText(['Overview', 'Services and tasks', 'Documents', 'Messages', 'History']);
+  });
+
+  test('old ?tab=quotations opens Documents, which holds the quotation and itinerary cards', async ({ page }) => {
+    await open(page, 'ws-deal-sales-quotations');
+    const tabs = page.getByRole('navigation', { name: 'Deal sections' });
+    await expect(tabs.getByRole('link', { name: 'Documents' })).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('main').getByRole('button', { name: 'Create quotation' })).toBeVisible();
   });
 
   test('a tab that could not load says so; the header and tabs stay (SH-06)', async ({ page }) => {
@@ -343,7 +364,7 @@ test.describe('Deal page: tab content', () => {
     await expect(overview).toContainText('Delhi');
     // One date format everywhere (Echo L9); a colleague is named by role only (DEC-52 covers the owner only).
     await expect(overview).toContainText('1 Oct 2026');
-    await expect(overview.getByRole('listitem')).toHaveText(['Sales: You', 'Purchase: a colleague']);
+    await expect(overview.getByRole('listitem').filter({ hasText: /^(Sales|Purchase): / })).toHaveText(['Sales: You', 'Purchase: a colleague']);
     await overview.locator('summary').click();
     await expect(overview).toContainText('Why you can see this deal');
     await expect(overview).toContainText('You own this deal.');
@@ -360,8 +381,8 @@ test.describe('Deal page: tab content', () => {
 
   test('Services and tasks: the hotel booking panel keeps its own markup and its primary action', async ({ page }) => {
     await open(page, 'deal-page-bitrix-booking');
-    const panel = page.locator('#hotel-booking');
-    await expect(panel).toHaveClass(/work-panel/);
+    const panel = page.getByRole('region', { name: 'Hotel booking', exact: true });
+    await expect(panel).toHaveAttribute('id', 'hotel-booking');
     await expect(panel.getByRole('button', { name: 'Review and confirm' })).toBeVisible();
     await expect(panel.locator('[data-slot="next-line"]')).toContainText('Next: review the details and confirm to create the Purchase task');
   });
@@ -507,15 +528,65 @@ test.describe('Deal page: money and proof per role', () => {
   });
 });
 
+test.describe('Deal page: R2 tabs and actions', () => {
+  test('Overview as Purchase, Flight or Visa: no money block and no closure checklist; services link to their tab', async ({ page }) => {
+    for (const state of ['ws-deal-purchase', 'ws-deal-purchase-money', 'ws-deal-purchase-messages']) {
+      await open(page, state);
+      const overview = page.getByRole('region', { name: 'Overview' });
+      await expect(overview, state).toBeVisible();
+      await expect(overview.locator('[data-slot="overview-money"]'), state).toHaveCount(0);
+      await expect(page.getByRole('main'), state).not.toContainText(/closure|checklist|still to pay|selling total|₹/i);
+      await expect(page.getByRole('navigation', { name: 'Deal sections' }).getByRole('link', { name: 'Messages' }), state).toHaveCount(0);
+    }
+  });
+
+  test('Messages tab: the customer messages card, in English only (no language word or choice)', async ({ page }) => {
+    for (const state of ['ws-deal-sales-messages', 'ws-deal-manager-messages']) {
+      await open(page, state);
+      const card = page.getByRole('region', { name: 'Messages to customer' });
+      await expect(card, state).toBeVisible();
+      await expect(card, state).not.toContainText(/Language|English|Hindi/);
+      await expect(card.getByRole('button', { name: 'Change contact or channels' }), state).toBeVisible();
+    }
+  });
+
+  test('Services and tasks (full tab): "Request a change" sits in the Services sold header; moved cards are pointed to', async ({ page }) => {
+    await open(page, 'ws-deal-sales-services-full');
+    const services = page.getByRole('region', { name: 'Services sold' });
+    await expect(services.getByRole('button', { name: 'Request a change' })).toBeVisible();
+    // Not shown twice: the changes card keeps Add and Remove only.
+    await expect(page.getByRole('main').getByRole('button', { name: 'Request a change' })).toHaveCount(1);
+    const moved = page.locator('[data-slot="deal-moved-cards"]');
+    await expect(moved.getByRole('link', { name: /Customer dues: Money/ })).toHaveAttribute('href', '/preview/ws-deal-sales-money#dues');
+  });
+
+  test('Money: "Tell Accounts about a payment" opens the existing form in a dialog; a refusal keeps the typed amount and focuses the error summary', async ({ page }) => {
+    await open(page, 'ws-deal-sales-money');
+    const money = page.getByRole('region', { name: 'Money' });
+    await money.getByRole('button', { name: 'Tell Accounts about a payment' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Tell Accounts about a payment' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel('Amount ₹').fill('5000');
+    await dialog.getByRole('button', { name: 'Send to Accounts' }).click();
+    const alert = dialog.getByRole('alert');
+    await expect(alert).toBeVisible();
+    await expect(alert).toBeFocused();
+    await expect(dialog.getByLabel('Amount ₹')).toHaveValue('5000');
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(money.getByRole('button', { name: 'Tell Accounts about a payment' })).toBeFocused();
+  });
+});
+
 test.describe('Deal page: layout', () => {
-  test('phone (375 px): the one primary action, then the Next line, then the tabs; no sideways page scroll', async ({ page }) => {
+  test('phone (375 px): the Next line, then its one primary action, then the tabs; no sideways page scroll', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await open(page, 'ws-deal-sales');
     const primary = (await page.locator('[data-slot="deal-primary"]').boundingBox())!;
     const next = (await page.locator('[data-slot="deal-next"]').boundingBox())!;
     const tabs = (await page.getByRole('navigation', { name: 'Deal sections' }).boundingBox())!;
-    expect(next.y).toBeGreaterThan(primary.y);
-    expect(tabs.y).toBeGreaterThan(next.y);
+    expect(primary.y).toBeGreaterThan(next.y);
+    expect(tabs.y).toBeGreaterThan(primary.y);
     expect(primary.x + primary.width).toBeLessThanOrEqual(375);
     await noHorizontalScroll(page, 'ws-deal-sales at 375');
   });
@@ -549,13 +620,15 @@ test.describe('Deal page: focus', () => {
     });
   }
 
-  test('keyboard order: back link, Lead link, the primary action, then the tabs', async ({ page }) => {
+  test('keyboard order: back link, Lead link, the primary action, the folded Details, then the tabs', async ({ page }) => {
     await open(page, 'ws-deal-sales');
     await page.getByRole('main').getByRole('link', { name: 'Back to deals' }).focus();
     await page.keyboard.press('Tab');
     await expect(page.getByRole('link', { name: 'BXL-700601' })).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(page.getByRole('link', { name: 'Continue booking' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#deal-system-details > summary')).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(page.getByRole('navigation', { name: 'Deal sections' }).getByRole('link', { name: 'Overview' })).toBeFocused();
   });
@@ -597,9 +670,33 @@ test.describe('Deal page: production style policy', () => {
       // development overlay: their style attributes are set in the browser after loading, they are
       // not in the server HTML checked above, and the CSP violation listener in this test stays
       // empty with them present.
+      // R1: a menu group open on first load (Radix Collapsible, ui/collapsible.tsx) gets its measuring values
+      // (transition-duration, animation-name, --radix-collapsible-content-*) from script through the CSSOM,
+      // which the policy allows; they are not in the server HTML either. Only those values are let through.
       const live = await page.evaluate(() =>
         [...document.querySelectorAll('[style]')]
           .filter((el) => !el.closest('next-route-announcer, nextjs-portal, [data-nextjs-dev-overlay]'))
+          .filter(
+            (el) =>
+              !(
+                el.matches('[data-slot="collapsible"] > [data-state]') &&
+                /^\s*((transition-duration|animation-name|--radix-collapsible-content-(height|width))\s*:[^;]*;\s*)*$/.test(el.getAttribute('style') ?? '')
+              ),
+          )
+          // R2: a modal dialog open on first load (the payment report, Radix Dialog). Radix sets through the CSSOM:
+          // pointer-events: none on the body (DismissableLayer), outline/opacity/position/pointer-events on the two
+          // focus guards (FocusGuards), and pointer-events: auto on the overlay and the dialog. They are not in the
+          // server HTML either. Only those values on those nodes, and only while such a dialog is open, are let through.
+          .filter((el) => {
+            const openDialog = '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]';
+            if (!document.querySelector(openDialog)) return true;
+            const style = el.getAttribute('style') ?? '';
+            const only = (props: string) => new RegExp(`^\\s*((${props})\\s*:[^;]*;\\s*)*$`).test(style);
+            if (el === document.body) return !only('pointer-events');
+            if (el.matches('[data-radix-focus-guard]')) return !only('outline|opacity|position|pointer-events');
+            if (el.matches(openDialog) || el.nextElementSibling?.matches(openDialog)) return !only('pointer-events');
+            return true;
+          })
           .map((el) => el.outerHTML.slice(0, 120)),
       );
       expect(live, state).toEqual([]);

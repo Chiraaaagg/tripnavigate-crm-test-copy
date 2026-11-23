@@ -173,3 +173,90 @@ test.describe('Flight build preview states', () => {
     await expect(basic).toHaveAttribute('aria-invalid', 'true');
   });
 });
+
+/**
+ * UX redesign R3 (C2): the Flight queue in the shared work-queue pattern
+ * (design plan 1.2). Pill tabs with counts, one toolbar row (search, filter
+ * chips, sort), rows What · Dates · Approved budget · Status · Next step ·
+ * Who · Deal with one row button, and every old address (`?show=`, Home's
+ * `?show=mine&only=…`) still giving the same rows.
+ */
+test.describe('Flight queue (R3 work-queue pattern)', () => {
+  const dealsInOrder = async (page: Page) =>
+    (await page.getByRole('region', { name: 'Flight tasks table' }).locator('tbody tr').allInnerTexts()).map((t) => /SYN-JOD-\d+/.exec(t)?.[0]);
+
+  test('columns, one row button where the viewer can act, and the money fence', async ({ page }) => {
+    await open(page, 'flight-queue-all');
+    const table = page.getByRole('region', { name: 'Flight tasks table' });
+    await expect(table.getByRole('columnheader')).toHaveText(['What', 'Dates', 'Approved budget', 'Status', 'Next step', 'Who', 'Deal']);
+    // Your own flights: "Continue" opens the Work tab of the Deal's flights.
+    const mine = table.getByRole('row').filter({ hasText: 'SYN-JOD-901' });
+    await expect(mine.getByRole('link', { name: /^Continue/ })).toHaveAttribute('href', /\/app\/flight\/deals\/[^?]+\?tab=work$/);
+    // Not taken and takeable: the row opens the flights, where "Take these flights" is the one primary action.
+    const open902 = table.getByRole('row').filter({ hasText: 'SYN-JOD-902' });
+    await expect(open902.getByRole('link', { name: /^Review and take/ })).toHaveCount(1);
+    // A colleague's flights: who works on them, no row button.
+    const colleague = table.getByRole('row').filter({ hasText: 'SYN-JOD-904' });
+    await expect(colleague).toContainText('Synthetic Flight Colleague works on these flights');
+    await expect(colleague.getByRole('link', { name: /^(Continue|Review and take)/ })).toHaveCount(0);
+    // One status badge per row (icon and words); the other facts are plain words.
+    for (const row of await table.locator('tbody tr').all()) await expect(row.locator('[data-slot="status-badge"]')).toHaveCount(1);
+    await expect(table).not.toContainText(/Selling|margin|receipt/i);
+  });
+
+  test('old addresses: the tabs and Home chips keep their exact links', async ({ page }) => {
+    await open(page, 'flight-queue-mine');
+    const tabs = page.getByRole('navigation', { name: 'Flight task filters' });
+    await expect(tabs.getByRole('link', { name: /^Not taken/ })).toHaveAttribute('href', '/app/flight');
+    await expect(tabs.getByRole('link', { name: /^Mine/ })).toHaveAttribute('href', '/app/flight?show=mine');
+    await expect(tabs.getByRole('link', { name: /^All/ })).toHaveAttribute('href', '/app/flight?show=all');
+    const chips = page.getByRole('navigation', { name: 'Show only' });
+    await expect(chips.getByRole('link', { name: /^Ready to mark done/ })).toHaveAttribute('href', '/app/flight?show=mine&only=ready');
+    await expect(chips.getByRole('link', { name: /^Booking changed/ })).toHaveAttribute('href', '/app/flight?show=mine&only=booking_changed');
+    await open(page, 'flight-queue-mine-decisions');
+    const current = page.getByRole('navigation', { name: 'Show only' }).getByRole('link', { name: /^Change decisions to see/ });
+    await expect(current).toHaveAttribute('aria-current', 'page');
+    // Pressing the current chip again clears it and keeps the tab.
+    await expect(current).toHaveAttribute('href', '/app/flight?show=mine');
+    expect(await dealsInOrder(page)).toEqual(['SYN-JOD-901']);
+  });
+
+  test('search, chip and sort narrow and order the rows already on the page', async ({ page }) => {
+    await open(page, 'flight-queue-search');
+    expect(await dealsInOrder(page)).toEqual(['SYN-JOD-901']);
+    await expect(page.getByRole('region', { name: 'Flight tasks table' })).toContainText('(of 4 on this tab)');
+    await expect(page.getByRole('search', { name: /flight tasks/ }).getByLabel('Search flight tasks')).toHaveValue('goi');
+    // A chip narrows the Mine tab (as before R3, review P3-5).
+    await open(page, 'flight-queue-chip');
+    expect(await dealsInOrder(page)).toEqual(['SYN-JOD-901']);
+    // Soonest travel first by default; dateless rows last in both directions.
+    await open(page, 'flight-queue-all');
+    expect(await dealsInOrder(page)).toEqual(['SYN-JOD-904', 'SYN-JOD-901', 'SYN-JOD-902', 'SYN-JOD-903']);
+    await open(page, 'flight-queue-sort-latest');
+    expect(await dealsInOrder(page)).toEqual(['SYN-JOD-902', 'SYN-JOD-901', 'SYN-JOD-904', 'SYN-JOD-903']);
+  });
+
+  test('nothing matches: says so politely and offers the way back to the tab', async ({ page }) => {
+    await open(page, 'flight-queue-no-match');
+    const status = page.locator('main').getByRole('status').filter({ hasText: 'Nothing matches' });
+    await expect(status).toBeVisible();
+    await expect(status.getByRole('link', { name: 'Clear search and filter' })).toHaveAttribute('href', '/app/flight?show=all');
+  });
+
+  test('branch Manager: no tabs, no row buttons, search still works', async ({ page }) => {
+    await open(page, 'flight-queue-manager-search');
+    await expect(page.getByRole('navigation', { name: 'Flight task filters' })).toHaveCount(0);
+    expect(await dealsInOrder(page)).toEqual(['SYN-JOD-904']);
+    await open(page, 'flight-queue-manager');
+    await expect(page.locator('main').getByRole('link', { name: /^(Continue|Review and take)/ })).toHaveCount(0);
+  });
+
+  test('390 px: rows stack as labelled cards and the row button is full width', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page, 'flight-queue-all');
+    await noHorizontalScroll(page, 'flight-queue-all @390');
+    const button = page.getByRole('region', { name: 'Flight tasks table' }).getByRole('link', { name: /^Continue/ }).first();
+    const [box, cell] = await Promise.all([button.boundingBox(), button.locator('xpath=ancestor::td').boundingBox()]);
+    expect(box && cell && box.width).toBeGreaterThan((cell?.width ?? 0) * 0.6);
+  });
+});

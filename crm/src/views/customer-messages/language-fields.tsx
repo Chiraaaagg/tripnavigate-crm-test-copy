@@ -1,29 +1,39 @@
 'use client';
 
 import { useState } from 'react';
-import { Checkbox, ChoiceGroup, Radio } from '@/components/ui/choice';
+import { Checkbox } from '@/components/ui/choice';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { LANGUAGE_LABEL, PREFS_FIELD } from './labels';
+import { PREFS_FIELD } from './labels';
 import type { Language } from './types';
 
 /*
- * Customer language and WhatsApp number (contract §5.3 A1, §15 screen 1).
- * Used inside Book now (the contact step) and inside the Deal card's
- * "Change language or channels" dialog. Field names are the A1 keys:
- * `language`, `whatsappSameAsMobile` ("true" when ticked) and
- * `whatsappMobile` (sent only when the tick is off). Uncontrolled after the
- * first render, so a refusal keeps what was typed.
+ * Customer WhatsApp number (contract §5.3 A1, §15 screen 1), and the message
+ * language as a hidden field. Used inside Book now (the contact step) and
+ * inside the Deal card's "Change contact or channels" dialog. Field names
+ * are the A1 keys: `language`, `whatsappSameAsMobile` ("true" when ticked)
+ * and `whatsappMobile` (sent only when the tick is off). Uncontrolled after
+ * the first render, so a refusal keeps what was typed.
+ *
+ * Owner decision D12 (UX redesign R1): every customer message goes in
+ * English, so there is no language choice any more. The form posts
+ * `language=en`, the value the English choice posted before, so the saved
+ * Deal stays valid; a Deal stored as Hindi becomes English the next time its
+ * message settings are saved. The stored column and the sender are unchanged.
  */
+
+/** The only message language (D12): the value the English radio button posted. */
+export const MESSAGE_LANGUAGE = 'en' as const satisfies Language;
+
 export function CustomerLanguageFields({
   idPrefix,
-  defaultLanguage = 'en',
   defaultSameAsMobile = true,
   defaultWhatsapp = '',
   mobileHint,
   errorField,
 }: {
   idPrefix: string;
+  /** No longer shown (D12): the form always posts English. Kept so existing callers compile. */
   defaultLanguage?: Language;
   defaultSameAsMobile?: boolean;
   defaultWhatsapp?: string;
@@ -36,13 +46,7 @@ export function CustomerLanguageFields({
   const waId = `${idPrefix}-whatsapp`;
   return (
     <div className="flex flex-col gap-4">
-      <ChoiceGroup id={`${idPrefix}-language`} legend="Language for customer messages" hint="E-mail and WhatsApp messages go in this language. It can be changed later on the Deal page.">
-        <div className="flex flex-wrap gap-x-6 gap-y-2">
-          {(['en', 'hi'] as const).map((l) => (
-            <Radio key={l} id={`${idPrefix}-language-${l}`} name={PREFS_FIELD.language} value={l} defaultChecked={defaultLanguage === l} label={LANGUAGE_LABEL[l]} />
-          ))}
-        </div>
-      </ChoiceGroup>
+      <input type="hidden" name={PREFS_FIELD.language} value={MESSAGE_LANGUAGE} />
       <div className="flex flex-col gap-3">
         <input type="hidden" name={PREFS_FIELD.whatsappSameAsMobile} value={same ? 'true' : 'false'} />
         <Checkbox

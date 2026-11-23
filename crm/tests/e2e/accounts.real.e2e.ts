@@ -258,12 +258,14 @@ async function salesConfirmsBooking(dealId: string): Promise<SupabaseClient> {
 // ---------------------------------------------------------------------------
 
 /**
- * Batch 4 (DA-15, plan T1): the Accounts deal page keeps its address and shows
- * one tab at a time (Money · Review · Receipts · Documents, `?tab=`). Review
- * holds the readiness, booking review and billing (lead ruling D6); Receipts
- * the receipt list and the record form; Money the money figures.
+ * Batch 4 (DA-15, plan T1) and R4: the Accounts deal page keeps its address and
+ * shows one tab at a time (Receipts · Dues and plan · Documents · Refunds ·
+ * Review, `?tab=`; the old `money` opens Receipts). Review holds the readiness,
+ * booking review and billing (lead ruling D6); Receipts the money figures and
+ * the receipts as rows. "Record a receipt" sits at the top of every tab and
+ * opens the record form in a drawer.
  */
-type AccountsDealTab = 'money' | 'review' | 'receipts' | 'documents';
+type AccountsDealTab = 'receipts' | 'dues' | 'documents' | 'refunds' | 'review';
 async function openDeal(page: Page, dealId: string, reference: string, tab: AccountsDealTab) {
   await page.goto(`/app/accounts/deals/${dealId}?tab=${tab}`);
   await expect(page.getByRole('heading', { level: 1 })).toContainText(reference);
@@ -292,9 +294,26 @@ interface ReceiptInput {
   cheque?: { number: string; micr: string; date: string };
 }
 
-/** Fills the "Record a receipt" form (does not submit). */
+/** R4: the "Record a receipt" drawer (a modal dialog), opened from the top of the deal page when it is not open yet. */
+async function receiptForm(page: Page): Promise<Locator> {
+  const dialog = page.getByRole('dialog', { name: 'Record a receipt' });
+  if (!(await dialog.isVisible())) {
+    await page.getByRole('button', { name: 'Record a receipt', exact: true }).click();
+    await expect(dialog).toBeVisible();
+  }
+  return dialog.getByRole('form', { name: 'Record a receipt' });
+}
+
+/** Closes an open drawer (Escape), so the page behind it can be read again. */
+async function closeDrawer(page: Page) {
+  if ((await page.getByRole('dialog').count()) === 0) return;
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+}
+
+/** Fills the "Record a receipt" form in its drawer (does not submit). */
 async function fillReceipt(page: Page, input: ReceiptInput): Promise<Locator> {
-  const form = page.getByRole('form', { name: 'Record a receipt' });
+  const form = await receiptForm(page);
   await form.getByRole('radio', { name: new RegExp(`^${MODE_LABEL[input.mode]}\\b`) }).check();
   await form.getByLabel('Amount received (₹)').fill(input.amount);
   await form.getByLabel('Date received').fill(istToday());
@@ -330,11 +349,27 @@ async function recordReceipt(page: Page, input: ReceiptInput): Promise<string> {
   await expect(done).toContainText('recorded (internal number). Another Accounts person must verify it.', { timeout: 30_000 });
   const receiptNo = /Receipt (R-\d{4}-\d{2}-\d{6,})/.exec((await done.textContent()) ?? '')?.[1];
   expect(receiptNo, 'receipt number in the confirmation').toBeTruthy();
+  await closeDrawer(page);
   return receiptNo!;
 }
 
+/**
+ * R4: one receipt is one row group of the "Customer receipts" table: the row
+ * (status and the one row button) and its folded Details (facts, proof files
+ * and the other actions).
+ */
 function receiptCard(page: Page, receiptNo: string): Locator {
-  return page.getByRole('listitem').filter({ has: page.getByRole('heading', { level: 3, name: new RegExp(`^${esc(receiptNo)} · `) }) });
+  return page.getByRole('table', { name: /Customer receipts/ }).locator('tbody')
+    .filter({ has: page.locator('td[data-label="Receipt"]', { hasText: new RegExp(`^${esc(receiptNo)} ·`) }) });
+}
+
+/** The receipt's row group with its Details fold open (proof files and the other actions are inside it). */
+async function receiptDetails(page: Page, receiptNo: string): Promise<Locator> {
+  const card = receiptCard(page, receiptNo);
+  const fold = card.locator('details[data-slot="fold"]').first();
+  if (!(await fold.evaluate((d) => (d as HTMLDetailsElement).open))) await fold.locator(':scope > summary').click();
+  await expect(fold).toHaveAttribute('open', '');
+  return card;
 }
 
 // Stage 2: company accounts (synthetic labels without digits: labels may not carry account numbers).
@@ -354,10 +389,9 @@ function destinationCard(page: Page, label: string): Locator {
 /** A submits one company account through the Add form (synthetic values only). */
 async function submitDestination(page: Page, kind: 'bank' | 'upi') {
   await page.goto('/app/accounts/destinations');
-  // The Add form is open on an empty page and collapsed once accounts exist; a role
-  // locator never matches a form inside a closed <details>, so check visibility instead.
-  const form = page.getByRole('form', { name: 'Add a company account' });
-  if (!(await form.isVisible())) await page.locator('summary').filter({ hasText: 'Add a bank account or UPI ID' }).click();
+  // R4 (A8): "Add a company account" in the page header opens the unchanged form in a drawer.
+  await page.getByRole('button', { name: 'Add a company account', exact: true }).click();
+  const form = page.getByRole('dialog', { name: 'Add a company account' }).getByRole('form', { name: 'Add a company account' });
   await expect(form).toBeVisible();
   await form.getByRole('radio', { name: kind === 'bank' ? 'Bank account' : 'UPI ID' }).check();
   await form.getByLabel('Internal name').fill(DEST[kind].label);
@@ -371,6 +405,8 @@ async function submitDestination(page: Page, kind: 'bank' | 'upi') {
     await form.getByRole('textbox', { name: 'UPI ID', exact: true }).fill(DEST.upi.upiId);
   }
   await form.getByRole('button', { name: 'Submit for approval' }).click();
+  await expect(doneIn(form)).toBeVisible({ timeout: 30_000 });
+  await closeDrawer(page);
   await expect(destinationCard(page, DEST[kind].label)).toContainText('Waiting for approval', { timeout: 30_000 });
 }
 
@@ -382,7 +418,7 @@ const PROOF_LABEL = { bank_proof: 'Bank proof (statement line or credit advice)'
 
 /** Uploads a small synthetic PDF as proof for a receipt (real private Storage through the server). */
 async function uploadProof(page: Page, receiptNo: string, kind: keyof typeof PROOF_LABEL, fileName: string, stamp: number) {
-  const card = receiptCard(page, receiptNo);
+  const card = await receiptDetails(page, receiptNo);
   await openSummary(card, 'Upload proof');
   const form = page.getByRole('form', { name: `Upload proof for ${receiptNo}` });
   await form.getByLabel('What is this file?').selectOption({ label: PROOF_LABEL[kind] });
@@ -392,14 +428,17 @@ async function uploadProof(page: Page, receiptNo: string, kind: keyof typeof PRO
     buffer: Buffer.from(`%PDF-1.4\n% Synthetic ${kind} for ${receiptNo}, run ${stamp}. Not a real payment.\n%%EOF\n`),
   });
   await form.getByRole('button', { name: 'Upload file' }).click();
-  await expect(receiptCard(page, receiptNo).getByRole('list', { name: 'Proof files' })).toContainText(fileName, { timeout: 30_000 });
+  // The proof list sits in the row's Details fold; it is read by its label so a re-rendered fold cannot hide it.
+  await expect(receiptCard(page, receiptNo).locator(`ul[aria-label="Proof files of ${receiptNo}"]`)).toContainText(fileName, { timeout: 30_000 });
 }
 
-// Actions on a receipt re-render its card, and the action form leaves the page once the
-// receipt changes state, so the "Done:" message is transient. Assert the card's state instead.
+// Actions on a receipt re-render its row, and the action form leaves the page once the
+// receipt changes state, so the "Done:" message is transient. Assert the row's state instead.
+// R4: the second Accounts person verifies from the receipt's own row (its one row button, "Verify receipt <no>").
 async function verifyReceipt(page: Page, receiptNo: string, cardState: string) {
-  const form = page.getByRole('form', { name: `Verify ${receiptNo}` });
-  await form.getByRole('button', { name: /Verify receipt/ }).click();
+  const row = receiptCard(page, receiptNo).locator('td[data-label="Next step"]');
+  const form = row.getByRole('form', { name: `Verify ${receiptNo}` });
+  await form.getByRole('button', { name: `Verify receipt ${receiptNo}` }).click();
   await expect(receiptCard(page, receiptNo)).toContainText(cardState, { timeout: 30_000 });
 }
 
@@ -409,7 +448,7 @@ async function reasonAction(
   title: string,
   opts: { kind?: string; date?: string; text?: string; textLabel?: string; submit: string; cardState: string },
 ) {
-  await openSummary(receiptCard(page, receiptNo), title);
+  await openSummary(await receiptDetails(page, receiptNo), title);
   const form = page.getByRole('form', { name: `${title} ${receiptNo}` });
   if (opts.kind) await form.getByLabel('What happened').selectOption({ label: opts.kind });
   if (opts.date) await form.getByLabel('Date of the outcome').fill(opts.date);
@@ -433,6 +472,32 @@ async function signInAndEnrol(context: BrowserContext, email: string): Promise<P
   await expect(page).toHaveURL(/\/app$/);
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Welcome');
   return page;
+}
+
+/**
+ * R4 (A8): Branch cash shows one branch at a time (a tab per branch, `?branch=`);
+ * this journey's branch is the fixture's FBR branch. Returns its region.
+ */
+async function openBranchCash(page: Page): Promise<Locator> {
+  const branchId = await db(async (client) => (await client.query<{ id: string }>(
+    `select id from public.branches where legal_entity_id = $1 and code = 'FBR'`, [ENTITY_ID],
+  )).rows[0]!.id);
+  await page.goto(`/app/accounts/cash?branch=${branchId}`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Branch cash' })).toBeVisible();
+  const region = page.getByRole('region', { name: BRANCH_NAME, exact: true });
+  await expect(region).toBeVisible();
+  return region;
+}
+
+/** R4 (A8): "Record cash count" / "Record deposit" at the top of Branch cash open their form in a drawer. */
+async function cashDrawerForm(page: Page, kind: 'count' | 'deposit'): Promise<Locator> {
+  const [button, title, form] = kind === 'count'
+    ? [`Record cash count for ${BRANCH_NAME}`, 'Record a daily cash count', `Record a daily cash count for ${BRANCH_NAME}`]
+    : [`Record deposit for ${BRANCH_NAME}`, 'Record a bank deposit', `Record a bank deposit for ${BRANCH_NAME}`];
+  await page.getByRole('button', { name: button, exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: title });
+  await expect(dialog).toBeVisible();
+  return dialog.getByRole('form', { name: form });
 }
 
 function cashFigure(page: Page, label: string): Locator {
@@ -524,9 +589,13 @@ test.describe('real Accounts browser journey (Phase 5B Milestone A section 8)', 
       await expect(a.getByRole('heading', { level: 1, name: 'To check' })).toBeVisible();
       await expect(a.getByRole('row').filter({ hasText: deal1.ref })).toContainText('Confirmed');
       await expect(a.getByRole('row').filter({ hasText: deal2.ref })).toHaveCount(0);
-      await a.getByLabel('Deal reference').fill(deal2.ref);
-      await a.getByRole('button', { name: 'Find deal' }).click();
-      await expect(a.getByRole('link', { name: new RegExp(`^${esc(deal2.ref)} · `) })).toBeVisible();
+      // R4: the one search on To check is the exact-reference lookup; its result names the deal and offers "Open <reference>".
+      const main = a.getByRole('main');
+      await main.getByRole('searchbox', { name: 'Find a deal by its exact reference' }).fill(deal2.ref);
+      await main.getByRole('button', { name: 'Search', exact: true }).click();
+      const lookup = main.locator('[data-slot="accounts-lookup"]');
+      await expect(lookup).toContainText(`${deal2.ref} · ${deal2.title}`);
+      await expect(lookup.getByRole('link', { name: `Open ${deal2.ref}` })).toHaveAttribute('href', `/app/accounts/deals/${ids.d2}`);
       await shot(a, 'queue-and-lookup');
     });
 
@@ -619,13 +688,14 @@ test.describe('real Accounts browser journey (Phase 5B Milestone A section 8)', 
       await openDeal(b, ids.d1, deal1.ref, 'receipts');
       await verifyReceipt(b, bankNo, 'Receipt status: Verified');
       await expect(receiptCard(b, bankNo)).toContainText('Verified');
-      await openDeal(b, ids.d1, deal1.ref, 'money');
+      // R4: the money figures sit at the top of the Receipts tab.
+      await openDeal(b, ids.d1, deal1.ref, 'receipts');
       await expect(b.getByRole('region', { name: 'Money for this deal' })).toContainText('₹10,000.00');
     });
 
     await test.step('proof is in private Storage: a short-lived signed download for Accounts, nothing public, nothing for Sales', async () => {
       await openDeal(b, ids.d1, deal1.ref, 'receipts');
-      const link = receiptCard(b, bankNo).getByRole('link', { name: `bank-proof-${tag}.pdf` });
+      const link = (await receiptDetails(b, bankNo)).getByRole('link', { name: `bank-proof-${tag}.pdf` });
       const href = (await link.getAttribute('href')) ?? '';
       expect(href).toMatch(/^\/app\/accounts\/files\/[0-9a-f-]{36}$/);
       const redirect = await b.request.get(href, { maxRedirects: 0 });
@@ -688,13 +758,12 @@ test.describe('real Accounts browser journey (Phase 5B Milestone A section 8)', 
     });
 
     await test.step('cash pending verification is shown separately on the branch cash page', async () => {
-      await a.goto('/app/accounts/cash');
-      await expect(a.getByRole('heading', { level: 1, name: 'Branch cash' })).toBeVisible();
+      await openBranchCash(a);
       const before = rupees(await cashFigure(a, 'Cash recorded, not verified').textContent());
       await openDeal(a, ids.d2, deal2.ref, 'receipts');
       const cashNo = await recordReceipt(a, { mode: 'cash', amount: '2500', payerName: 'Synthetic Cash Payer', pan: runPan(tag, 2) });
       await expect(receiptCard(a, cashNo)).toContainText('Awaiting verification');
-      await a.goto('/app/accounts/cash');
+      await openBranchCash(a);
       await expect.poll(async () => rupees(await cashFigure(a, 'Cash recorded, not verified').textContent())).toBe(before + 2500);
       await shot(a, 'cash-pending-verification');
     });
@@ -703,8 +772,7 @@ test.describe('real Accounts browser journey (Phase 5B Milestone A section 8)', 
       const { oldDate } = lateCash;
       const ageDays = Math.round((Date.parse(`${istToday()}T00:00:00Z`) - Date.parse(`${oldDate}T00:00:00Z`)) / 86_400_000);
       expect(ageDays, 'the fixture cash activity is older than 90 days').toBeGreaterThan(90);
-      const branch = b.getByRole('region', { name: BRANCH_NAME, exact: true });
-      await b.goto('/app/accounts/cash');
+      const branch = await openBranchCash(b);
       await expect(branch).toContainText('Daily cash count missing');
       await expect(branch).toContainText(`oldest ${finDateText(oldDate)}`);
       await expect(listedDate(branch.getByRole('list', { name: /Daily cash count missing/ }), oldDate)).toHaveCount(1);
@@ -713,10 +781,8 @@ test.describe('real Accounts browser journey (Phase 5B Milestone A section 8)', 
     });
 
     await test.step('the cash form refuses a future date and an unrelated date older than 90 days', async () => {
-      await a.goto('/app/accounts/cash');
-      const branch = a.getByRole('region', { name: BRANCH_NAME, exact: true });
-      await openSummary(branch, 'Record a daily cash count');
-      const form = branch.getByRole('form', { name: `Record a daily cash count for ${BRANCH_NAME}` });
+      await openBranchCash(a);
+      const form = await cashDrawerForm(a, 'count');
       await form.getByLabel('Business date').fill(lateCash.futureDate);
       await form.getByLabel('Cash counted (₹)').fill('0');
       await form.getByRole('button', { name: 'Record cash count', exact: true }).click();
@@ -737,22 +803,22 @@ test.describe('real Accounts browser journey (Phase 5B Milestone A section 8)', 
     });
 
     await test.step('A records the old obligation through the form; B verifies it and clears only that date', async () => {
-      await a.goto('/app/accounts/cash');
-      const branchA = a.getByRole('region', { name: BRANCH_NAME, exact: true });
-      await openSummary(branchA, 'Record a daily cash count');
-      const form = branchA.getByRole('form', { name: `Record a daily cash count for ${BRANCH_NAME}` });
+      const branchA = await openBranchCash(a);
+      const form = await cashDrawerForm(a, 'count');
       await form.getByLabel('Business date').fill(lateCash.oldDate);
       // The dated fixture is unverified: the expected posted cash balance is zero.
       await form.getByLabel('Cash counted (₹)').fill('0');
       await form.getByRole('button', { name: 'Record cash count', exact: true }).click();
+      // The drawer is modal: after the save, close it to read the branch again.
+      await expect(doneIn(form)).toBeVisible({ timeout: 30_000 });
+      await closeDrawer(a);
       const countsA = branchA.getByRole('list', { name: `Daily cash counts at ${BRANCH_NAME}` });
       const countA = countsA.locator(':scope > li').filter({ hasText: finDateText(lateCash.oldDate) });
       await expect(countA).toContainText('Awaiting verification', { timeout: 30_000 });
       await expect(countA.getByRole('button', { name: 'Verify cash count', exact: true })).toHaveAttribute('aria-disabled', 'true');
       await expect(branchA.getByRole('list', { name: /Daily cash count awaiting verification/ })).toContainText(finDateText(lateCash.oldDate));
 
-      await b.goto('/app/accounts/cash');
-      const branchB = b.getByRole('region', { name: BRANCH_NAME, exact: true });
+      const branchB = await openBranchCash(b);
       const countB = branchB.getByRole('list', { name: `Daily cash counts at ${BRANCH_NAME}` })
         .locator(':scope > li').filter({ hasText: finDateText(lateCash.oldDate) });
       const verify = countB.getByRole('form', { name: `Verify cash count for ${lateCash.oldDate}` });
@@ -779,10 +845,8 @@ test.describe('real Accounts browser journey (Phase 5B Milestone A section 8)', 
 
       const bankRef = `SYNDEP${tag}`;
       const slipName = `deposit-slip-${tag}.pdf`;
-      await a.goto('/app/accounts/cash');
-      const branchA = a.getByRole('region', { name: BRANCH_NAME, exact: true });
-      await openSummary(branchA, 'Record a bank deposit');
-      const form = branchA.getByRole('form', { name: `Record a bank deposit for ${BRANCH_NAME}` });
+      const branchA = await openBranchCash(a);
+      const form = await cashDrawerForm(a, 'deposit');
       // Deposit only this run's receipt; other verified fixture cash stays in custody.
       for (const box of await form.getByRole('checkbox').all()) await box.uncheck();
       await form.getByRole('checkbox', { name: new RegExp(`^${esc(cashNo)} `) }).check();
@@ -794,14 +858,19 @@ test.describe('real Accounts browser journey (Phase 5B Milestone A section 8)', 
         buffer: Buffer.from(`%PDF-1.4\n% Synthetic deposit_slip for ${bankRef}, run ${stamp}. Not a real deposit.\n%%EOF\n`),
       });
       await form.getByRole('button', { name: 'Record deposit' }).click();
+      // The drawer is modal: once the deposit is saved, close it to read the branch again (the form leaves the
+      // drawer when no verified cash is left to deposit, so the saved row is the signal).
+      await expect.poll(async () => db(async (client) => (await client.query(
+        'select 1 from public.cash_deposits where legal_entity_id = $1 and bank_reference = $2', [ENTITY_ID, bankRef],
+      )).rows.length), { timeout: 30_000 }).toBe(1);
+      await closeDrawer(a);
       const depositsA = branchA.getByRole('list', { name: `Bank deposits at ${BRANCH_NAME}` });
       const cardA = depositsA.locator(':scope > li').filter({ hasText: bankRef });
       await expect(cardA).toContainText('Deposit: Awaiting verification', { timeout: 30_000 });
       await expect(cardA.getByRole('list', { name: `Deposit slip for ${bankRef}` })).toContainText(slipName);
       await expect(cardA).toContainText('works for 60 seconds');
 
-      await b.goto('/app/accounts/cash');
-      const branchB = b.getByRole('region', { name: BRANCH_NAME, exact: true });
+      const branchB = await openBranchCash(b);
       const cardB = branchB.getByRole('list', { name: `Bank deposits at ${BRANCH_NAME}` }).locator(':scope > li').filter({ hasText: bankRef });
       const link = cardB.getByRole('list', { name: `Deposit slip for ${bankRef}` }).getByRole('link', { name: slipName });
       const href = (await link.getAttribute('href')) ?? '';
@@ -871,7 +940,7 @@ test.describe('real Accounts browser journey (Phase 5B Milestone A section 8)', 
       await verifyReceipt(b, no, 'Cheque awaiting bank clearance');
       await expect(receiptCard(b, no)).toContainText('Cheque awaiting bank clearance');
       await uploadProof(b, no, 'bank_proof', `cheque-credit-${tag}.pdf`, stamp);
-      await openSummary(receiptCard(b, no), 'Record cheque cleared');
+      await openSummary(await receiptDetails(b, no), 'Record cheque cleared');
       const clear = b.getByRole('form', { name: `Record cheque cleared ${no}` });
       await clear.getByLabel('Date the bank cleared it').fill(istToday());
       await clear.getByRole('button', { name: 'Record cheque cleared' }).click();
@@ -983,17 +1052,17 @@ test.describe('real Accounts browser journey (Phase 5B Milestone A section 8)', 
       await openDeal(a, ids.d1, deal1.ref, 'receipts');
       await expect(receiptCard(a, bankNo)).toContainText(`${DEST.bank.label} · Bank account · Synthetic Bank ${DEST.bank.masked} · version 1`);
       await openDeal(a, ids.d2, deal2.ref, 'receipts');
-      const receiptForm = a.getByRole('form', { name: 'Record a receipt' });
-      await receiptForm.getByRole('radio', { name: /^Bank transfer\b/ }).check();
+      const recordForm = await receiptForm(a);
+      await recordForm.getByRole('radio', { name: /^Bank transfer\b/ }).check();
       // This run's retired bank account is never offered (other approved accounts may exist on a reused stack).
-      const bankSelect = receiptForm.getByLabel('Company account the money was paid into');
+      const bankSelect = recordForm.getByLabel('Company account the money was paid into');
       if (await bankSelect.count()) {
         await expect(bankSelect.locator('option').filter({ hasText: DEST.bank.label })).toHaveCount(0);
       } else {
-        await expect(receiptForm).toContainText('No approved company account');
+        await expect(recordForm).toContainText('No approved company account');
       }
-      await receiptForm.getByRole('radio', { name: /^UPI\b/ }).check();
-      await expect(receiptForm.getByLabel('Company account the money was paid into')).toBeVisible();
+      await recordForm.getByRole('radio', { name: /^UPI\b/ }).check();
+      await expect(recordForm.getByLabel('Company account the money was paid into')).toBeVisible();
       await shot(a, 'company-account-retired');
     });
 

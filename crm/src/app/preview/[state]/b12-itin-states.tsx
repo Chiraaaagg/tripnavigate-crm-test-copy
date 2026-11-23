@@ -61,6 +61,13 @@ const ITIN_STATES: Record<string, () => ReactNode> = {
   'b12-itin-ready': () => shell(<ItineraryScreen editor={ITIN_SCREENS.ready()} actions={GALLERY_ITIN_ACTIONS} {...back} />),
   'b12-itin-preview': () => shell(<ItineraryPreviewPage documentId={ITIN_DOC_ID} view={itineraryDocumentView()} />),
   'b12-itin-not-available': () => shell(<ItineraryNotAvailableView />),
+  // UX redesign R2 (SL-21): nothing attached, so "Existing itinerary (optional, private)" starts folded.
+  // UX redesign R2 (SL-21): no transfers, activities or flights yet, so all three lists start folded.
+  'r2-itin-empty-lists': () => {
+    const e = ITIN_SCREENS.notChecked();
+    return shell(<ItineraryScreen editor={{ ...e, facts: { ...e.facts, transfers: [], activities: [], flights: [] } }} actions={GALLERY_ITIN_ACTIONS} {...back} />);
+  },
+  'r2-itin-no-source': () => shell(<ItineraryScreen editor={{ ...ITIN_SCREENS.notChecked(), sources: [] }} actions={GALLERY_ITIN_ACTIONS} {...back} />),
   // The print page's layout (app/print/layout.tsx) around the branded template: no app chrome, banner hidden.
   'b12-itin-print': () => {
     const r = itineraryToEngine(itineraryDocumentView());

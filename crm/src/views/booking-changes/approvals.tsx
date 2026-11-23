@@ -7,11 +7,11 @@ import { Notice } from '@/components/ui/notice';
 import { LoadingRegion, Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
-import { DialogAction, ReasonField } from '@/views/accounts-desk/acc2-kit';
 import type { DeskResult } from '@/views/accounts-desk/desk-kit';
 import { inr, whenText } from '@/views/accounts-desk/labels';
 import { DEPARTMENT_WORD, KIND_WORD, REFUSAL_TEXT, ROUTE_WORD, STATUS_TONE, STATUS_WORD } from './labels';
 import { itemNosText } from './rules';
+import { RowDecision } from '@/views/department/row-decision';
 import { ChangeReviewPanel } from './review';
 import type { ChangeRequestListRow, ChangeRequestsPage, ChangeReviewView, RemovalChargesView } from './types';
 
@@ -24,6 +24,11 @@ import type { ChangeRequestListRow, ChangeRequestsPage, ChangeReviewView, Remova
  * entered its charges (`charges_missing`). The requester never approves
  * their own request (`not_self_approval`). The Sales owner sees their own
  * Deals read-only; Accounts reads every request of the entity.
+ *
+ * Redesign R3 (DM-25): Approve and "Return with reason" sit in a footer
+ * that stays in view (sticky) while the Manager reads a long review. Approve
+ * still confirms in a dialog before it posts (as before); the reason box
+ * opens only after "Return with reason".
  */
 
 export interface ChangeDecideActions {
@@ -165,44 +170,40 @@ function ApprovalRow({ r, charges, review, actions, open, headingLevel }: { r: C
       {review ? <ChangeReviewPanel review={review} /> : null}
       {r.kind === 'remove_service' && r.removalRoute === 'cancellation' && charges ? <RemovalChargesTable charges={charges} /> : null}
       {showDecide ? (
-        <div className="flex flex-wrap items-start gap-3">
-          <DialogAction
-            buttonLabel="Approve"
-            buttonVariant="primary"
-            blockedReason={blocked}
-            title={`Approve ${r.refNo}`}
-            description={`${versionNo ? `You approve exactly version ${versionNo} as shown, with its selling total and payment plan. ` : 'You approve exactly the version shown. '}${
-              r.kind === 'change'
-                ? 'Purchase then reconfirms with each supplier; the change is applied when every supplier agreed. Your approval stands in for the Accounts review of the new version (no other approval). Cost above budget and the supplier payment rules still apply.'
-                : r.kind === 'add_service'
-                  ? 'The new service then gets its task in the right department.'
-                  : 'The service\u2019s task then closes; money the customer paid above the new total goes back through an overpayment refund.'
-            }`}
-            primaryLabel="Approve this version"
-            pendingLabel="Approving…"
-            action={actions?.decide}
-            fields={{ ...fields, decision: 'approve' }}
-            okTitle="Approved"
-            initialOpen={open?.dialog === 'approve'}
-            initialState={open?.dialog === 'approve' ? open.state : undefined}
-            ariaLabel={`Approve ${r.refNo}`}
-          />
-          <DialogAction
-            buttonLabel="Return"
-            blockedReason={r.can.return ? null : 'You asked for this change or are not its approver.'}
-            title={`Return ${r.refNo}`}
-            description="The Sales owner sees your reason, fixes the same change version and sends it again, or withdraws it. Nothing changes in the booking."
-            primaryLabel="Return with this reason"
-            pendingLabel="Returning…"
-            action={actions?.decide}
-            fields={{ ...fields, decision: 'return' }}
-            okTitle="Returned"
-            initialOpen={open?.dialog === 'return'}
-            initialState={open?.dialog === 'return' ? open.state : undefined}
-            ariaLabel={`Return ${r.refNo}`}
-          >
-            <ReasonField id={`cra-ret-${r.id}`} label="What should change" />
-          </DialogAction>
+        <div className="sticky bottom-0 z-1 -mx-4 -mb-4 rounded-b-card border-t border-line bg-card px-4 py-3" data-slot="decision-footer">
+          {actions ? (
+            <RowDecision
+              recordName={r.refNo}
+              action={actions.decide}
+              fields={fields}
+              approveLabel="Approve this version"
+              help={versionNo ? `You approve exactly version ${versionNo} as shown.` : 'You approve exactly the version shown.'}
+              // A confirm step before posting, as before the redesign (the approval binds this version).
+              approveConfirm={{
+                title: `Approve ${r.refNo}?`,
+                effect: `${versionNo ? `You approve exactly version ${versionNo} as shown, with its selling total and payment plan. ` : 'You approve exactly the version shown. '}${
+                  r.kind === 'change'
+                    ? 'Purchase then reconfirms with each supplier; the change is applied when every supplier agreed. Your approval stands in for the Accounts review of the new version (no other approval). Cost above budget and the supplier payment rules still apply.'
+                    : r.kind === 'add_service'
+                      ? 'The new service then gets its task in the right department.'
+                      : 'The service\u2019s task then closes; money the customer paid above the new total goes back through an overpayment refund.'
+                }`,
+                confirmLabel: 'Approve this version',
+              }}
+              ret={{
+                title: `Return ${r.refNo}?`,
+                effect: 'The Sales owner sees your reason, fixes the same change version and sends it again, or withdraws it. Nothing changes in the booking.',
+                confirmLabel: 'Return to the Sales owner',
+                blockedReason: r.can.return ? null : 'You asked for this change or are not its approver.',
+              }}
+              approveBlockedReason={blocked}
+              initialApproveResult={open?.dialog === 'approve' ? (open.state ?? null) : null}
+              initialApproveOpen={open?.dialog === 'approve'}
+              initialReturnOpen={open?.dialog === 'return'}
+            />
+          ) : (
+            <p className="m-0 text-sm text-quiet">The branch Manager decides this change.</p>
+          )}
         </div>
       ) : null}
     </article>
@@ -287,7 +288,7 @@ export function ChangeRequestsTabIntro({ count }: { count: number | null }) {
 export function ChangeRequestsApprovalsSection({ page, actions, charges, reviews }: { page: ChangeRequestsPage | 'error'; actions: ChangeDecideActions | null; charges?: Record<string, RemovalChargesView | 'error'>; reviews?: Record<string, ChangeReviewView | 'error'> }) {
   return (
     <section aria-labelledby="ap-changes-h" className="flex flex-col gap-3 font-sans">
-      <h2 id="ap-changes-h" className="m-0 text-lg font-semibold text-ink">
+      <h2 id="ap-changes-h" className="m-0 scroll-mt-18 text-lg font-semibold text-ink">
         Changes after confirmation to approve
       </h2>
       <ChangeRequestsApprovals page={page} charges={charges} reviews={reviews} actions={actions} viewer="manager" headingLevel={3} />

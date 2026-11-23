@@ -16,6 +16,13 @@ import { QuoteCopySwitch } from './quote-views';
  * (quotation_customer_money; review E4-2). The check result comes from the
  * documents safety scan run by the adapter on the server (review E4-3), and
  * is stated in words above the document; a hit is a blocking problem.
+ *
+ * UX redesign R2 (D1, owner Q3): the quotation's customer copy carries
+ * "Print or save as PDF" (the browser's own print window) and, for a version
+ * ready to share, the existing "Mark as shared" dialog. Print styles are
+ * classes only (no style attribute, CSP): everything on this page except the
+ * document is print:hidden, and the staff frame (menu, phone header,
+ * environment banner) already hides itself in print. No PDF file is made.
  */
 
 export type PreviewCheck =
@@ -46,7 +53,28 @@ function blockedPhrases(refusals: AdapterRefusal[]): string[] {
   return [...new Set(refusals.filter((r) => r.code === 'unsafe_text' && r.detail).map((r) => r.detail!.split(':').slice(1).join(':')))];
 }
 
-export function QuotePreviewFrame({ backHref, backLabel = 'Back to the quotation', title = 'What the customer sees', check, children, copyLinks }: { backHref: string; backLabel?: string; title?: string; check: PreviewCheck; children?: ReactNode; /** Batch 2: the quotation's Edit / Customer copy switch. */ copyLinks?: QuoteCopyLinks }) {
+export function QuotePreviewFrame({
+  backHref,
+  backLabel = 'Back to the quotation',
+  title = 'What the customer sees',
+  check,
+  children,
+  copyLinks,
+  actions,
+  shareLine,
+}: {
+  backHref: string;
+  backLabel?: string;
+  title?: string;
+  check: PreviewCheck;
+  children?: ReactNode;
+  /** Batch 2: the quotation's Edit / Customer copy switch. */
+  copyLinks?: QuoteCopyLinks;
+  /** R2 (D1): header actions ("Print or save as PDF", "Mark as shared"). Never printed. */
+  actions?: ReactNode;
+  /** R2 (D1): one line on sharing (shared when and how, or what must happen first). Never printed. */
+  shareLine?: ReactNode;
+}) {
   const phrases = check.kind === 'refused' ? blockedPhrases(check.refusals) : [];
   // DEC-50 review: a missing company GSTIN is Accounts' data, never a fact staff can fill in.
   const split = check.kind === 'ok' ? splitCompanyGstinPlaceholders(check.placeholders) : { gstinBranches: [], others: [] };
@@ -54,19 +82,20 @@ export function QuotePreviewFrame({ backHref, backLabel = 'Back to the quotation
   const other = check.kind === 'refused' ? [...new Set(check.refusals.filter((r) => r.code !== 'unsafe_text').map((r) => REFUSAL_TEXT[r.code]))] : [];
   return (
     <div className="font-sans text-base text-copy">
-      <p className="m-0 mb-3">
+      <p className="m-0 mb-3 print:hidden">
         <Link href={backHref} className={cn('inline-flex items-center gap-1 rounded-chip text-sm font-medium text-brand-strong no-underline hover:text-brand-deep hover:underline', focusRing)}>
           <ChevronLeft aria-hidden="true" className="size-4" />
           {backLabel}
         </Link>
       </p>
-      <PageHeader title={title} description="This is how the quotation will look. Nothing is sent." />
-      {copyLinks ? (
-        <div className="mb-4">
-          <QuoteCopySwitch links={copyLinks} />
+      <PageHeader className="print:hidden" title={title} description="This is how the quotation will look. Nothing is sent." actions={actions} />
+      {copyLinks || shareLine ? (
+        <div className="mb-4 flex flex-col gap-2 print:hidden">
+          {copyLinks ? <QuoteCopySwitch links={copyLinks} /> : null}
+          {shareLine}
         </div>
       ) : null}
-      <div className="mb-4 flex flex-col gap-3" role="status">
+      <div className="mb-4 flex flex-col gap-3 print:hidden" role="status">
         {check.kind === 'no_money' ? (
           <Notice tone="locked">{QUOTE_TEXT.previewNeedsPrices}</Notice>
         ) : check.kind === 'ok' ? (

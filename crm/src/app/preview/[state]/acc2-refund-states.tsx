@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/ui/page-header';
+import { SectionTabs } from '@/components/ui/section-tabs';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import { DealDuesCard } from '@/views/accounts-desk/deal-money';
 import { DealRefundsCard } from '@/views/refunds/deal-card';
@@ -166,7 +167,20 @@ const states: Record<string, () => ReactNode> = {
   'acc2-refund-approvals-error': () => approvals(<ApprovalsRefundsSection queue="error" actions={ACTIONS} today={TODAY} />),
 
   /* Accounts › Refunds */
-  'acc2-refund-desk': () => shell(accountsViewer, '/app/accounts/refunds', <AccountsRefundsPage entityName={ACCOUNTS_ENTITY} payouts={queue([{ ...REQ_APPROVED, can: { ...CAN, payout: true } }])} supplierDue={SUPPLIER_DUE} actions={ACTIONS} today={TODAY} />),
+  'acc2-refund-desk': () =>
+    shell(
+      accountsViewer,
+      '/app/accounts/refunds',
+      <AccountsRefundsPage
+        entityName={ACCOUNTS_ENTITY}
+        payouts={queue([{ ...REQ_APPROVED, can: { ...CAN, payout: true } }])}
+        supplierDue={SUPPLIER_DUE}
+        actions={ACTIONS}
+        today={TODAY}
+        // UX redesign R4 (D5): the Money in tab strip under the header.
+        sectionTabs={<SectionTabs section="money-in" currentHref="/app/accounts/refunds" viewer={accountsViewer} />}
+      />,
+    ),
   'acc2-refund-desk-self': () =>
     shell(accountsViewer, '/app/accounts/refunds', <AccountsRefundsPage entityName={ACCOUNTS_ENTITY} payouts={queue([{ ...REQ_APPROVED, can: { ...CAN, payout: true } }])} supplierDue={[]} actions={{ ...ACTIONS, payOut: act(A.rfSelf) }} today={TODAY} open={{ requestId: REQ_APPROVED.id, dialog: 'payout', state: { ok: false, code: 'not_self_approval', message: 'You cannot approve or pay out something you asked for or approved.' } }} />),
   'acc2-refund-desk-over-expected': () =>

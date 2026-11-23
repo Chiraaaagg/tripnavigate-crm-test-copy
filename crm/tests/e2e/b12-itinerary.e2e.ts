@@ -17,10 +17,12 @@ const STATES = [
   'b12-itin-ready',
   'b12-itin-preview',
   'b12-itin-not-available',
-  'b12-book-prefill-travellers',
-  'b12-book-prefill-stay',
-  'b12-book-prefill-off',
+  'r2-itin-no-source',
+  'r2-itin-empty-lists',
   'b12-quote-draft-prefill',
+  'b12-quote-prefill-use',
+  'b12-quote-prefill-checked',
+  'b12-quote-prefill-off',
 ];
 
 accessibilitySuite('B1.2 itineraries and prefill: accessibility', STATES);
@@ -84,6 +86,44 @@ test.describe('B1.2 itineraries', () => {
     await expect(page.getByRole('button', { name: 'Attach file' })).toBeEnabled();
   });
 
+  test('R2 (SL-21): the optional source file is folded while nothing is attached, open once a file is there', async ({ page }) => {
+    await open(page, 'r2-itin-no-source');
+    const fold = page.locator('details#sources-fold');
+    await expect(fold).not.toHaveAttribute('open', '');
+    await expect(fold.locator('summary')).toContainText('Existing itinerary (optional, private)');
+    await expect(fold.locator('summary')).toContainText('Nothing attached');
+    await expect(page.getByRole('button', { name: 'Attach file' })).toBeHidden();
+    await fold.locator('summary').click();
+    await expect(page.getByRole('button', { name: 'Attach file' })).toBeVisible();
+    // The facts come before it and are never folded.
+    await expect(page.locator('section#facts')).toBeVisible();
+    await open(page, 'b12-itin-not-checked');
+    await expect(page.locator('details#sources-fold')).toHaveAttribute('open', '');
+    await expect(page.locator('details#sources-fold summary')).toContainText('1 attached');
+  });
+
+  test('R2 (SL-21): empty Transfers, Activities and Flights start folded; filled ones start open; adding a row works inside the fold', async ({ page }) => {
+    await open(page, 'r2-itin-empty-lists');
+    const facts = page.locator('section#facts');
+    for (const key of ['transfers', 'activities', 'flights']) {
+      const fold = facts.locator(`details#itin-fold-${key}`);
+      await expect(fold).not.toHaveAttribute('open', '');
+      await expect(fold.locator('summary')).toContainText('None yet');
+    }
+    await expect(page.getByRole('button', { name: 'Add transfer 1' })).toBeHidden();
+    await facts.locator('details#itin-fold-transfers summary').click();
+    await page.getByRole('button', { name: 'Add transfer 1' }).click();
+    // Same field names as before the fold.
+    await expect(facts.locator('details#itin-fold-transfers input[name="transferFrom"]')).toHaveCount(1);
+    await expect(facts.locator('details#itin-fold-transfers')).toHaveAttribute('open', '');
+    await expect(facts.locator('details#itin-fold-transfers summary')).toContainText('1 added');
+    // The usual facts: a transfer and an activity open, no flight folded.
+    await open(page, 'b12-itin-not-checked');
+    await expect(page.locator('details#itin-fold-transfers')).toHaveAttribute('open', '');
+    await expect(page.locator('details#itin-fold-activities')).toHaveAttribute('open', '');
+    await expect(page.locator('details#itin-fold-flights')).not.toHaveAttribute('open', '');
+  });
+
   test('open differences: each says where and how; use the quotation value, keep it, or keep it with a note', async ({ page }) => {
     await open(page, 'b12-itin-open');
     const list = page.getByRole('list', { name: 'Open differences' });
@@ -133,8 +173,8 @@ test.describe('B1.2 itineraries', () => {
   test('print page layout: the document only, no environment banner, skip link or staff shell', async ({ page }) => {
     await open(page, 'b12-itin-print');
     await expect(page.locator('#print-document')).toBeVisible();
-    await expect(page.locator('body > .env-banner')).toBeHidden();
-    await expect(page.locator('body > .skip-link')).toBeHidden();
+    await expect(page.getByRole('note', { includeHidden: true }).filter({ hasText: 'environment: synthetic data only' })).toBeHidden();
+    await expect(page.getByRole('link', { name: 'Skip to main content', includeHidden: true })).toBeHidden();
     await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0);
   });
 
@@ -145,25 +185,29 @@ test.describe('B1.2 itineraries', () => {
 });
 
 test.describe('B1.2 Bitrix prefill', () => {
-  test('Book now step 1: what Bitrix holds, one click to use it, and the field says "From Bitrix — check it"', async ({ page }) => {
-    await open(page, 'b12-book-prefill-travellers');
+  // These three ran on the Book now step screen until it was removed on 17 November 2026 (decision D2).
+  // The booking form does not show this panel; the quotation editor does whenever the
+  // prefill_auto_fill switch is off, so the same checks run there. Two changes: the hint of the
+  // contact name field has the quotation editor's id, and the line "Booking Notes from Bitrix, for
+  // reference. They are not copied into the booking." is dropped (the panel shows it only on a booking).
+  test('what Bitrix holds, one click to use it, and the field says "From Bitrix — check it"', async ({ page }) => {
+    await open(page, 'b12-quote-prefill-use');
     const panel = page.getByRole('region', { name: 'From Bitrix' });
     await expect(panel).toContainText('Quiet villa in Ubud, beach in Seminyak.');
-    await expect(panel).toContainText('Booking Notes from Bitrix, for reference. They are not copied into the booking.');
     // DEC-45: Customer Type means a business booking; still one click, then checked.
     await expect(panel).toContainText('Bitrix has a Customer Type for this customer, so "Booking for" can be filled as a business.');
     await expect(panel).toContainText('A business (GST), from Customer Type B2D');
     await expect(panel.getByRole('button', { name: 'Use Bitrix value for Booking for' })).toBeVisible();
     await expect(panel).toContainText('A contact filled from Bitrix stays unconfirmed');
     await expect(panel.getByText('From Bitrix — check')).toBeVisible();
-    await expect(page.locator('#customer-contact-name-hint')).toContainText('From Bitrix. Check with the customer.');
+    await expect(page.locator('#q-contact-contactName-hint')).toContainText('From Bitrix. Check with the customer.');
     await expect(panel.getByRole('button', { name: 'Mark checked for Contact name' })).toBeVisible();
     await panel.getByRole('button', { name: 'Use Bitrix value for Contact mobile' }).click();
     await expect(panel.getByRole('status').filter({ hasText: 'Filled from Bitrix: Contact mobile' })).toBeVisible();
   });
 
-  test('Book now step 2: hidden Booking Notes say so; checked and changed states are words', async ({ page }) => {
-    await open(page, 'b12-book-prefill-stay');
+  test('hidden Booking Notes say so; checked and changed states are words', async ({ page }) => {
+    await open(page, 'b12-quote-prefill-checked');
     const panel = page.getByRole('region', { name: 'From Bitrix' });
     await expect(panel).toContainText('Trip start date');
     await expect(panel).toContainText('From Bitrix, checked');
@@ -172,7 +216,7 @@ test.describe('B1.2 Bitrix prefill', () => {
   });
 
   test('switched off or not read yet: an honest notice, nothing to click', async ({ page }) => {
-    await open(page, 'b12-book-prefill-off');
+    await open(page, 'b12-quote-prefill-off');
     const panel = page.getByRole('region', { name: 'From Bitrix' });
     await expect(panel).toContainText('Bitrix values are not available for this Deal yet. Type the details instead.');
     await expect(panel.getByRole('button')).toHaveCount(0);

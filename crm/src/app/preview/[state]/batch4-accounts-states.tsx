@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { AccountsDealDetail } from '@/modules/finance/contracts';
-import type { AccountsDealTab } from '@/modules/settings/contracts';
+import { SectionTabs } from '@/components/ui/section-tabs';
+import { ACCOUNTS_DEAL_PAGE_TABS, type AccountsDealPageTab } from '@/views/finance-common';
 import { StaffShell, type ShellViewer } from '@/views/StaffShell';
 import { AccountsDealIdProofs } from '@/views/b11/id-proofs-list';
 import { AccountsDealView, AccountsQueueView, FinanceNoAccessView } from '@/views/finance-views';
@@ -45,39 +46,41 @@ const idProofs = (
   />
 );
 
-function deal(name: string, d: AccountsDealDetail, tab?: AccountsDealTab, extra: { documents?: ReactNode } = {}) {
+function deal(name: string, d: AccountsDealDetail, tab?: string, extra: { documents?: ReactNode } = {}) {
   return (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
-      <AccountsDealView detail={d} actions={actions} destinationOptions={destinationOptions} tabParam={tab} tabHref={(t) => `/preview/${name}--${t}`} documents={extra.documents} />
+      <AccountsDealView detail={d} actions={actions} destinationOptions={destinationOptions} tabParam={tab} tabHref={(t: AccountsDealPageTab) => `/preview/${name}--${t}`} documents={extra.documents} />
     </StaffShell>
   );
 }
 
-const DEAL_STATES: Record<string, (tab?: AccountsDealTab) => ReactNode> = {
+const DEAL_STATES: Record<string, (tab?: string) => ReactNode> = {
   'b4-accounts-deal-billing-after-approval': (tab) => deal('b4-accounts-deal-billing-after-approval', billingAfterApproval, tab ?? 'review'),
   'b4-accounts-deal-nothing-waiting': (tab) => deal('b4-accounts-deal-nothing-waiting', allDone, tab),
   'b4-accounts-deal-documents': (tab) => deal('b4-accounts-deal-documents', detail, tab ?? 'documents', { documents: idProofs }),
 };
 
+const toCheckTabs = <SectionTabs section="to-check" currentHref="/app/accounts" viewer={accounts} />;
+
 const STATES: Record<string, () => ReactNode> = {
   'b4-accounts-to-check': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
-      <AccountsQueueView items={queueItems.slice(0, 3)} filter="needs_review" paging={{ totalCount: 3, hasMore: false, nextAfter: null, laterPage: false }} />
+      <AccountsQueueView sectionTabs={toCheckTabs} items={queueItems.slice(0, 3)} filter="needs_review" paging={{ totalCount: 3, hasMore: false, nextAfter: null, laterPage: false }} />
     </StaffShell>
   ),
   'b4-accounts-to-check-receipts': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
-      <AccountsQueueView items={queueItems.slice(1, 3)} filter="awaiting_verification" paging={{ totalCount: 2, hasMore: false, nextAfter: null, laterPage: false }} />
+      <AccountsQueueView sectionTabs={toCheckTabs} items={queueItems.slice(1, 3)} filter="awaiting_verification" paging={{ totalCount: 2, hasMore: false, nextAfter: null, laterPage: false }} />
     </StaffShell>
   ),
   'b4-accounts-to-check-returned': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
-      <AccountsQueueView items={[]} filter="returned" paging={{ totalCount: 0, hasMore: false, nextAfter: null, laterPage: false }} />
+      <AccountsQueueView sectionTabs={toCheckTabs} items={[]} filter="returned" paging={{ totalCount: 0, hasMore: false, nextAfter: null, laterPage: false }} />
     </StaffShell>
   ),
   'b4-accounts-to-check-receipts-empty': () => (
     <StaffShell viewer={accounts} currentPath="/app/accounts">
-      <AccountsQueueView items={[]} filter="awaiting_verification" paging={{ totalCount: 0, hasMore: false, nextAfter: null, laterPage: false }} />
+      <AccountsQueueView sectionTabs={toCheckTabs} items={[]} filter="awaiting_verification" paging={{ totalCount: 0, hasMore: false, nextAfter: null, laterPage: false }} />
     </StaffShell>
   ),
   // T-B4-11: a Purchase holder opening any Accounts address gets the same refusal, no amounts.
@@ -90,7 +93,7 @@ const STATES: Record<string, () => ReactNode> = {
 
 for (const [name, render] of Object.entries(DEAL_STATES)) {
   STATES[name] = () => render();
-  for (const t of ['money', 'review', 'receipts', 'documents'] as const) STATES[`${name}--${t}`] = () => render(t);
+  for (const t of [...ACCOUNTS_DEAL_PAGE_TABS, 'money']) STATES[`${name}--${t}`] = () => render(t);
 }
 
 export const BATCH4_ACCOUNTS_STATES = Object.keys(STATES);

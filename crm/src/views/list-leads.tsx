@@ -1,36 +1,31 @@
-import { Building2, FilePlus2, FileQuestion, Inbox, Lock } from 'lucide-react';
+import { FileQuestion, Inbox, Lock } from 'lucide-react';
 import Link from 'next/link';
-import type { ReactNode } from 'react';
 import { buttonVariants } from '@/components/ui/button';
-import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
+import { cn } from '@/components/ui/cn';
 import { EmptyState } from '@/components/ui/empty-state';
 import { FilterChips } from '@/components/ui/filter-chips';
 import { ListPager, pagerRangeText } from '@/components/ui/list-pager';
 import { PageHeader } from '@/components/ui/page-header';
-import { RecordTabs } from '@/components/ui/record-tabs';
-import { SummaryList, SummaryRow } from '@/components/ui/summary-list';
 import { Table, TableBody, TableCaption } from '@/components/ui/table';
 import type {
   BitrixNameVM,
-  LeadBitrixDetailsVM,
   LeadListFilter,
-  LeadWorkspaceVM,
   ListFiltersVM,
   ListFreshnessVM,
   ListPagerVM,
   RecordOwnerVM,
 } from '@/modules/deals/workspace-contract';
-import { bitrixCodeDetail, dayText, formatIst, recordOwnerText } from './deal-labels';
-import { TabUnavailable } from './deal-workspace/tab-error';
+import { dayText } from './deal-labels';
 import type { LeadRelation } from './lead-views';
-import { BackLink, BitrixName, FreshnessLine, LateRecordNotice, namesSwitchedOff, nothingVisible, OwnerValue } from './list-parts';
+import { FreshnessLine, ListLoading, ListToolbar, namesSwitchedOff, nothingVisible } from './list-parts';
 import { LeadListRow, LeadsTableHeader } from './list-rows';
 import { type LeadSearchAction, LeadsServerSearch, ListSearch } from './list-search';
 import { LEAD_SEEN_BECAUSE } from './list-seen-because';
 
 /*
- * Direction A, Batch 1: Leads list (LE-01) and Lead record (LE-02). Server
- * components. Props per Luna's luna-batch1-props.md; view models from
+ * Direction A, Batch 1: Leads list (LE-01). Server components. The Lead
+ * record (LE-02) moved to lead-views.tsx in the UX redesign (R2). Props per Luna's luna-batch1-props.md; view models from
  * src/modules/deals/workspace-contract.ts. Re-exported by lead-views.tsx (the
  * route import path). Kept in its own file so Tailwind scans the new markup
  * and never the legacy helper class names of the older lead views.
@@ -132,7 +127,19 @@ function LeadsEmpty({ filters, pager }: { filters: ListFiltersVM<LeadListFilter>
   );
 }
 
-/** Leads list (LE-01): freshness line, filter chips with exact counts, search, compact table, true pager. */
+/**
+ * Loading state of the Leads list (route loading file, UX redesign R2): the
+ * list's own shapes (ListLoading), so the page does not jump when it arrives.
+ */
+export function LeadsListLoading() {
+  return <ListLoading title="Leads" noun="leads" />;
+}
+
+/**
+ * Leads list (LE-01; UX redesign R2 queue pattern C2): freshness line, one
+ * toolbar row (search, filter chips with exact counts), compact table where
+ * the customer name is the row's link, true pager.
+ */
 export function LeadsListScreen({ rows, filters, freshness, pager, now, namesSwitchable = false, search }: LeadsListScreenProps) {
   const namesOff = namesSwitchable && namesSwitchedOff(rows.flatMap((r) => [r.status, r.source]));
   const list = (
@@ -179,133 +186,20 @@ export function LeadsListScreen({ rows, filters, freshness, pager, now, namesSwi
         </>
       ) : (
         <>
-          <div className="mb-4 flex flex-col gap-4">
-            <FilterChips filters={filters} label="Filter leads" />
-            {rows.length > 0 ? <ListSearch tableId="leads-table" noun="leads" /> : null}
-          </div>
+          {/* UX redesign R2 (C2): the same toolbar row as with server search: search, then chips. */}
+          <ListToolbar className="mb-4">
+            {rows.length > 0 ? (
+              <div className="w-full max-w-xl min-w-0 lg:w-auto lg:max-w-md lg:min-w-64 lg:flex-1">
+                <ListSearch tableId="leads-table" noun="leads" />
+              </div>
+            ) : null}
+            <div className={cn('min-w-0', rows.length > 0 && 'lg:pt-6')}>
+              <FilterChips filters={filters} label="Filter leads" />
+            </div>
+          </ListToolbar>
           {list}
         </>
       )}
-    </div>
-  );
-}
-
-export interface LeadWorkspaceViewProps {
-  workspace: LeadWorkspaceVM;
-  /** Quotations tab body (today's SubjectQuotationsCard), placed by the route only when the Quotations tab is open. */
-  quotationsTab?: ReactNode;
-}
-
-function LeadOverviewTab({ overview }: { overview: NonNullable<LeadWorkspaceVM['overview']> }) {
-  return (
-    <Card>
-      <section aria-labelledby="lead-overview-heading">
-        <CardHeader>
-          <CardTitle id="lead-overview-heading">Overview</CardTitle>
-        </CardHeader>
-        <CardBody>
-          <SummaryList>
-            <SummaryRow label="Source">
-              <BitrixName name={overview.source} kind="source" />
-            </SummaryRow>
-            <SummaryRow label="Created in Bitrix">{formatIst(overview.createdInBitrixAt)}</SummaryRow>
-            <SummaryRow label="Branch">{overview.branchName}</SummaryRow>
-            <SummaryRow label="Owner">
-              <OwnerValue owner={overview.owner} />
-            </SummaryRow>
-          </SummaryList>
-        </CardBody>
-      </section>
-    </Card>
-  );
-}
-
-function LeadBitrixTab({ bitrix }: { bitrix: LeadBitrixDetailsVM }) {
-  return (
-    <Card>
-      <section aria-labelledby="lead-bitrix-heading">
-        <CardHeader>
-          <CardTitle id="lead-bitrix-heading">Bitrix details</CardTitle>
-        </CardHeader>
-        <CardBody className="flex flex-col gap-4">
-          <SummaryList>
-            <SummaryRow label="Bitrix lead">#{bitrix.sourceLeadId}</SummaryRow>
-            <SummaryRow label="Status">
-              <BitrixName name={bitrix.status} kind="status" />
-              <span className="block text-sm text-quiet">{bitrixCodeDetail(bitrix.status)}</span>
-            </SummaryRow>
-            <SummaryRow label="Source">
-              <BitrixName name={bitrix.source} kind="source" />
-              <span className="block text-sm text-quiet">{bitrixCodeDetail(bitrix.source)}</span>
-              <span className="block text-sm text-quiet">Source is the label staff set in Bitrix. It does not prove which form the customer used.</span>
-            </SummaryRow>
-            <SummaryRow label="Created in Bitrix">{formatIst(bitrix.createdInBitrixAt)}</SummaryRow>
-            <SummaryRow label="Last checked with Bitrix">{formatIst(bitrix.lastCheckedAt)}</SummaryRow>
-            <SummaryRow label="Last change received from Bitrix">{formatIst(bitrix.lastChangeAt)}</SummaryRow>
-            <SummaryRow label="Why you see it">You see this lead because {LEAD_SEEN_BECAUSE[bitrix.relation]}.</SummaryRow>
-          </SummaryList>
-          <p className="m-0 flex gap-2 text-sm text-quiet">
-            <Lock aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-faint" />
-            <span>Title, status, source and owner come from Bitrix. Change them in Bitrix.</span>
-          </p>
-        </CardBody>
-      </section>
-    </Card>
-  );
-}
-
-/** Lead record (LE-02): header with one primary action, link tabs, only the open tab's body. */
-export function LeadWorkspaceView({ workspace, quotationsTab }: LeadWorkspaceViewProps) {
-  const { header, tabs, current } = workspace;
-  const quotationsTabItem = tabs.find((t) => t.tab === 'quotations');
-  // On the Quotations tab the card's own "Create quotation" is the one primary (copy §16.3), so the header link is hidden there.
-  const showPrimary = header.canCreateQuotation && quotationsTabItem && current !== 'quotations';
-  const nextActor = header.next.actor ?? recordOwnerText(header.owner);
-  const body =
-    current === 'quotations' ? (
-      quotationsTab ?? <TabUnavailable thing="Quotations" />
-    ) : current === 'bitrix' ? (
-      workspace.bitrix ? <LeadBitrixTab bitrix={workspace.bitrix} /> : <TabUnavailable thing="Bitrix details" />
-    ) : workspace.overview ? (
-      <LeadOverviewTab overview={workspace.overview} />
-    ) : (
-      <TabUnavailable thing="Overview" />
-    );
-  return (
-    <div className="font-sans text-base text-copy">
-      <BackLink href="/app/leads">Back to leads</BackLink>
-      <PageHeader
-        eyebrow={header.reference}
-        title={<span className="block wrap-anywhere">{header.title}</span>}
-        status={
-          <>
-            <BitrixName name={header.status} kind="status" capitalDetails />
-            <OwnerValue owner={header.owner} withLabel />
-            <span className="inline-flex items-center gap-1.5 text-copy">
-              <Building2 aria-hidden="true" className="size-4 shrink-0 text-faint" />
-              {header.branchName}
-            </span>
-          </>
-        }
-        actions={
-          showPrimary ? (
-            <Link href={quotationsTabItem.href} className={buttonVariants({ variant: 'primary' })} data-slot="lead-primary">
-              <FilePlus2 aria-hidden="true" />
-              New quotation
-            </Link>
-          ) : undefined
-        }
-        className="mb-3"
-      />
-      <div className="mb-4 flex flex-col gap-2">
-        <p className="m-0 text-copy">
-          <span className="font-semibold text-ink">Next:</span> {header.next.text}
-          {nextActor ? <span className="text-quiet"> · {nextActor}</span> : null}
-        </p>
-        {header.bitrixLate ? <LateRecordNotice thing="lead" /> : null}
-      </div>
-      <RecordTabs tabs={tabs} label="Lead sections" className="mb-4" />
-      {body}
     </div>
   );
 }

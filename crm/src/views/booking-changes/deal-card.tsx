@@ -1,6 +1,7 @@
 import { GitCompareArrows } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Fold } from '@/components/ui/fold';
 import { Notice } from '@/components/ui/notice';
 import { LoadingRegion, Skeleton } from '@/components/ui/skeleton';
 import { DialogAction } from '@/views/accounts-desk/acc2-kit';
@@ -36,6 +37,47 @@ const ASK_DESCRIPTION: Record<ChangeKind, string> = {
 
 const KINDS = ['change', 'add_service', 'remove_service'] as const;
 const ASK_LABEL: Record<ChangeKind, string> = { change: 'Request a change', add_service: 'Add a service', remove_service: 'Remove a service' };
+const ASK_TITLE: Record<ChangeKind, string> = { change: 'Request a change', add_service: 'Ask to add a service', remove_service: 'Ask to remove a service' };
+
+type AskPreview = { kind: ChangeKind; state?: DeskResult | null };
+
+function askAction(actions: Partial<ChangeRequestActions> | null, kind: ChangeKind): DecisionAction | undefined {
+  return kind === 'change' ? actions?.create : kind === 'add_service' ? actions?.createAdd : actions?.createRemove;
+}
+
+/** One ask button with its dialog (same fields and action as before; only its place on the page moved in R2). */
+function AskDialog({ c, kind, actions, preview, variant }: { c: DealChangeRequestsView; kind: ChangeKind; actions: Partial<ChangeRequestActions> | null; preview?: AskPreview; variant: 'primary' | 'secondary' }) {
+  return (
+    <DialogAction
+      buttonLabel={ASK_LABEL[kind]}
+      buttonVariant={variant}
+      blockedReason={requestBlockedReason(c, kind)}
+      title={ASK_TITLE[kind]}
+      description={ASK_DESCRIPTION[kind]}
+      primaryLabel="Start the change"
+      pendingLabel="Starting…"
+      action={askAction(actions, kind)}
+      fields={{ dealId: c.dealId }}
+      okTitle="Started"
+      initialOpen={preview?.kind === kind}
+      initialState={preview?.kind === kind ? preview.state : undefined}
+    >
+      <ChangeRequestFields kind={kind} confirmed={c.confirmed} removable={c.removable} addableTypes={c.addableTypes} />
+    </DialogAction>
+  );
+}
+
+/**
+ * R2 (design plan 2.4 "Deal › Services and tasks", SL-8): "Request a change"
+ * in the Services sold header. Rendered only for people who may ask (the
+ * database's canRequest); while it cannot be used the button stays visible,
+ * disabled, with the reason beside it. Pair with
+ * `<DealChangesCard askInServicesHeader />` so the button is not shown twice.
+ */
+export function RequestChangeHeaderAction({ changes, actions, preview }: { changes: DealChangeRequestsView; actions: Partial<ChangeRequestActions> | null; preview?: AskPreview }) {
+  if (!changes.canRequest) return null;
+  return <AskDialog c={changes} kind="change" actions={actions} preview={preview} variant="primary" />;
+}
 
 export function DealChangesCard({
   changes,
@@ -44,8 +86,11 @@ export function DealChangesCard({
   editHref,
   historyHref,
   switches,
+  askInServicesHeader = false,
   preview,
 }: {
+  /** R2: "Request a change" sits in the Services sold header (RequestChangeHeaderAction); this card keeps Add and Remove. */
+  askInServicesHeader?: boolean;
   /** Super Admin only (the route decides): the two feature switches with their actions. */
   switches?: { setChanges: DecisionAction; setServiceChanges: DecisionAction } | null;
   changes: DealChangeRequestsView | 'error';
@@ -72,7 +117,8 @@ export function DealChangesCard({
   const status = live ? `${KIND_WORD[live.kind]} ${live.refNo}: ${STATUS_WORD[live.status].toLowerCase()}` : c.requests.length ? 'No change in progress' : 'No change asked for';
   const offWord = !c.enabled && !(c.serviceChangesEnabled ?? c.enabled) ? blockedWord('changes_off') : null;
   const showAsk = c.canRequest;
-  const reasons = KINDS.map((k) => requestBlockedReason(c, k));
+  const kinds = askInServicesHeader ? KINDS.filter((k) => k !== 'change') : KINDS;
+  const reasons = kinds.map((k) => requestBlockedReason(c, k));
   const sharedBlock = reasons[0] && reasons.every((r) => r === reasons[0]) ? reasons[0] : null;
   const dbBlocks = c.blockedBy.filter((code) => code !== 'changes_off' && code !== 'service_changes_off' && code !== 'change_open');
   return (
@@ -98,27 +144,11 @@ export function DealChangesCard({
         </Notice>
       ) : null}
 
-      {showAsk && sharedBlock ? <BlockedGroup labels={KINDS.map((k) => ASK_LABEL[k])} reason={sharedBlock} /> : null}
+      {showAsk && sharedBlock ? <BlockedGroup labels={kinds.map((k) => ASK_LABEL[k])} reason={sharedBlock} /> : null}
       {showAsk && !sharedBlock ? (
         <div className="flex flex-wrap items-start gap-3">
-          {KINDS.map((kind) => (
-            <DialogAction
-              key={kind}
-              buttonLabel={ASK_LABEL[kind]}
-              buttonVariant={kind === 'change' ? 'primary' : 'secondary'}
-              blockedReason={requestBlockedReason(c, kind)}
-              title={kind === 'change' ? 'Request a change' : kind === 'add_service' ? 'Ask to add a service' : 'Ask to remove a service'}
-              description={ASK_DESCRIPTION[kind]}
-              primaryLabel="Start the change"
-              pendingLabel="Starting…"
-              action={kind === 'change' ? actions?.create : kind === 'add_service' ? actions?.createAdd : actions?.createRemove}
-              fields={{ dealId: c.dealId }}
-              okTitle="Started"
-              initialOpen={preview?.ask?.kind === kind}
-              initialState={preview?.ask?.kind === kind ? preview.ask.state : undefined}
-            >
-              <ChangeRequestFields kind={kind} confirmed={c.confirmed} removable={c.removable} addableTypes={c.addableTypes} />
-            </DialogAction>
+          {kinds.map((kind) => (
+            <AskDialog key={kind} c={c} kind={kind} actions={actions} preview={preview?.ask} variant={kind === 'change' ? 'primary' : 'secondary'} />
           ))}
         </div>
       ) : null}
@@ -158,7 +188,14 @@ export function DealChangesCard({
         {past.length === 0 ? (
           <p className="m-0 text-copy">None yet.</p>
         ) : (
-          past.map((r) => <ChangeRequestBlock key={r.id} r={r} deal={c} viewer={viewer} actions={actions} editHref={null} open={preview?.open} />)
+          // R2 (SL-8): each earlier request folds to one line; its details open on demand.
+          <div className="flex flex-col gap-2">
+            {past.map((r) => (
+              <Fold key={r.id} summary={`${KIND_WORD[r.kind]} ${r.refNo}`} meta={STATUS_WORD[r.status]} className="shadow-none">
+                <ChangeRequestBlock r={r} deal={c} viewer={viewer} actions={actions} editHref={null} open={preview?.open} />
+              </Fold>
+            ))}
+          </div>
         )}
         {historyHref && c.requests.some((r) => r.status === 'applied') ? (
           <a href={historyHref} className="text-sm font-semibold text-brand-strong underline-offset-4 hover:underline">

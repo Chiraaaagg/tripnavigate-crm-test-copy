@@ -1,32 +1,24 @@
 import type { ReactNode } from 'react';
-import { PageHeader } from '@/components/ui/page-header';
 import type { SettingsTabVM } from '@/modules/settings/contracts';
-import { SETTINGS_TEXT } from '@/modules/settings/text';
-import { SettingsTabs } from './settings-tabs';
+import { SettingsAreas } from './settings-tabs';
 
 /*
- * The Settings area (Direction A R6, DA-250 to DA-252): one page title
- * "Settings", the approval line once per page (DA-251, replaces the per-row
- * approval lines and the old Workflow banner), the tab bar of the categories
- * this person may open, then the page itself. Each page's own heading is a
- * section heading (h2). The tabs are convenience only: every page, command
- * and database policy still decides access on its own.
+ * The Settings area (R1, design plan 1.4; replaces the Batch 4 tab bar): the
+ * area list on the left (a select on phones), one heading per area (the area
+ * name) with one muted line, then the page itself. The approval line now sits
+ * on the Overview landing and in each change dialog. Each page's own headings
+ * are section headings (h2). The list is convenience only: every page,
+ * command and database policy still decides access on its own.
  */
 export function SettingsFrame({ tabs, children, currentPath }: { tabs: SettingsTabVM[]; children: ReactNode; /** Preview gallery only. */ currentPath?: string }) {
   return (
-    <div className="font-sans text-base text-copy" data-slot="settings-frame">
-      <PageHeader title={SETTINGS_TEXT.title} description={tabs.length > 0 ? SETTINGS_TEXT.frameLine : undefined} className="mb-3" />
-      {tabs.length > 0 ? (
-        <div className="mb-6">
-          <SettingsTabs tabs={tabs} currentPath={currentPath} />
-        </div>
-      ) : null}
-      <div className="flex flex-col gap-5">{children}</div>
-    </div>
+    <SettingsAreas tabs={tabs} currentPath={currentPath}>
+      <div className="flex min-w-0 flex-col gap-5">{children}</div>
+    </SettingsAreas>
   );
 }
 
-/** A section heading inside a Settings tab (the page's former h1). */
+/** A section heading inside a Settings area (the page's former h1). */
 export function SettingsSectionHeading({ id, children, description }: { id?: string; children: ReactNode; description?: ReactNode }) {
   return (
     <div className="flex flex-col gap-1">

@@ -131,8 +131,8 @@ describe('department task tabs (Details · Work · Files · History)', () => {
     expect(files).not.toContain('What Sales booked');
     expect(files).toContain('/app/purchase/files/p1');
     expect(files).toContain('Customer payment proofs and acceptance messages are never listed here.');
-    // Header primary: the assignee off the Work tab gets a link to it (Purchase build: its next step depends on the work).
-    expect(files).toContain('Open the Work tab');
+    // Header primary (R3, O6): the assignee off the Work tab gets a link that opens Work at the control of the next step.
+    expect(files).toContain('?tab=work#purchase-next-confirmation');
     const work = render(PurchaseTaskPage, { task: view({ assigneeName: 'Synthetic Purchase Jodhpur', assignedToYou: true, status: 'in_progress' }), tabs: tabsOf('work'), work: 'WORK-SLOT' });
     expect(work).toContain('WORK-SLOT');
     expect(work).not.toContain('Open the Work tab');

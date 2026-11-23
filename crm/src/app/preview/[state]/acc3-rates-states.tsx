@@ -5,7 +5,9 @@ import { Tabs } from '@/components/ui/tabs';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import { RateContractApprovalsTab } from '@/views/rate-contracts/approvals';
 import { RateContractLoading, RateContractNotFound, RateContractPageView, type RateContractActions, type RateContractPreview } from '@/views/rate-contracts/contract-page';
-import { RateSheetColumns, RateSheetImportDetails } from '@/views/rate-contracts/import-details';
+import { RATE_SHEET_NO_ACCESS_TEXT } from '@/modules/parties/import-access';
+import { RateSheetColumns, RateSheetImportArea, RateSheetImportDetails } from '@/views/rate-contracts/import-details';
+import { RateSheetImportView } from '@/views/rate-contracts/rate-sheet-import';
 import { RateContractsListView, RateContractsLoading, RateContractsNoAccess } from '@/views/rate-contracts/list';
 import { ContractRateBlockFrame } from '@/views/rate-contracts/offer-block';
 import type { RateContractDetail, RateContractFilter, RateContractLookup, RateContractPage, RateContractViewer } from '@/views/rate-contracts/types';
@@ -19,7 +21,8 @@ import { PreviewTyped } from './preview-typed';
 /*
  * Accounts phase 3 preview states (acc3-rates-*), track U: Suppliers › Rate
  * contracts (list and contract page), Approvals › Rate contracts, Settings ›
- * Imports › Rate sheet and the Purchase offer form contract block. Synthetic
+ * Imports › Rate sheet, the rate-sheet upload inside Suppliers › Rate
+ * contracts (UX redesign R3) and the Purchase offer form contract block. Synthetic
  * props only; rendered by the design-review gallery only (a 404 outside local
  * preview mode).
  */
@@ -51,7 +54,7 @@ function shell(viewer: ShellViewer, path: string, body: ReactNode) {
 const BASE = '/app/purchase/rate-contracts';
 const page = (items = ROWS, more = false): RateContractPage => ({ items, nextAfter: more ? '2026-11-01|a0003506-0000-4000-8000-000000003506' : null, hasMore: more });
 
-function list(viewer: RateContractViewer, opts: { filter?: RateContractFilter; page?: RateContractPage | 'error'; enabled?: boolean; createState?: Parameters<typeof RateContractsListView>[0]['createInitialState']; createAction?: DecisionAction } = {}) {
+function list(viewer: RateContractViewer, opts: { filter?: RateContractFilter; page?: RateContractPage | 'error'; enabled?: boolean; createState?: Parameters<typeof RateContractsListView>[0]['createInitialState']; createAction?: DecisionAction; createOpen?: boolean } = {}) {
   return shell(
     SHELL[viewer],
     BASE,
@@ -64,7 +67,8 @@ function list(viewer: RateContractViewer, opts: { filter?: RateContractFilter; p
       suppliers={viewer === 'purchase' ? SUPPLIERS : []}
       createAction={viewer === 'purchase' ? (opts.createAction ?? act(A.rcCreateOk)) : null}
       createInitialState={opts.createState}
-      importHref={viewer === 'purchase' ? '/app/settings/imports?kind=rate_sheet' : null}
+      createOpen={opts.createOpen}
+      importHref={viewer === 'purchase' ? '/app/purchase/rate-contracts/import' : null}
     />,
   );
 }
@@ -130,6 +134,31 @@ function sheet(withResult: boolean) {
   );
 }
 
+/* UX redesign R3: the rate-sheet upload inside Suppliers › Rate contracts (same check and import as Settings). */
+function sheetInArea(mode: 'start' | 'checked' | 'no-access') {
+  return shell(
+    purchaseViewer,
+    `${BASE}/import`,
+    <RateSheetImportArea>
+      {mode === 'checked' ? (
+        <Card>
+          <CardBody className="flex flex-col gap-5">
+            <RateSheetImportDetails sheet={SHEET} />
+            <RateSheetColumns />
+          </CardBody>
+        </Card>
+      ) : (
+        <RateSheetImportView
+          check={mode === 'start' ? act(A.rcFileOk) : null}
+          apply={null}
+          canImport={mode === 'start'}
+          noAccessText={mode === 'start' ? '' : RATE_SHEET_NO_ACCESS_TEXT}
+        />
+      )}
+    </RateSheetImportArea>,
+  );
+}
+
 function offer(initial: { roomTypeId?: string; mealPlanCode?: string; result?: RateContractLookup | null } | undefined, over: { quoted?: string; enabled?: boolean; hotelName?: string | null; supplierChosen?: boolean; reasonError?: string } = {}) {
   return shell(
     purchaseViewer,
@@ -191,6 +220,8 @@ const states: Record<string, () => ReactNode> = {
   'acc3-rates-list-create-refused': () => typed({ validFrom: '2026-12-01', validTo: '2027-03-31' }, list('purchase', { createAction: act(A.rcLinkNotAllowed), createState: { ok: false, code: 'link_not_allowed', message: 'This supplier is not linked to this hotel, or does not sell hotels.' } })),
   'acc3-rates-list-loading': () => shell(purchaseViewer, BASE, <RateContractsLoading />),
   'acc3-rates-list-no-access': () => shell(salesViewer, BASE, <RateContractsNoAccess />),
+  'acc3-rates-list-add-open': () => list('purchase', { createOpen: true }),
+  'acc3-rates-list-status-chip': () => list('purchase', { filter: { status: ['draft'] }, page: page([ROWS[3]!]) }),
 
   /* One contract */
   'acc3-rates-contract-draft-new': () => contract('purchase', DRAFT),
@@ -235,6 +266,9 @@ const states: Record<string, () => ReactNode> = {
   /* Settings › Imports › Rate sheet */
   'acc3-rates-import-columns': () => sheet(false),
   'acc3-rates-import-checked': () => sheet(true),
+  'acc3-rates-import-area': () => sheetInArea('start'),
+  'acc3-rates-import-area-checked': () => sheetInArea('checked'),
+  'acc3-rates-import-area-no-access': () => sheetInArea('no-access'),
 
   /* Purchase offer form › contract rate */
   'acc3-rates-offer-pick': () => offer(undefined, { quoted: '' }),

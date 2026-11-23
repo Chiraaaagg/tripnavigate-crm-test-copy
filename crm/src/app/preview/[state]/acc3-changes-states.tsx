@@ -4,7 +4,7 @@ import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/page-header';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
-import { ChangeRequestsApprovals, ChangeRequestsApprovalsLoading, ChangeRequestsTabIntro } from '@/views/booking-changes/approvals';
+import { ChangeRequestsApprovals, ChangeRequestsApprovalsLoading, ChangeRequestsApprovalsSection, ChangeRequestsTabIntro } from '@/views/booking-changes/approvals';
 import { ChangeModeBanner, ChangeModeServiceMark, ChangedField } from '@/views/booking-changes/change-mode';
 import { DealChangesCard, DealChangesCardLoading } from '@/views/booking-changes/deal-card';
 import { ChangeHistory, ChangeHistoryLoading } from '@/views/booking-changes/history';
@@ -12,6 +12,10 @@ import { ReconfirmPanel, ReconfirmPanelLoading } from '@/views/booking-changes/r
 import type { ChangeRequestActions } from '@/views/booking-changes/request-block';
 import type { ChangeModeView, ChangeViewer, DealChangeRequestsView } from '@/views/booking-changes/types';
 import { StaffShell, type ShellViewer } from '@/views/StaffShell';
+import { ManagerApprovalsPage } from '@/views/purchase/manager-approvals';
+import ApprovalsLoading from '@/app/app/approvals/loading';
+import { RateContractApprovalsTab } from '@/views/rate-contracts/approvals';
+import type { ManagerApprovalsView } from '@/modules/supplier-money/contracts';
 import { INBOX } from './acc-fixtures';
 import { accNoticeNoop } from './acc-preview-actions';
 import * as F from './acc3-changes-fixtures';
@@ -137,6 +141,59 @@ const SELF = { ok: false as const, code: 'not_self_approval', message: 'You cann
 const STALE = { ok: false as const, code: 'version_changed', message: 'Someone changed this since you opened it. Reload the page and check again.' };
 const OUTSIDE = { ok: false as const, code: 'change_outside_request', message: 'Some changed services are not part of the approved request. (Service 3)' };
 
+
+/* Redesign R3: the whole Manager Approvals page (synthetic rows; the decide actions are preview stubs). */
+const UUID = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const EMPTY_VIEW: ManagerApprovalsView = { costsAboveBudget: [], payments: [], funding: [], bankDetails: [], suppliersToVerify: [], cancellations: [], flightFares: [] };
+const MANAGER_VIEW: ManagerApprovalsView = {
+  ...EMPTY_VIEW,
+  costsAboveBudget: [
+    { taskId: UUID(901), dealReference: 'SYN-JOD-301', serviceTitle: 'Synthetic Lake Palace, Udaipur', supplierName: 'Synthetic Lake Partners', versionNo: 3, amountPaise: '3840000', budgetPaise: '3600000', proposedAt: '2026-11-15T08:00:00Z', proposedByName: 'Synthetic Purchase Jodhpur', canApprove: true, contractState: 'none', contractTotalPaise: null, contractDeviationReason: null },
+  ],
+  bankDetails: [
+    { supplierId: UUID(902), supplierName: 'Synthetic Coach Partners', revisionNo: 2, accountHolder: 'Synthetic Coach Partners', bankName: 'Example Bank', ifsc: 'EXMP0000002', accountLast4: '4321', createdAt: '2026-11-14T06:00:00Z', createdByName: 'Synthetic Purchase Jodhpur', canApprove: true },
+  ],
+};
+const MANAGER_VIEW_OWN: ManagerApprovalsView = {
+  ...EMPTY_VIEW,
+  costsAboveBudget: MANAGER_VIEW.costsAboveBudget.map((c) => ({ ...c, canApprove: false, proposedByName: 'Synthetic Manager Jodhpur' })),
+  suppliersToVerify: [{ supplierId: UUID(903), name: 'Synthetic Heritage Stays', city: 'Bikaner', serviceTypes: ['hotel'], rowVersion: 2, updatedAt: '2026-11-14T06:00:00Z', canVerify: false }],
+};
+const MANAGER_ACTIONS = { decidePayment: act(A.crDecideOk), decideFunding: act(A.crDecideOk), decideCancellation: act(A.crDecideOk) };
+
+function approvalsPage(view: ManagerApprovalsView, extra: { changes: 'rows' | 'own' | 'error' | 'none'; rates: 'rows' | 'error' | 'none' }) {
+  const changeItems = extra.changes === 'rows' ? [F.ROW_CHANGE, F.ROW_REMOVE_MISSING] : extra.changes === 'own' ? [F.ROW_SELF] : [];
+  const changePage = extra.changes === 'error' ? ('error' as const) : { items: changeItems, nextAfter: null, hasMore: false };
+  return shell(
+    managerViewer,
+    '/app/approvals',
+    <ManagerApprovalsPage
+      view={view}
+      today="2026-11-17"
+      actions={MANAGER_ACTIONS}
+      extraSections={[
+        {
+          key: 'changes',
+          count: extra.changes === 'error' ? 'unknown' : changeItems.length,
+          node: (
+            <ChangeRequestsApprovalsSection
+              page={changePage}
+              charges={{ [F.ROW_REMOVE_MISSING.id]: F.CHARGES_MISSING }}
+              reviews={extra.changes === 'rows' ? { [F.ROW_CHANGE.id]: F.REVIEW_CHANGE } : undefined}
+              actions={decide}
+            />
+          ),
+        },
+        {
+          key: 'rateContracts',
+          count: extra.rates === 'error' ? 'unknown' : 0,
+          node: <RateContractApprovalsTab rows={extra.rates === 'error' ? 'error' : []} enabled visibleHeading />,
+        },
+      ]}
+    />,
+  );
+}
+
 const states: Record<string, () => ReactNode> = {
   /* Deal page card — Sales owner */
   'acc3-changes-deal-none': () => dealPage(salesViewer, 'sales', F.DEAL_NONE),
@@ -210,6 +267,15 @@ const states: Record<string, () => ReactNode> = {
     approvals(managerViewer, <ChangeRequestsApprovals viewer="manager" page={{ items: [F.ROW_CHANGE], nextAfter: null, hasMore: false }} reviews={{ [F.ROW_CHANGE.id]: F.REVIEW_CHANGE }} actions={decide} />),
   'acc3-changes-review-approve-open': () =>
     approvals(managerViewer, <ChangeRequestsApprovals viewer="manager" page={{ items: [F.ROW_CHANGE], nextAfter: null, hasMore: false }} reviews={{ [F.ROW_CHANGE.id]: F.REVIEW_CHANGE }} actions={decide} open={{ requestId: F.ROW_CHANGE.id, dialog: 'approve' }} />),
+  'acc3-changes-review-return-open': () =>
+    approvals(managerViewer, <ChangeRequestsApprovals viewer="manager" page={{ items: [F.ROW_CHANGE], nextAfter: null, hasMore: false }} reviews={{ [F.ROW_CHANGE.id]: F.REVIEW_CHANGE }} actions={decide} open={{ requestId: F.ROW_CHANGE.id, dialog: 'return' }} />),
+
+  /* Redesign R3 (DM-5 to DM-8): the whole Approvals page, summary chips, only sections with something waiting */
+  'acc3-changes-approvals-page': () => approvalsPage(MANAGER_VIEW, { changes: 'rows', rates: 'rows' }),
+  'acc3-changes-approvals-page-own': () => approvalsPage(MANAGER_VIEW_OWN, { changes: 'own', rates: 'none' }),
+  'acc3-changes-approvals-page-unknown': () => approvalsPage(MANAGER_VIEW, { changes: 'error', rates: 'error' }),
+  'acc3-changes-approvals-page-empty': () => approvalsPage(EMPTY_VIEW, { changes: 'none', rates: 'none' }),
+  'acc3-changes-approvals-page-loading': () => shell(managerViewer, '/app/approvals', <ApprovalsLoading />),
   'acc3-changes-review-stale': () =>
     approvals(managerViewer, <ChangeRequestsApprovals viewer="manager" page={{ items: [F.ROW_CHANGE], nextAfter: null, hasMore: false }} reviews={{ [F.ROW_CHANGE.id]: F.REVIEW_STALE }} actions={decide} />),
   'acc3-changes-review-not-filled': () =>

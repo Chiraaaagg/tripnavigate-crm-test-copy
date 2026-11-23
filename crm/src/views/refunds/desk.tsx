@@ -49,8 +49,9 @@ function QueueItem({ row, actions, today, open, mode }: { row: QueuedRefund; act
   const amount = row.expectedAmountPaise ?? row.amountPaise;
   const charge = row.expectedChargePaise ?? row.customerChargePaise;
   const o = (d: RefundPreviewOpen['dialog']) => (open?.requestId === row.id && open.dialog === d ? open : undefined);
-  // Accounts work on the Accounts deal page (Deals of every branch); the Manager on the Deal page.
-  const dealHref = mode === 'payout' ? `/app/accounts/deals/${row.dealId}?tab=money` : `/app/deals/${row.dealId}?tab=services#refunds`;
+  // Accounts work on the Accounts deal page (Deals of every branch), on its Refunds tab (R4: ?tab=money opens Receipts);
+  // the Manager on the Deal page.
+  const dealHref = mode === 'payout' ? `/app/accounts/deals/${row.dealId}?tab=refunds#refunds` : `/app/deals/${row.dealId}?tab=money#refunds`;
   return (
     <li className="m-0">
       <article aria-labelledby={`rq-${row.id}`} className="flex flex-col gap-3 rounded-control border border-line bg-canvas p-3">
@@ -248,7 +249,10 @@ export function AccountsRefundsPage({
   supplierNextHref,
   open,
   supplierOpen,
+  sectionTabs,
 }: {
+  /** UX redesign R4 (D5): the Money in tab strip, rendered under the header. */
+  sectionTabs?: ReactNode;
   entityName: string;
   payouts: QueuedRefund[] | 'error';
   supplierDue: SupplierRefundDueRow[] | 'error';
@@ -269,6 +273,7 @@ export function AccountsRefundsPage({
         title="Refunds"
         description={`Customer refunds approved by a Manager and waiting for payout, and refunds expected from suppliers, airlines and visa fees for ${entityName}.`}
       />
+      {sectionTabs}
       {!enabled ? (
         <Notice tone="info" title="Refunds are not switched on yet">
           <p>Nothing can be paid out or recorded here until a Super Admin switches refunds on in Settings · Accounts.</p>

@@ -3,6 +3,7 @@
 import { Copy, Plus, Trash2, Upload } from 'lucide-react';
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/components/ui/cn';
 import { ErrorSummary } from '@/components/ui/error-summary';
 import { Field, fieldDescribedBy } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -12,7 +13,7 @@ import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import { DeskResultLine, refusalMessage, useDeskCommand, useRefusedControl, type DeskResult } from '@/views/accounts-desk/desk-kit';
-import { lineProblems, paiseToRupees, type LineDraft } from './format';
+import { dateText, lineProblems, paiseToRupees, type LineDraft } from './format';
 import { MEAL_PLAN_LABEL } from './labels';
 import { MEAL_PLAN_CODES, type ContractSupplierChoice, type RateBlackoutView, type RateContractDetail, type RateLineView, type RoomTypeView } from './types';
 
@@ -27,6 +28,15 @@ import { MEAL_PLAN_CODES, type ContractSupplierChoice, type RateBlackoutView, ty
  */
 
 const MAX_LINES = 500;
+/*
+ * Rate lines from 1280 px (UX redesign R3, DM-22): one row per line under
+ * column headings (line number, season, room, meals, rate, weekend rate),
+ * then a second row with the optional rates and the note. Below 1280 px each
+ * line stays a labelled card. Field names, order and checks are unchanged.
+ */
+const ROW_ONE = 'xl:grid-cols-[2rem_repeat(2,minmax(8.5rem,1fr))_repeat(2,minmax(9rem,1.2fr))_repeat(2,minmax(7rem,1fr))] xl:items-start xl:gap-2';
+const ROW_TWO = 'xl:grid-cols-[2rem_repeat(3,minmax(7rem,1fr))_minmax(10rem,2fr)] xl:items-start xl:gap-2';
+const ROW_LABEL = 'xl:sr-only';
 const FILE_MAX_BYTES = 4 * 1024 * 1024;
 const FILE_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 
@@ -267,16 +277,29 @@ export function RateLinesForm({ action, contract, roomTypes, initialState }: { a
     cmd.submit(e);
   };
 
-  const moneyField = (i: number, f: 'rateRupees' | 'weekendRateRupees' | 'extraAdultRupees' | 'childWithBedRupees' | 'childWithoutBedRupees', label: string, opts: { optional?: boolean; hint?: string }) => (
+  /** Label of a first-row field: hidden from sight from 1280 px, where the column headings above the lines say it. */
+  const rowLabel = (i: number, text: string, optional = false) => (
+    <span className={ROW_LABEL}>
+      <span className="sr-only">Line {i + 1}: </span>
+      {text}
+      {optional ? <span className="font-normal text-quiet"> (optional)</span> : null}
+    </span>
+  );
+
+  const moneyField = (i: number, f: 'rateRupees' | 'weekendRateRupees' | 'extraAdultRupees' | 'childWithBedRupees' | 'childWithoutBedRupees', label: string, opts: { optional?: boolean; hint?: string; firstRow?: boolean }) => (
     <Field
       htmlFor={id('lines', i, f)}
       label={
-        <>
-          <span className="sr-only">Line {i + 1}: </span>
-          {label}
-        </>
+        opts.firstRow ? (
+          rowLabel(i, label, opts.optional)
+        ) : (
+          <>
+            <span className="sr-only">Line {i + 1}: </span>
+            {label}
+          </>
+        )
       }
-      optional={opts.optional}
+      optional={opts.firstRow ? undefined : opts.optional}
       hint={opts.hint}
       error={err(i, f)}
     >
@@ -306,26 +329,39 @@ export function RateLinesForm({ action, contract, roomTypes, initialState }: { a
       <input type="hidden" name="lineCount" value={lines.length} />
       <input type="hidden" name="blackoutCount" value={blackouts.length} />
       <p className="m-0 text-sm text-quiet">
-        Rates are per room per night, from {contract.validFrom} to {contract.validTo}. Weekend rate is for Friday and Saturday nights. Leave a child or extra adult rate empty when it is not offered.
+        Rates are per room per night, from <span className="whitespace-nowrap">{dateText(contract.validFrom)}</span> to <span className="whitespace-nowrap">{dateText(contract.validTo)}</span>. Weekend rate is for Friday and Saturday nights. Leave a child or extra adult rate empty when it is not offered.
       </p>
       {roomTypes.length === 0 ? (
         <Notice tone="warning" title="This hotel has no room types yet">
           <p>Add the hotel’s room types below the rate lines first, then choose them here.</p>
         </Notice>
       ) : null}
-      <ol className="m-0 flex list-none flex-col gap-3 p-0" aria-label="Rate lines">
+      {/* Column headings for the one-row-per-line layout from 1280 px (each field keeps its own label for screen readers). */}
+      <div aria-hidden="true" className={cn('hidden px-0 text-xs font-medium text-quiet xl:grid', ROW_ONE)}>
+        <span>Line</span>
+        <span>Season from</span>
+        <span>Season to</span>
+        <span>Room type</span>
+        <span>Meal plan</span>
+        <span>Rate per night</span>
+        <span>Weekend rate (optional)</span>
+      </div>
+      <ol className="m-0 flex list-none flex-col gap-3 p-0 xl:gap-0 xl:border-t xl:border-line" aria-label="Rate lines">
         {lines.map((l, i) => (
           <li key={l.key} className="m-0">
-            <fieldset className="m-0 flex min-w-0 flex-col gap-3 rounded-control border border-line bg-card p-3.5">
-              <legend className="px-1 text-base font-semibold text-ink">Line {i + 1}</legend>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Field htmlFor={id('lines', i, 'seasonFrom')} label={<><span className="sr-only">Line {i + 1}: </span>Season from</>} error={err(i, 'seasonFrom')}>
+            <fieldset className="m-0 flex min-w-0 flex-col gap-3 rounded-control border border-line bg-card p-3.5 xl:gap-2 xl:rounded-none xl:border-0 xl:border-b xl:bg-transparent xl:px-0 xl:py-3">
+              <legend className="px-1 text-base font-semibold text-ink xl:sr-only">Line {i + 1}</legend>
+              <div className={cn('grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4', ROW_ONE)}>
+                <span aria-hidden="true" className="hidden pt-2.5 text-sm font-semibold text-quiet tabular-nums xl:block">
+                  {i + 1}
+                </span>
+                <Field htmlFor={id('lines', i, 'seasonFrom')} label={rowLabel(i, 'Season from')} error={err(i, 'seasonFrom')}>
                   <Input id={id('lines', i, 'seasonFrom')} name={`lines[${i}].seasonFrom`} type="date" min={contract.validFrom} max={contract.validTo} value={l.seasonFrom} onChange={(e) => setLine(i, 'seasonFrom', e.target.value)} invalid={!!err(i, 'seasonFrom')} aria-describedby={fieldDescribedBy(id('lines', i, 'seasonFrom'), { error: err(i, 'seasonFrom') })} />
                 </Field>
-                <Field htmlFor={id('lines', i, 'seasonTo')} label={<><span className="sr-only">Line {i + 1}: </span>Season to</>} error={err(i, 'seasonTo')}>
+                <Field htmlFor={id('lines', i, 'seasonTo')} label={rowLabel(i, 'Season to')} error={err(i, 'seasonTo')}>
                   <Input id={id('lines', i, 'seasonTo')} name={`lines[${i}].seasonTo`} type="date" min={contract.validFrom} max={contract.validTo} value={l.seasonTo} onChange={(e) => setLine(i, 'seasonTo', e.target.value)} invalid={!!err(i, 'seasonTo')} aria-describedby={fieldDescribedBy(id('lines', i, 'seasonTo'), { error: err(i, 'seasonTo') })} />
                 </Field>
-                <Field htmlFor={id('lines', i, 'roomTypeId')} label={<><span className="sr-only">Line {i + 1}: </span>Room type</>} error={err(i, 'roomTypeId')}>
+                <Field htmlFor={id('lines', i, 'roomTypeId')} label={rowLabel(i, 'Room type')} error={err(i, 'roomTypeId')}>
                   <Select id={id('lines', i, 'roomTypeId')} name={`lines[${i}].roomTypeId`} value={l.roomTypeId} onChange={(e) => setLine(i, 'roomTypeId', e.target.value)} invalid={!!err(i, 'roomTypeId')} aria-describedby={fieldDescribedBy(id('lines', i, 'roomTypeId'), { error: err(i, 'roomTypeId') })}>
                     <option value="">Choose…</option>
                     {roomTypes.map((r) => (
@@ -335,7 +371,7 @@ export function RateLinesForm({ action, contract, roomTypes, initialState }: { a
                     ))}
                   </Select>
                 </Field>
-                <Field htmlFor={id('lines', i, 'mealPlan')} label={<><span className="sr-only">Line {i + 1}: </span>Meal plan</>} error={err(i, 'mealPlan')}>
+                <Field htmlFor={id('lines', i, 'mealPlan')} label={rowLabel(i, 'Meal plan')} error={err(i, 'mealPlan')}>
                   <Select id={id('lines', i, 'mealPlan')} name={`lines[${i}].mealPlan`} value={l.mealPlan} onChange={(e) => setLine(i, 'mealPlan', e.target.value)} invalid={!!err(i, 'mealPlan')} aria-describedby={fieldDescribedBy(id('lines', i, 'mealPlan'), { error: err(i, 'mealPlan') })}>
                     <option value="">Choose…</option>
                     {MEAL_PLAN_CODES.map((c) => (
@@ -345,18 +381,20 @@ export function RateLinesForm({ action, contract, roomTypes, initialState }: { a
                     ))}
                   </Select>
                 </Field>
+                {moneyField(i, 'rateRupees', 'Rate per night', { firstRow: true })}
+                {moneyField(i, 'weekendRateRupees', 'Weekend rate', { optional: true, firstRow: true })}
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                {moneyField(i, 'rateRupees', 'Rate per night', {})}
-                {moneyField(i, 'weekendRateRupees', 'Weekend rate', { optional: true })}
+              {/* Second row: the rates that are often empty, the note and the line's own buttons. */}
+              <div className={cn('grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4', ROW_TWO)}>
+                <span aria-hidden="true" className="hidden xl:block" />
                 {moneyField(i, 'extraAdultRupees', 'Extra adult', { optional: true })}
                 {moneyField(i, 'childWithBedRupees', 'Child with bed', { optional: true })}
                 {moneyField(i, 'childWithoutBedRupees', 'Child without bed', { optional: true })}
+                <Field htmlFor={id('lines', i, 'note')} label={<><span className="sr-only">Line {i + 1}: </span>Note</>} optional>
+                  <Input id={id('lines', i, 'note')} name={`lines[${i}].note`} maxLength={300} value={l.note} onChange={(e) => setLine(i, 'note', e.target.value)} />
+                </Field>
               </div>
-              <Field htmlFor={id('lines', i, 'note')} label={<><span className="sr-only">Line {i + 1}: </span>Note</>} optional>
-                <Input id={id('lines', i, 'note')} name={`lines[${i}].note`} maxLength={300} value={l.note} onChange={(e) => setLine(i, 'note', e.target.value)} />
-              </Field>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 xl:pl-10">
                 <Button
                   type="button"
                   size="sm"
