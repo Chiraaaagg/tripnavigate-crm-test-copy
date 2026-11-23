@@ -1,0 +1,11 @@
+Supplier ID,Supplier Name,Supplier Type,Services,City,State,GSTIN,PAN,Address,Tally Ledger Name,Contact Name,Contact Phone,Contact Email,Payment Terms,Hotel IDs,Account Holder,Bank Name,IFSC,Account Number
+TST-S-001,Test Lake Hotels Pvt Ltd,direct,hotel,Udaipur,Rajasthan,08AAAAA0001A1Z1,AAAAA0001A,"1 Test Ghat Road, Udaipur",Test Lake Hotels Pvt Ltd,Test Contact One,+91 60000 10001,res@test-lake.example.test,30 days,TST-H-001;TST-H-002,Test Lake Hotels Pvt Ltd,Test Bank,TEST0000001,100000000001
+TST-S-002,Test Desert Tours,channel,hotel;transfer,Jaisalmer,08,08AAAAA0002A1Z2,AAAAA0002A,2 Test Dune Lane,Test Desert Tours,Test Contact Two,60000 10002,,Advance,TST-H-003,,,,
+TST-S-003,Test Cab Services,direct,transfer,Jodhpur,Rajasthan,,AAAAA0003A,,,Test Contact Three,60000 10003,cabs@test-cab.example.test,,,Test Cab Services,Test Bank,TEST0000003,100000000003
+TST-S-004,Test Mismatch Travels,direct,activity,Jaipur,Rajasthan,07AAAAA0004A1Z4,AAAAA0004A,,,,,,,,,,,
+TST-S-005,Test Wrong Pan Stays,direct,hotel,Jaipur,Rajasthan,08AAAAA0005A1Z5,BBBBB0005B,,,,,,,TST-H-999,,,,
+TST-S-001,Test Repeated Row,direct,hotel,Udaipur,Rajasthan,,,,,,,,,,,,,
+TST-S-007,,direct,hotel,Delhi,Delhi,,,,,,,,,,,,,
+TST-S-008,Test Lake Hotel,direct,hotel,Udaipur,Rajasthan,,,,,,,,,,,,,
+TST-S-009,Test Half Bank Ltd,direct,activity,Agra,Uttar Pradesh,,,,,,,,,,Test Half Bank Ltd,,TEST0000009,
+TST-S-010,Test Bad Kind Co,wholesaler,boat,Kochi,Kerala,,,,,,,,,,,,,
