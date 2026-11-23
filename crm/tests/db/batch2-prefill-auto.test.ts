@@ -3,6 +3,7 @@ import { type Actor, FIXTURE_USERS as U, SYNTHETIC_INTAKE_CONFIG, type TestDb, a
 import { priceQuotationVersion } from './b12-quotation-money-support';
 import { ACCOUNTS, ANON, CHECKLIST_SQL, FLIGHT, HOTEL, MANAGER, OWNER, PURCHASE, REASON, SALES_B, SUPER, TRANSFER, rid } from './b1-support';
 import { b11Helpers } from './b11-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Direction A Batch 2 (migration 20261122000100_prefill_auto_fill):
@@ -232,7 +233,7 @@ describe('switch off: today\'s behaviour (lead ruling 20 Oct)', () => {
       // Lead ruling Q2: "Fill empty fields from Bitrix" does not exist while off (after authorization and the version check).
       const rvNow = await rowVersion(s.versionId);
       await refused(PURCHASE, FILL, ['booking_version', s.versionId, rvNow], '42501', 'not_authorized');
-      await refused(OWNER, FILL, ['booking_version', s.versionId, 1], '40001', 'version_changed');
+      await refused(OWNER, FILL, ['booking_version', s.versionId, 1], CONFLICT_STATE, 'version_changed');
       await refused(OWNER, FILL, ['booking_version', s.versionId, rvNow], '55000', 'switch_off');
       await refused(OWNER, FILL, ['quotation_version', q.versionId, q.rowVersion], '55000', 'switch_off');
       expect((await prefillOf(deal)).autoFill.canFillEmpty).toBe(false);
@@ -510,7 +511,7 @@ describe('"Use it" and "Keep mine" (A.5, F.1.3, F.6 N3/N4)', () => {
       await owner(`update public.deal_source_trip_facts set tour_end = '2026-12-17', source_modified_at = now() - interval '1 hour' where deal_id = $1`, [deal]);
       p = await prefillOf(deal);
       expect(stateOf(p, 'trip.end').notice).toMatchObject({ bitrixValue: '2026-12-17' });
-      await refused(OWNER, APPLY, [s.versionId, s.rowVersion - 1, ['trip.end']], '40001', 'version_changed');
+      await refused(OWNER, APPLY, [s.versionId, s.rowVersion - 1, ['trip.end']], CONFLICT_STATE, 'version_changed');
       const use = await one<Fill & { applied: string[] }>(OWNER, APPLY, [s.versionId, s.rowVersion, ['trip.end']]);
       expect(use.applied).toEqual(['trip.end']);
       p = await prefillOf(deal);
@@ -663,8 +664,8 @@ describe('kept and checked (F.2, BC-A8, BC-A8b)', () => {
         expect(await form(actor, deal)).toBeNull();
       }
       await refused(ANON, START, [deal], '42501');
-      await refused(OWNER, CHECK, ['booking_version', s.versionId, 1, ['trip.start']], '40001', 'version_changed');
-      await refused(OWNER, FILL, ['booking_version', s.versionId, 1], '40001', 'version_changed');
+      await refused(OWNER, CHECK, ['booking_version', s.versionId, 1, ['trip.start']], CONFLICT_STATE, 'version_changed');
+      await refused(OWNER, FILL, ['booking_version', s.versionId, 1], CONFLICT_STATE, 'version_changed');
       await refused(OWNER, CHECK, ['booking_version', s.versionId, s.rowVersion, []], '22023', 'invalid_input');
       await refused(OWNER, FILL, ['deal', s.versionId, s.rowVersion], '22023', 'invalid_input');
       await readSwitch(false);

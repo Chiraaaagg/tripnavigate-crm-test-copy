@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type TestDb, asOwner, createTestDb, istBusinessDate } from '../helpers/db';
 import { ACC, OWNER, PURCHASE, SQL, VISA_A, VISA_B, line, rid, visaHelpers } from './visa-e-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Visa build (contract 8 Nov 2026) test plan 12.1 "Fees": per-passenger fee
@@ -45,7 +46,7 @@ describe('C12 visa_fee_send', () => {
       expect((await app(taskId, 1)).fees[0]).toMatchObject({ expenseStatus: 'returned', returnReason: 'Synthetic: the receipt shows a different amount' });
       // Field and version rules.
       await refusedHint(VISA_A, SQL.feeSend, [entryId, returned.rowVersion, JSON.stringify({ amountPaise: '0' }), rid()], 'invalid_input', /amountPaise/);
-      await refused(VISA_A, SQL.feeSend, [entryId, returned.rowVersion - 1, JSON.stringify({ amountPaise: '640000' }), rid()], 'version_changed', '40001');
+      await refused(VISA_A, SQL.feeSend, [entryId, returned.rowVersion - 1, JSON.stringify({ amountPaise: '640000' }), rid()], 'version_changed', CONFLICT_STATE);
       await refused(VISA_B, SQL.feeSend, [entryId, returned.rowVersion, JSON.stringify({ amountPaise: '640000' }), rid()], 'not_authorized', '42501');
       const newReceipt = await evidence(VISA_A, taskId, 'fee_receipt', null, 'f'.repeat(64));
       const sent = await one<Sent>(VISA_A, SQL.feeSend, [entryId, returned.rowVersion,
@@ -87,7 +88,7 @@ describe('C12 visa_fee_send', () => {
       const payload = JSON.stringify({ amountPaise: '650000', receiptEvidenceId: receipt, remark: null });
       const first = await one<Record<string, unknown>>(VISA_A, SQL.feeSend, [cId, 1, payload, req]);
       expect(await one(VISA_A, SQL.feeSend, [cId, 1, payload, req])).toMatchObject({ ...first, outcome: 'existing' });
-      await refused(VISA_A, SQL.feeSend, [cId, 1, JSON.stringify({ amountPaise: '650001', receiptEvidenceId: receipt, remark: null }), req], 'duplicate_request', '40001');
+      await refused(VISA_A, SQL.feeSend, [cId, 1, JSON.stringify({ amountPaise: '650001', receiptEvidenceId: receipt, remark: null }), req], 'duplicate_request', CONFLICT_STATE);
     });
   });
 });

@@ -3,6 +3,7 @@ import { FIXTURE_USERS as U, type TestDb, asOwner, createTestDb } from '../helpe
 import {
   ACC, ACC3, CSV_COLUMNS, CSV_VALUE_KEYS, DEAL, HOTEL_ITEM, MANAGER, PURCHASE, REASON, SENTINEL, SQL, SUPER, accHelpers, dayFrom, rid, today,
 } from './acc-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase contract sections 6.2.1 (tally_records and computed
@@ -76,7 +77,7 @@ describe('T1 match', () => {
       expect(rows.find((r) => r.tally.status === 'matched')!.tally).toMatchObject({ voucherRef: 'SYN-VCH-0001', rowVersion: 1 });
       // Again: already_matched; stale version: version_changed.
       await refused(ACC, SQL.match, ['journal_entry', e1, 1, voucher('SYN-VCH-0002'), rid()], 'already_matched', '55000');
-      await refused(ACC, SQL.match, ['journal_entry', e1, 0, voucher('SYN-VCH-0002'), rid()], 'version_changed', '40001');
+      await refused(ACC, SQL.match, ['journal_entry', e1, 0, voucher('SYN-VCH-0002'), rid()], 'version_changed', CONFLICT_STATE);
     });
   });
 

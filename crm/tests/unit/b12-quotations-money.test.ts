@@ -154,8 +154,8 @@ describe('wording and tokens', () => {
   });
 
   it('every refusal token has plain words and a SQLSTATE; no text mentions GST amounts', () => {
-    for (const [code, state] of Object.entries(QUOTATION_ERROR_STATES)) {
-      expect(state, code).toMatch(/^[0-9A-Z]{5}$/);
+    for (const [code, allowed] of Object.entries(QUOTATION_ERROR_STATES)) {
+      for (const state of typeof allowed === 'string' ? [allowed] : allowed) expect(state, code).toMatch(/^[0-9A-Z]{5}$/);
       expect(QUOTATION_ERROR_TEXT[code as keyof typeof QUOTATION_ERROR_TEXT].length).toBeGreaterThan(10);
     }
     expect(Object.values(QUOTATION_ERROR_TEXT).join(' ')).not.toMatch(/GST|tax/i);

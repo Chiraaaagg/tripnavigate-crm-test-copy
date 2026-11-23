@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { RpcClient, RpcError } from '@/modules/fulfilment/commands';
 import { QUOTATION_STATUSES } from './contracts';
+import { CONFLICT_STATES, stateMatches } from '@/lib/sqlstate';
 
 /**
  * Direction A Batch 3: typed wrappers for the referral-draft commands and
@@ -24,8 +25,8 @@ export const REFERRAL_ERROR_STATES = {
   not_authorized: '42501',
   not_found: 'P0002',
   invalid_input: '22023',
-  version_changed: '40001',
-  request_conflict: '40001',
+  version_changed: CONFLICT_STATES,
+  request_conflict: CONFLICT_STATES,
   referral_drafts_disabled: '55000',
   draft_closed: '55000',
   draft_not_closed: '55000',
@@ -62,7 +63,7 @@ export class ReferralCommandError extends Error {
 export function mapReferralError(error: RpcError): ReferralErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(REFERRAL_ERROR_STATES, token) && REFERRAL_ERROR_STATES[token as ReferralErrorCode] === state) {
+  if (Object.hasOwn(REFERRAL_ERROR_STATES, token) && stateMatches(REFERRAL_ERROR_STATES[token as ReferralErrorCode], state)) {
     return token as ReferralErrorCode;
   }
   if (SESSION_STATES.has(state)) return 'session';

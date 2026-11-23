@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StepNav } from '@/components/ui/stepper';
 import { NotEntered, SummaryList, SummaryRow } from '@/components/ui/summary-list';
 import { Timeline } from '@/components/ui/timeline';
-import { BOOK_NOW_TEXT, CHANGED_FIELD_GROUP_LABEL, SERVICE_NEXT_STEP_TEXT } from '@/modules/fulfilment/contracts';
+import { BOOK_NOW_TEXT, BOOK_RELIABILITY_TEXT, type BookNowPart, CHANGED_FIELD_GROUP_LABEL, SERVICE_NEXT_STEP_TEXT } from '@/modules/fulfilment/contracts';
 import { ProgressPill, ServiceStatePill, ServiceTypePill, serviceOwnerText } from '../service-labels';
 import { ClaimsSummary, ClaimStatusPill } from './book-claims';
 import { B11_DEPARTMENT_LABEL, BOOK_STEP_LABEL, BOOK_STEPS, blockingCount, dateText, inr, REVIEW_STATUS_LABEL, stepItems } from './book-fields';
@@ -245,6 +245,22 @@ export function BookNowLanding({ view, ownerText, dealHref, startForm }: { view:
   );
 }
 
+/**
+ * Booking reliability B1-3 (W3, visible change V2): the line shown in place of
+ * an optional part that did not load on this render. A polite status, not an
+ * alert: the booking itself is not affected. The checklist has its own words
+ * (W3b) where Submit is.
+ */
+export function PartNotLoadedNotice({ part, className }: { part: Exclude<BookNowPart, 'checklist'>; className?: string }) {
+  return (
+    <Notice tone="warning" role="status" className={className}>
+      <p>
+        {BOOK_RELIABILITY_TEXT.partNotLoaded[part]} {BOOK_RELIABILITY_TEXT.partNotLoadedTail}
+      </p>
+    </Notice>
+  );
+}
+
 /** The accepted version, read only: services and tasks, customer, money and versions. */
 export function SubmittedBookingView({
   view,
@@ -269,6 +285,7 @@ export function SubmittedBookingView({
 }) {
   const items = [...view.items].sort((a, b) => a.itemNo - b.itemNo);
   const review = view.accountsReview;
+  const notLoaded = new Set(view.partsNotLoaded);
   return (
     <div className="font-sans text-base text-copy">
       <BookNowHeader view={view} ownerText={ownerText} dealHref={dealHref} />
@@ -347,7 +364,10 @@ export function SubmittedBookingView({
                 <CardTitle id="book-id-proofs-heading">Traveller ID proofs</CardTitle>
                 <CardDescription>Required for every adult. Files can still be attached or replaced after submission; every view is recorded.</CardDescription>
               </CardHeader>
-              <CardBody className="flex flex-col gap-3">{idProofs}</CardBody>
+              <CardBody className="flex flex-col gap-3">
+                {notLoaded.has('idProofCopies') ? <PartNotLoadedNotice part="idProofCopies" /> : null}
+                {idProofs}
+              </CardBody>
             </section>
           </Card>
         ) : null}
@@ -406,6 +426,7 @@ export function SubmittedBookingView({
                       )}
                     </SummaryRow>
                   </SummaryList>
+                  {notLoaded.has('claims') ? <PartNotLoadedNotice part="claims" /> : null}
                   {view.claims ? <ClaimsSummary claims={view.claims} /> : null}
                   {view.claims && view.claims.claims.length > 0 ? (
                     <ul className="m-0 flex list-none flex-col gap-2 p-0" aria-label="Reported payments">
@@ -429,6 +450,7 @@ export function SubmittedBookingView({
           </Card>
         ) : null}
 
+        {notLoaded.has('history') ? <PartNotLoadedNotice part="history" /> : null}
         {view.history && view.history.length > 0 ? (
           <Card>
             <section aria-labelledby="book-versions-heading">
@@ -484,14 +506,19 @@ export function BookNowNotAvailableView() {
   );
 }
 
-/** The booking read failed (not "no booking"): say so and offer a retry. */
+/**
+ * The booking read failed (not "no booking"): say so and offer a retry.
+ * The booking form or overview could not be read (booking reliability B1-3:
+ * W4, visible change V3). Never says "Nothing was changed": the failed read
+ * may follow a save that did go through.
+ */
 export function BookNowUnavailableView({ dealHref }: { dealHref: string }) {
   return (
     <div className="font-sans text-base text-copy">
       <BackToDeal href={dealHref} />
       <PageHeader title="Booking did not load" />
       <Notice tone="danger" role="alert">
-        <p>The booking did not load. Nothing was changed. Reload the page. If it keeps happening, tell your admin.</p>
+        <p>{BOOK_RELIABILITY_TEXT.bookingDidNotLoad}</p>
       </Notice>
     </div>
   );

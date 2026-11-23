@@ -4,6 +4,7 @@ import { ACCOUNTS, ANON, DEAL, MANAGER, MANAGER_AMD, OWNER, PURCHASE, REASON, SA
 import { DESK } from './b11-support';
 import { rpcAs } from './b12-ts-support';
 import { B3, CUSTOMER, type DraftView, batch3Helpers } from './batch3-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Batch 3 (migration 20261123000100): referral drafts (contracts.md B as
@@ -126,7 +127,7 @@ describe('creating standalone drafts (B.4)', () => {
       const replay = await h.standalone(OWNER, CUSTOMER, 'DEL', 'Synthetic referral quote', req);
       expect(replay).toMatchObject({ referralDraftId: s.referralDraftId, quotationId: s.quotationId, versionId: s.versionId, created: false });
       await refused(OWNER, B3.qStandalone, [del, JSON.stringify({ ...CUSTOMER, customerName: 'Someone else' }), 'Synthetic referral quote', req],
-        '40001', 'request_conflict');
+        CONFLICT_STATE, 'request_conflict');
       const [row] = await owner<Record<string, unknown>>(
         `select r.owner_user_id, r.created_by, r.branch_id, r.status, q.referral_draft_id, q.lead_id, q.deal_id, q.owner_user_id as q_owner,
                 c.contact_name, c.mobile
@@ -502,7 +503,7 @@ describe('linking and binding (B.5)', () => {
       await owner('update public.deals set branch_id = $2, owner_user_id = $3 where id = $1', [amdDeal, await h.branchId('AMD'), U.salesAhmedabad]);
       await refused(MANAGER, B3.link, [s.referralDraftId, 1, 'deal', amdDeal, null], '22023', 'branch_mismatch');
       // version_changed, then a good link and draft_already_linked.
-      await refused(OWNER, B3.link, [s.referralDraftId, 9, 'deal', deal, null], '40001', 'version_changed');
+      await refused(OWNER, B3.link, [s.referralDraftId, 9, 'deal', deal, null], CONFLICT_STATE, 'version_changed');
       const link = await h.linkDeal(OWNER, s.referralDraftId, deal);
       expect(link.existing).toBe(false);
       expect((await h.linkDeal(OWNER, s.referralDraftId, deal)).existing).toBe(true);

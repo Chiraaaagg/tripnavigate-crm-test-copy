@@ -1,5 +1,3 @@
-import { reportPaymentClaimAction, withdrawPaymentClaimAction } from '@/modules/finance/server/claim-actions';
-import { removeBookingEvidenceAction, uploadBookingEvidenceAction } from '@/modules/fulfilment/server/actions';
 import {
   classifyRevisionAction,
   discardRevisionAction,
@@ -15,8 +13,23 @@ import {
   submitBookingAction,
 } from '@/modules/fulfilment/server/book-now-actions';
 import { removeTravellerIdProofAction, retryIdProofCopyAction, uploadTravellerIdProofAction } from '@/modules/fulfilment/server/id-proof-actions';
-import { addServiceItemAction, removeServiceItemAction, saveServiceItemAction } from '@/modules/fulfilment/server/intake-actions';
-import { dismissPrefillNoticeAction, fillEmptyPrefillAction, markPrefillCheckedAction, usePrefillAction } from '@/modules/fulfilment/server/book-now-prefill-actions';
+import { addServiceItemAction, saveServiceItemAction } from '@/modules/fulfilment/server/intake-actions';
+import {
+  createPartyBookAction,
+  dismissPrefillNoticeBookAction,
+  fillEmptyPrefillBookAction,
+  markPrefillCheckedBookAction,
+  pickPartyBookAction,
+  refreshFromBitrixBookAction,
+  removeBookingEvidenceBookAction,
+  removeServiceItemBookAction,
+  reportPaymentClaimBookAction,
+  searchHotelsBookAction,
+  searchPartiesBookAction,
+  uploadBookingEvidenceBookAction,
+  applyPrefillBookAction,
+  withdrawPaymentClaimBookAction,
+} from './book-session-actions';
 import {
   removeServiceFileAction,
   saveBillToAction,
@@ -24,29 +37,31 @@ import {
   saveBookingIdentityAction,
   saveBookingPricesAction,
   saveBookingServiceAction,
+  readBookingTravellersAction,
   saveBookingTravellersAction,
   startBookingFormAction,
   uploadServiceFileAction,
 } from '@/modules/fulfilment/server/book-form-actions';
-import { refreshFromBitrixAction } from '@/modules/fulfilment/server/bitrix-refresh-action';
 import { addReturnFlightsAction, saveFlightFaresAction } from '@/modules/fulfilment/server/flight-fares-actions';
-import { searchHotelsAction } from '@/modules/hotels/server/hotel-actions';
-import { createPartyAction, pickPartyAction, searchPartiesAction } from '@/modules/parties/server/party-actions';
 import { stepHrefs } from '@/views/b11/book-fields';
 import type { B11Action, BookActions } from '@/views/b11/shapes';
 import type { BookingFormVM } from '@/modules/fulfilment/booking-form-vm';
 import type { BookingFormActions } from '@/views/booking-form/types';
 import type { VoiceNoteProps } from '@/views/booking-form/vn-types';
 
-/** The frozen server actions behind every Book now screen (B1.1 freeze note §5; B1.2 freeze note §2.1 split saves). */
+/**
+ * The frozen server actions behind every Book now screen (B1.1 freeze note §5; B1.2 freeze note §2.1 split saves).
+ * Booking reliability B1-8 / review P1-1: actions shared with other screens are the Book now copies of
+ * book-session-actions.ts, which answer an ended session in the page instead of redirecting it.
+ */
 export const BOOK_ACTIONS: BookActions = {
   // Prefill results have the booking result shape; their codes also cover quotation targets.
   retryIdProofCopy: retryIdProofCopyAction,
-  usePrefill: usePrefillAction as unknown as B11Action,
-  markPrefillChecked: markPrefillCheckedAction as unknown as B11Action,
+  usePrefill: applyPrefillBookAction as unknown as B11Action,
+  markPrefillChecked: markPrefillCheckedBookAction as unknown as B11Action,
   // Batch 2 (inline mode only): "Fill empty fields from Bitrix" and "Keep mine".
-  fillEmptyPrefill: fillEmptyPrefillAction as unknown as B11Action,
-  dismissPrefillNotice: dismissPrefillNoticeAction as unknown as B11Action,
+  fillEmptyPrefill: fillEmptyPrefillBookAction as unknown as B11Action,
+  dismissPrefillNotice: dismissPrefillNoticeBookAction as unknown as B11Action,
   openDraft: startBookNowAction,
   saveCustomer: saveBookCustomerAction,
   saveTravellers: saveBookTravellersAction,
@@ -56,14 +71,14 @@ export const BOOK_ACTIONS: BookActions = {
   saveIdentity: saveTravellerIdentityAction,
   addServiceItem: addServiceItemAction,
   saveServiceItem: saveServiceItemAction,
-  removeServiceItem: removeServiceItemAction,
+  removeServiceItem: removeServiceItemBookAction,
   saveParticipants: saveParticipationAction,
   savePrice: saveBookPriceAction,
   savePlan: saveBookPaymentAction,
-  reportClaim: reportPaymentClaimAction,
-  withdrawClaim: withdrawPaymentClaimAction,
-  uploadEvidence: uploadBookingEvidenceAction,
-  removeEvidence: removeBookingEvidenceAction,
+  reportClaim: reportPaymentClaimBookAction,
+  withdrawClaim: withdrawPaymentClaimBookAction,
+  uploadEvidence: uploadBookingEvidenceBookAction,
+  removeEvidence: removeBookingEvidenceBookAction,
   submit: submitBookingAction,
   openRevision: openRevisionAction,
   classifyRevision: classifyRevisionAction,
@@ -80,7 +95,18 @@ export const BOOK_ACTIONS: BookActions = {
 export const BOOKING_FORM_V2_ACTIONS = {
   saveFlightFares: saveFlightFaresAction,
   addReturnFlights: addReturnFlightsAction,
-  refreshFromBitrix: refreshFromBitrixAction,
+  refreshFromBitrix: refreshFromBitrixBookAction,
+};
+
+/**
+ * Booking reliability B1-4: "what is saved" for the passengers card after a
+ * save whose answer was lost, and before its "Try again" (dealId in; a read
+ * that returns passenger numbers, names and types and the draft row version;
+ * never writes). Its own object, like the v2 actions, so the screen types
+ * gain it in one place (BookingFormActions in views/booking-form/types.ts).
+ */
+export const BOOKING_FORM_RELIABILITY_ACTIONS = {
+  readTravellers: readBookingTravellersAction,
 };
 
 /**
@@ -107,6 +133,8 @@ export const BOOKING_FORM_ACTIONS: BookingFormActions = {
   saveIdentity: saveBookingIdentityAction,
   // Book now v2
   ...BOOKING_FORM_V2_ACTIONS,
+  // Booking reliability fix batch 1
+  ...BOOKING_FORM_RELIABILITY_ACTIONS,
 };
 
 /**
@@ -121,8 +149,8 @@ export const BOOKING_FORM_ACTIONS: BookingFormActions = {
 export function voiceNoteProps(dealId: string, vm: Pick<BookingFormVM, 'dealFacts'>, editable: boolean): VoiceNoteProps {
   return {
     dealFacts: vm.dealFacts ?? null,
-    searchHotels: searchHotelsAction,
-    parties: { search: searchPartiesAction.bind(null, dealId), pick: pickPartyAction, create: createPartyAction as unknown as B11Action, canCreate: editable },
+    searchHotels: searchHotelsBookAction,
+    parties: { search: searchPartiesBookAction.bind(null, dealId), pick: pickPartyBookAction, create: createPartyBookAction as unknown as B11Action, canCreate: editable },
   };
 }
 

@@ -1,16 +1,17 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requireStaff } from '@/modules/identity/server/session';
+import { SESSION_ENDED, staffForAction } from '@/modules/identity/server/session';
 import { bookingFlightFaresSave, bookingFlightReturnsAdd } from '../b11-commands';
 import type { FlightFaresSaveResult, FlightReturnsAddResult } from '../booking-form-contract';
 import { faresHintField, parseFlightFaresForm, parseReturnFlightsForm } from '../booking-form-forms';
 import { asRpcClient, BookingCommandError, FUNCTION_MISSING_STATES } from '../commands';
 import { BOOKING_FORM_NOT_INSTALLED_TEXT, type BookingActionResult, ERROR_TEXT } from '../contracts';
-import { fail, failWithConflict, isCode } from './b11-results';
+import { type BookRefreshKind, fail, failWithConflict, isCode, refreshAfterDraftSave } from './b11-results';
 
 /**
- * Book now v2 flight actions (26 October 2026). requireStaff() first; the
+ * Book now v2 flight actions (26 October 2026). staffForAction() first (an
+ * ended session answers `session`, booking reliability B1-8); the
  * database command runs under the staff member's OWN session and authorizes
  * (booking editor of the draft; the fares also need price access), validates,
  * audits (ids only) and decides in one transaction. No privileged client.
@@ -20,7 +21,12 @@ import { fail, failWithConflict, isCode } from './b11-results';
 
 type Prev<T> = BookingActionResult<T> | null;
 
-function revalidateBook(dealId: string): void {
+/** Re-render after an action (booking reliability B1-6): both actions are draft saves and follow the refresh mode. */
+function revalidateBook(dealId: string, kind: BookRefreshKind): void {
+  if (kind === 'draft_save') {
+    refreshAfterDraftSave();
+    return;
+  }
   revalidatePath(`/app/deals/${dealId}`);
   revalidatePath(`/app/deals/${dealId}/book`);
   revalidatePath('/app/deals/[id]/book', 'layout');
@@ -47,19 +53,20 @@ const TEXT = {
  * fareInfantTotalRupees ('' = not typed).
  */
 export async function saveFlightFaresAction(_prev: Prev<FlightFaresSaveResult>, formData: FormData): Promise<BookingActionResult<FlightFaresSaveResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseFlightFaresForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields, ERROR_TEXT.invalid_input);
   const v = parsed.value;
   const rpc = asRpcClient(staff.supabase);
   try {
     const result = await bookingFlightFaresSave(rpc, { versionId: v.versionId, expectedRowVersion: v.expectedRowVersion, fares: v.fares, requestId: v.requestId });
-    revalidateBook(v.dealId);
-    revalidatePath('/app/flight');
+    // A draft's fares reach the Flight desk only after Submit (a status change that revalidates it).
+    revalidateBook(v.dealId, 'draft_save');
     return { ok: true, data: result, message: TEXT.faresSaved };
   } catch (error) {
     if (isMissing(error)) return fail('wrong_state', undefined, BOOKING_FORM_NOT_INSTALLED_TEXT);
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     if (isCode(error, 'not_authorized')) return fail('not_authorized', undefined, TEXT.faresNotAllowed);
     if (error instanceof BookingCommandError && error.code === 'invalid_input' && error.hintKeys.length > 0) {
       return fail('invalid_input', [...new Set(error.hintKeys.map(faresHintField))]);
@@ -76,7 +83,8 @@ export async function saveFlightFaresAction(_prev: Prev<FlightFaresSaveResult>, 
  * reverse (the screen opens a screenshot flight marked return).
  */
 export async function addReturnFlightsAction(_prev: Prev<FlightReturnsAddResult>, formData: FormData): Promise<BookingActionResult<FlightReturnsAddResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseReturnFlightsForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields, ERROR_TEXT.invalid_input);
   const v = parsed.value;
@@ -84,14 +92,13 @@ export async function addReturnFlightsAction(_prev: Prev<FlightReturnsAddResult>
   try {
     const result = await bookingFlightReturnsAdd(rpc, { versionId: v.versionId, expectedRowVersion: v.expectedRowVersion, requestId: v.requestId });
     if (result.outcome === 'added') {
-      revalidateBook(v.dealId);
-      revalidatePath('/app/flight');
+      revalidateBook(v.dealId, 'draft_save');
     }
     const message = result.outcome === 'added' ? TEXT.returnsAdded(result.itemIds.length) : result.outcome === 'already_added' ? TEXT.returnsAlready : TEXT.returnsNone;
     return { ok: true, data: result, message };
   } catch (error) {
     if (isMissing(error)) return fail('wrong_state', undefined, BOOKING_FORM_NOT_INSTALLED_TEXT);
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     if (isCode(error, 'revision_items_fixed')) return fail('revision_items_fixed', undefined, TEXT.returnsItemsFixed);
     if (error instanceof BookingCommandError && error.code === 'invalid_input' && error.hintKeys.includes('tripEnd')) {
       return fail('invalid_input', ['tripEnd'], TEXT.returnsNoTripEnd);

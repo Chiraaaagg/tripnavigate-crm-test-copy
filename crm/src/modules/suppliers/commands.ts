@@ -25,6 +25,7 @@ import {
   SupplierRegisterReplySchema,
   SupplierWriteSchema,
 } from './dto';
+import { stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers for the supplier master (migrations 20261204000110/0130).
@@ -53,7 +54,7 @@ export function mapSupplierError(error: RpcError): SupplierErrorCode | 'session'
   const state = error.code ?? '';
   const raw = (error.message ?? '').trim();
   const token = SUPPLIER_TOKEN_ALIASES[raw] ?? raw;
-  if (Object.hasOwn(SUPPLIER_ERROR_STATES, token) && SUPPLIER_ERROR_STATES[token as SupplierErrorCode] === state) {
+  if (Object.hasOwn(SUPPLIER_ERROR_STATES, token) && stateMatches(SUPPLIER_ERROR_STATES[token as SupplierErrorCode], state)) {
     return token as SupplierErrorCode;
   }
   if (SESSION_STATES.has(state)) return 'session';

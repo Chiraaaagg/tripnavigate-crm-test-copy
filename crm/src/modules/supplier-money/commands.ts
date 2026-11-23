@@ -10,6 +10,7 @@ import {
   type SupplierMoneyErrorCode,
   type SupplierMoneyEvidenceKind,
 } from './contracts';
+import { isConflictSqlState, stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers for the supplier money commands and reads (migrations
@@ -49,11 +50,11 @@ export function existingDocumentIdOf(error: RpcError): string | null {
 export function mapSupplierMoneyError(error: RpcError): SupplierMoneyErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(SUPPLIER_MONEY_ERROR_STATES, token) && SUPPLIER_MONEY_ERROR_STATES[token as SupplierMoneyErrorCode] === state) {
+  if (Object.hasOwn(SUPPLIER_MONEY_ERROR_STATES, token) && stateMatches(SUPPLIER_MONEY_ERROR_STATES[token as SupplierMoneyErrorCode], state)) {
     return token as SupplierMoneyErrorCode;
   }
   // finance_replay's request_conflict when it escapes a wrapper.
-  if (token === 'request_conflict' && state === '40001') return 'duplicate_request';
+  if (token === 'request_conflict' && isConflictSqlState(state)) return 'duplicate_request';
   if (SESSION_STATES.has(state)) return 'session';
   if (state === '42501') return 'not_authorized';
   if (state === 'P0002') return 'not_found';

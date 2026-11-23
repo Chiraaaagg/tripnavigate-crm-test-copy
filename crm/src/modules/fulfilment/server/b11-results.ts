@@ -1,4 +1,6 @@
 import 'server-only';
+import { refresh } from 'next/cache';
+import { BOOK_SAVE_REFRESH_MODE } from '../book-refresh';
 import { BookingCommandError, type RpcClient } from '../commands';
 import { bookingFormGet } from '../b11-commands';
 import { type BookingActionResult, type BookingErrorCode, ERROR_TEXT, type SaveConflict, UNKNOWN_OUTCOME_TEXT } from '../contracts';
@@ -70,4 +72,25 @@ export async function failWithConflict(
     if (conflict) return { ...result, conflict };
   }
   return result;
+}
+
+/**
+ * What a Book now action did, for the re-render after it (booking reliability
+ * B1-6). 'draft_save': autosaves, drawer saves, ID-proof attach and remove,
+ * fares, and the fresh view after a refused draft save; they follow
+ * BOOK_SAVE_REFRESH_MODE. 'status_change': start, submit, revision, discard
+ * and the like keep today's revalidatePath calls, because other pages and
+ * desks must see them.
+ */
+export type BookRefreshKind = 'draft_save' | 'status_change';
+
+/**
+ * The one re-render after a draft save. 'server': refresh() from next/cache
+ * re-renders the page the action was posted from, in the action's own
+ * answer (one render, no revalidatePath, so the client router cache and the
+ * menu-link prefetches are left alone). 'client': nothing here; the screen
+ * calls router.refresh() itself. Never both.
+ */
+export function refreshAfterDraftSave(): void {
+  if (BOOK_SAVE_REFRESH_MODE === 'server') refresh();
 }

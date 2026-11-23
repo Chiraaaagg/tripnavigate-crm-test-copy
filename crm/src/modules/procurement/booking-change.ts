@@ -1,5 +1,6 @@
 import type { RpcError } from '@/modules/fulfilment/commands';
 import { formatEmailDate } from './email-draft';
+import { isConflictSqlState } from '@/lib/sqlstate';
 
 /**
  * Purchase "Booking changed" signal (Accounts phase contract 6.3.4, 7.6, 8.5,
@@ -221,8 +222,8 @@ const FUNCTION_MISSING_STATES = new Set(['PGRST202', '42883']);
 export function mapBookingChangeError(error: RpcError): BookingChangeErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (token === 'version_changed' && state === '40001') return 'version_changed';
-  if (token === 'request_conflict' && state === '40001') return 'duplicate_request';
+  if (token === 'version_changed' && isConflictSqlState(state)) return 'version_changed';
+  if (token === 'request_conflict' && isConflictSqlState(state)) return 'duplicate_request';
   if (SESSION_STATES.has(state)) return 'session';
   if (state === '42501') return 'not_authorized';
   if (state === '22023') return 'invalid_input';

@@ -21,6 +21,7 @@ import {
   type TaskCustomerFiles,
   type TaskCustomerMessageStatus,
 } from './dto';
+import { isConflictSqlState, stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers of the customer message commands and reads (contract 5.3,
@@ -47,13 +48,13 @@ export class MessageCommandError extends Error {
 export function mapMessageError(error: RpcError): MessageErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(MESSAGE_ERROR_STATES, token) && MESSAGE_ERROR_STATES[token as MessageErrorCode] === state) {
+  if (Object.hasOwn(MESSAGE_ERROR_STATES, token) && stateMatches(MESSAGE_ERROR_STATES[token as MessageErrorCode], state)) {
     return token as MessageErrorCode;
   }
   if (SESSION_STATES.has(state)) return 'session';
   if (state === '42501') return 'not_authorized';
   if (state === 'P0002') return 'not_found';
-  if (state === '40001') return 'version_changed';
+  if (isConflictSqlState(state)) return 'version_changed';
   if (INPUT_STATES.has(state)) return 'invalid_input';
   return null;
 }

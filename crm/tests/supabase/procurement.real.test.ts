@@ -5,6 +5,7 @@ import type { BookingFacts, BookingReadiness, ConfirmBookingResult, OpenDraftRes
 import { isRealStackRequired } from '@/lib/config';
 import { FIXTURE_EMAILS, FIXTURE_USERS, assertDatabaseUrlNotOperational } from '../helpers/db';
 import { createRealStack, resolveRealStackEnv, type SignedIn } from '../helpers/real-stack';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Phase 4 procurement against the REAL local Supabase stack (PostgREST +
@@ -307,7 +308,7 @@ describe.skipIf(!enabled)('Phase 4 procurement against the real stack', () => {
     other = worker === purchaseA ? purchaseB : purchaseA;
     const freshClaims = attempts.filter((a) => a.data && a.data.alreadyYours === false);
     expect(freshClaims).toHaveLength(1);
-    for (const a of attempts.filter((x) => x.error)) expect(a.error).toMatchObject({ code: '40001', message: 'task_conflict' });
+    for (const a of attempts.filter((x) => x.error)) expect(a.error).toMatchObject({ code: CONFLICT_STATE, message: 'task_conflict' });
   });
 
   it('P4-01: Sales and anon read no Purchase rows; Purchase reads no bank table', async () => {
@@ -360,7 +361,7 @@ describe.skipIf(!enabled)('Phase 4 procurement against the real stack', () => {
       ),
     );
     expect(results.filter((r) => r.data?.created)).toHaveLength(1);
-    for (const r of results.filter((x) => x.error)) expect(r.error).toMatchObject({ code: '40001', message: 'version_changed' });
+    for (const r of results.filter((x) => x.error)) expect(r.error).toMatchObject({ code: CONFLICT_STATE, message: 'version_changed' });
     expect(results.filter((r) => r.error)).toHaveLength(5);
   });
 
@@ -451,7 +452,7 @@ describe.skipIf(!enabled)('Phase 4 procurement against the real stack', () => {
       const conflict = await settle(worker.client, 'purchase_supplier_confirm', {
         p_task_id: taskId, p_expected_version_no: version, p_reference: `SYN-${runTag}`,
       });
-      expect(conflict.error).toMatchObject({ code: '40001', message: 'task_conflict' });
+      expect(conflict.error).toMatchObject({ code: CONFLICT_STATE, message: 'task_conflict' });
     }
     const costs = await ownerQuery<{ stage: string; amount_paise: string }>(
       'select stage, amount_paise::text from public.purchase_cost_versions where task_id = $1 order by version_no',
@@ -515,7 +516,7 @@ describe.skipIf(!enabled)('Phase 4 procurement against the real stack', () => {
 
     expect(await rpc(manager.client, 'purchase_task_reassign', { p_task_id: task2, p_expected_assignee: workerId, p_to_user_id: otherId })).toMatchObject({ outcome: 'created' });
     const refusedOld = await worker.client.rpc('purchase_task_release', { p_task_id: task2 });
-    expect(refusedOld.error).toMatchObject({ code: '40001', message: 'task_conflict' });
+    expect(refusedOld.error).toMatchObject({ code: CONFLICT_STATE, message: 'task_conflict' });
     expect(await rpc(other.client, 'purchase_task_release', { p_task_id: task2 })).toMatchObject({ status: 'not_started', outcome: 'created' });
     const [row] = await ownerQuery<{ status: string; assignee_user_id: string | null }>('select status, assignee_user_id from public.fulfilment_tasks where id = $1', [task2]);
     expect(row).toEqual({ status: 'not_started', assignee_user_id: null });
@@ -589,8 +590,8 @@ describe.skipIf(!enabled)('Phase 4 procurement against the real stack', () => {
       if (requests[i]!.kind === 'exact') continue;
       expect(r.status).toBe('rejected');
       const reason = (r as PromiseRejectedResult).reason as { code: string; message: string };
-      expect(reason.code).toBe('40001');
-      // Before the winner commits it is version_changed; after, task_conflict. Both are 40001.
+      expect(reason.code).toBe(CONFLICT_STATE);
+      // Before the winner commits it is version_changed; after, task_conflict. Both are PT409.
       expect(['version_changed', 'task_conflict']).toContain(reason.message);
     }
     expect(await confirmationRecords(id)).toEqual({ audits: 1, committed: 1, outbox: 1, reference: ref });
@@ -615,14 +616,14 @@ describe.skipIf(!enabled)('Phase 4 procurement against the real stack', () => {
         expect(r.status).toBe('fulfilled');
       } else {
         expect(r.status).toBe('rejected');
-        expect((r as PromiseRejectedResult).reason).toMatchObject({ code: '40001', message: 'task_conflict' });
+        expect((r as PromiseRejectedResult).reason).toMatchObject({ code: CONFLICT_STATE, message: 'task_conflict' });
       }
     }
     // Retries after the race: the stored identity is existing, the other identity conflicts.
     expect(await rpc(worker.client, 'purchase_supplier_confirm', { p_task_id: id, p_expected_version_no: 1, p_reference: stored })).toMatchObject({ outcome: 'existing' });
     const other = refs.find((r) => r !== stored)!;
     const conflict = await settle(worker.client, 'purchase_supplier_confirm', { p_task_id: id, p_expected_version_no: 1, p_reference: other });
-    expect(conflict.error).toMatchObject({ code: '40001', message: 'task_conflict' });
+    expect(conflict.error).toMatchObject({ code: CONFLICT_STATE, message: 'task_conflict' });
     expect(await confirmationRecords(id)).toMatchObject({ audits: 1, committed: 1, outbox: 1, reference: stored });
   });
 });

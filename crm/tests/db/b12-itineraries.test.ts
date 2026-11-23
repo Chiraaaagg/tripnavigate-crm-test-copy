@@ -3,6 +3,7 @@ import { type Actor, type TestDb, asOwner, createTestDb, expectDbError, resetAct
 import { ACCOUNTS, DEAL, FLIGHT, MANAGER, OTHER_ENTITY, OWNER, PURCHASE, SALES_AMD, SALES_B, SUPER, SVC, rid } from './b1-support';
 import { DESK, b11Helpers } from './b11-support';
 import { priceQuotationVersion } from './b12-quotation-money-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * B1.2 Phase F (migration 20261120000500_b12_itineraries): itinerary
@@ -126,7 +127,7 @@ describe('documents, sources and facts', () => {
       const doc = await one<Doc>(OWNER, SQL.create, ['deal', DEAL, 'Synthetic itinerary', requestId]);
       expect(doc).toMatchObject({ rowVersion: 1, created: true });
       expect(await one(OWNER, SQL.create, ['deal', DEAL, 'Synthetic itinerary', requestId])).toMatchObject({ documentId: doc.documentId, created: false });
-      await refused(OWNER, SQL.create, ['deal', DEAL, 'Other', requestId], '40001', 'request_conflict');
+      await refused(OWNER, SQL.create, ['deal', DEAL, 'Other', requestId], CONFLICT_STATE, 'request_conflict');
       const q = await one<{ quotationId: string }>(OWNER, 'select public.quotation_create($1, $2, $3, $4) as r', ['deal', DEAL, 'Synthetic quote', rid()]);
       expect((await create(OWNER, 'quotation', q.quotationId)).created).toBe(true);
 
@@ -137,7 +138,7 @@ describe('documents, sources and facts', () => {
         '22023', 'invalid_input', /price.*party\.adults.*stays\[1\]\.nights.*provenance\.destination|price/);
       await expectHint(OWNER, SQL.facts, [doc.draftId, saved.rowVersion, JSON.stringify({ stays: [{ city: 'X', nights: 0, sellingPaise: '1' }] }), null],
         '22023', 'invalid_input', /stays\[1\]\.nights,stays\[1\]\.sellingPaise|stays\[1\]\.sellingPaise/);
-      await refused(OWNER, SQL.facts, [doc.draftId, 1, JSON.stringify(FACTS), null], '40001', 'version_changed');
+      await refused(OWNER, SQL.facts, [doc.draftId, 1, JSON.stringify(FACTS), null], CONFLICT_STATE, 'version_changed');
       await expectHint(OWNER, SQL.facts, [doc.draftId, saved.rowVersion, JSON.stringify(FACTS), crypto.randomUUID()], '22023', 'invalid_input', /sourceFileId/);
     });
   });
@@ -176,7 +177,7 @@ describe('differences block ready and final (Q-F2)', () => {
       await refused(OWNER, SQL.ready, [doc.draftId, rv], '55000', 'differences_not_checked');
       const basis = (await get(OWNER, doc.documentId))!.basis;
       expect(basis).toEqual({ kind: 'none', id: null, hash: '0'.repeat(64) }); // no quotation, no booking yet
-      await refused(OWNER, SQL.diffs, [doc.draftId, rv, 'none', null, HASH_A, '[]'], '40001', 'basis_changed');
+      await refused(OWNER, SQL.diffs, [doc.draftId, rv, 'none', null, HASH_A, '[]'], CONFLICT_STATE, 'basis_changed');
       await expectHint(OWNER, SQL.diffs, [doc.draftId, rv, basis.kind, basis.id, basis.hash, JSON.stringify([{ path: '1bad', kind: 'missing' }])],
         '22023', 'invalid_input', /differences\[1\]/);
       const H = (c: string) => c.repeat(32);
@@ -186,7 +187,7 @@ describe('differences block ready and final (Q-F2)', () => {
         [doc.draftId, rv, basis.kind, basis.id, basis.hash, JSON.stringify(diffs)]);
       expect(run).toMatchObject({ differenceCount: 2, openCount: 2, outcome: 'created' });
       expect(await one(OWNER, SQL.diffs, [doc.draftId, rv, basis.kind, basis.id, basis.hash, JSON.stringify(diffs)])).toMatchObject({ runId: run.runId, outcome: 'existing' });
-      await refused(OWNER, SQL.diffs, [doc.draftId, rv, basis.kind, basis.id, basis.hash, '[]'], '40001', 'request_conflict');
+      await refused(OWNER, SQL.diffs, [doc.draftId, rv, basis.kind, basis.id, basis.hash, '[]'], CONFLICT_STATE, 'request_conflict');
       await refused(OWNER, SQL.ready, [doc.draftId, rv], '55000', 'differences_open');
       const items = (await get(OWNER, doc.documentId))!.differences.items;
       await one(OWNER, SQL.ack, [items[0]!.differenceId, 'Synthetic reason']);
@@ -256,7 +257,7 @@ describe('render jobs and rendered documents', () => {
       // The claim names the exact upload path render_complete expects.
       expect(job).toMatchObject({ legalEntityId: d!.legal_entity_id, objectPath: path });
       const file = { objectPath: path, sha256: 'd'.repeat(64), sizeBytes: 5000, pageCount: 18, qa: { placeholders: 2, layoutIssues: [], safetyHits: [] } };
-      await refused(SVC, SQL.complete, [preview.jobId, 'worker-2', true, null, JSON.stringify(file)], '40001', 'task_conflict');
+      await refused(SVC, SQL.complete, [preview.jobId, 'worker-2', true, null, JSON.stringify(file)], CONFLICT_STATE, 'task_conflict');
       await putRendered(path);
       const done = await one<{ status: string; renderedId: string }>(SVC, SQL.complete, [preview.jobId, 'worker-1', true, null, JSON.stringify(file)]);
       expect(done.status).toBe('succeeded'); // a preview keeps its placeholders (shown to staff)
@@ -289,7 +290,7 @@ describe('render jobs and rendered documents', () => {
         const r = await one<{ status: string }>(SVC, SQL.complete, [again.jobId, 'w', false, 'browser_failed', null]);
         expect(r.status).toBe(attempt < 3 ? 'queued' : 'failed');
       }
-      await expectHint(SVC, SQL.complete, [again.jobId, 'w', false, 'oops', null], '40001', 'task_conflict', /.*/);
+      await expectHint(SVC, SQL.complete, [again.jobId, 'w', false, 'oops', null], CONFLICT_STATE, 'task_conflict', /.*/);
       const got = await get(OWNER, doc.documentId);
       expect(got!.jobs.find((j) => j.jobId === again.jobId)).toMatchObject({ status: 'failed', attempts: 3, lastErrorCode: 'browser_failed' });
     });
@@ -316,12 +317,12 @@ describe('review E3', () => {
       const doc = await create(OWNER);
       await one(OWNER, SQL.facts, [doc.draftId, doc.rowVersion, JSON.stringify(FACTS), null]);
       const job = await one<{ jobId: string }>(OWNER, SQL.render, [doc.documentId, 'preview', HASH_A, 'v1']);
-      await refused(SVC, 'select public.itinerary_render_input($1, $2) as r', [job.jobId, 'w'], '40001', 'task_conflict');
+      await refused(SVC, 'select public.itinerary_render_input($1, $2) as r', [job.jobId, 'w'], CONFLICT_STATE, 'task_conflict');
       await one(SVC, SQL.claim, ['w', 60]);
       const input = await one<Record<string, unknown>>(SVC, 'select public.itinerary_render_input($1, $2) as r', [job.jobId, 'w']);
       expect(input).toMatchObject({ jobId: job.jobId, kind: 'preview', templateVersion: 'v1', factsChanged: false, facts: FACTS,
         basis: { kind: 'none' }, money: null });
-      await refused(SVC, 'select public.itinerary_render_input($1, $2) as r', [job.jobId, 'other'], '40001', 'task_conflict');
+      await refused(SVC, 'select public.itinerary_render_input($1, $2) as r', [job.jobId, 'other'], CONFLICT_STATE, 'task_conflict');
       await expectDbError(db, () => h.run(OWNER, 'select public.itinerary_render_input($1, $2) as r', [job.jobId, 'w']), { code: '42501' });
     });
   });

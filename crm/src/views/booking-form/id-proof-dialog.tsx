@@ -10,6 +10,7 @@ import { EVIDENCE_MIME_TYPES, ID_PROOF_TEXT, type BookTravellerView } from '@/mo
 import { ID_PROOF_FIELD } from '@/modules/fulfilment/b11-forms';
 import { guard } from '../booking-forms';
 import { idProofSlotsLeft } from '../b11/book-fields';
+import { useSaveRules } from '../b11/draft-sync';
 import { newRequestId, normaliseResult, type UiResult } from '../b11/form-kit';
 import type { BookNowView } from '../b11/shapes';
 import { refusalReason, useSaveQueue } from './autosave-queue';
@@ -49,6 +50,8 @@ export function IdProofDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
+  // B1-6: in 'server' mode each attach or removal re-renders the page itself.
+  const { serverRefreshes } = useSaveRules();
   const queue = useSaveQueue();
   const toast = useFormToast();
   const name = traveller.fullName;
@@ -112,7 +115,7 @@ export function IdProofDialog({
         attached.push(file.name);
       }
       setFiles([]);
-      router.refresh();
+      if (!serverRefreshes) router.refresh();
       toast('Identity proof attached. Only the people who need it can open it.');
       onClose();
     } finally {
@@ -221,6 +224,8 @@ export function IdProofDialog({
 
 function ProofLine({ dealId, file, canRemove, removeAction }: { dealId: string; file: Proof; canRemove: boolean; removeAction: PassengerActions['removeIdProof'] }) {
   const router = useRouter();
+  // B1-6: in 'server' mode each attach or removal re-renders the page itself.
+  const { serverRefreshes } = useSaveRules();
   const queue = useSaveQueue();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -233,8 +238,8 @@ function ProofLine({ dealId, file, canRemove, removeAction }: { dealId: string; 
     fd.set('fileRowVersion', String(file.rowVersion));
     const r = await queue.run(() => runAction(removeAction, fd));
     setBusy(false);
-    if (r.ok) router.refresh();
-    else setProblem(refusalReason(r));
+    if (r.ok && !serverRefreshes) router.refresh();
+    else if (!r.ok) setProblem(refusalReason(r));
   };
   return (
     <li className="m-0 flex flex-wrap items-center justify-between gap-2.5 rounded-chip border border-line bg-card px-2.5 py-2 text-sm">

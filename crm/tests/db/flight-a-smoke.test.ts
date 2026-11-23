@@ -3,6 +3,7 @@ import { FIXTURE_USERS as U, asOwner, createTestDb, type TestDb } from '../helpe
 import { ACCOUNTS, DEAL, FLIGHT, MANAGER, OWNER, PURCHASE, SALES_B, allKeys, b1Helpers, rid } from './b1-support';
 // R3 scenario: Track D's Book now v2 helper for a booking with one traveller not named yet.
 import { FLIGHT as FLIGHT_D, flightHelpers, sectorInput } from './flight-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Track A smoke checks (Flight build contract, sections 6.1 and 9): group claim
@@ -298,7 +299,7 @@ describe('R3: a blank traveller name filled on the accepted booking (Addendum 2)
       await h.refusedWithHint(OWNER, FILL, [DEAL, b.versionId, 5, 'Synthetic Traveller Five', 'child', rid()], /type/);
       await h.refusedWithHint(OWNER, FILL, [DEAL, b.versionId, 7, 'Synthetic Traveller Five', 'adult', rid()], /seq/);
       await h.refused(OWNER, FILL, [DEAL, b.versionId, 3, 'Synthetic Traveller Five', 'adult', rid()], '55000', 'name_already_set');
-      await h.refused(OWNER, FILL, [DEAL, rid(), 5, 'Synthetic Traveller Five', 'adult', rid()], '40001', 'version_changed');
+      await h.refused(OWNER, FILL, [DEAL, rid(), 5, 'Synthetic Traveller Five', 'adult', rid()], CONFLICT_STATE, 'version_changed');
 
       // Fill: no new booking version; the traveller is on the flight's sectors; the block clears.
       const versionsBefore = await fh.count('select 1 from public.booking_versions where deal_id = $1', [DEAL]);

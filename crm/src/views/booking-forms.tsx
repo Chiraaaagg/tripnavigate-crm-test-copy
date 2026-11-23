@@ -51,13 +51,18 @@ export const UNEXPECTED_TEXT = `${UNKNOWN_OUTCOME_TEXT} Your typed details are s
 /** Session flag set when a confirm is submitted, so focus can move to the panel heading after the refresh. */
 export const CONFIRM_FOCUS_FLAG = 'tn-booking-confirm-submitted';
 
-/** Every result a booking form can show: the action's own result, or an unexplained failure. */
-export type UiResult = BookingActionResult<unknown> | { ok: false; code: 'unexpected'; message: string; issues?: undefined };
+/**
+ * Every result a booking form can show: the action's own result, or an
+ * unexplained failure. `offline` (booking reliability B1-4 d): the browser was
+ * offline, so the save was not sent, or the request failed while offline.
+ */
+export type UiResult = BookingActionResult<unknown> | { ok: false; code: 'unexpected'; message: string; issues?: undefined; offline?: true };
 
 /**
  * Wraps a server action so an unexpected throw becomes an honest in-form error
  * instead of replacing the page (which would discard typed work). Framework
- * redirects (for example an ended session) are rethrown untouched.
+ * redirects (for example an ended session) are rethrown untouched. A failure
+ * while the browser is offline is marked `offline` (the outcome stays unknown).
  */
 export function guard<T>(action: (prev: never, formData: FormData) => Promise<BookingActionResult<T>>) {
   return async (_prev: UiResult | null, formData: FormData): Promise<UiResult> => {
@@ -65,7 +70,8 @@ export function guard<T>(action: (prev: never, formData: FormData) => Promise<Bo
       return (await action(null as never, formData)) as UiResult;
     } catch (error) {
       unstable_rethrow(error);
-      return { ok: false, code: 'unexpected', message: UNEXPECTED_TEXT };
+      const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      return { ok: false, code: 'unexpected', message: UNEXPECTED_TEXT, ...(offline ? { offline: true as const } : {}) };
     }
   };
 }

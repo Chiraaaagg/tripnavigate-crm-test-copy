@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, FIXTURE_USERS as U, SYNTHETIC_INTAKE_CONFIG, type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACCOUNTS, CHECKLIST_SQL, MANAGER, OWNER, PURCHASE, SALES_B, SUPER, rid } from './b1-support';
 import { b11Helpers } from './b11-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * B1.2 prefill landing (migration 20261120000600_b12_prefill, freeze part 2
@@ -118,7 +119,7 @@ describe('booking prefill', () => {
       expect(r.applied).toEqual([]);
       expect(r.skipped).toEqual(expect.arrayContaining([{ field: 'trip.end', reason: 'date_order' }, { field: 'contacts.mobile', reason: 'mobile_format' }]));
       await refused(OWNER, APPLY, [d.versionId, r.rowVersion, ['bookingFor']], '22023', 'invalid_input');
-      await refused(OWNER, APPLY, [d.versionId, 1, ['trip.start']], '40001', 'version_changed');
+      await refused(OWNER, APPLY, [d.versionId, 1, ['trip.start']], CONFLICT_STATE, 'version_changed');
     });
   });
 

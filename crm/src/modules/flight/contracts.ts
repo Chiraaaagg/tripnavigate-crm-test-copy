@@ -15,6 +15,7 @@
  * Pure module: types, frozen refusal messages, status words, checklist and
  * CRS labels. The DTO types come from the zod schemas in dto.ts.
  */
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 export type {
   BookedLegDTO,
@@ -90,12 +91,12 @@ export type FlightErrorCode =
   | 'evidence_rejected'
   | 'task_closed';
 
-export const FLIGHT_ERROR_STATES: Record<FlightErrorCode, string> = {
+export const FLIGHT_ERROR_STATES: Record<FlightErrorCode, string | readonly string[]> = {
   not_authorized: '42501',
   not_found: 'P0002',
-  version_changed: '40001',
-  duplicate_request: '40001',
-  task_conflict: '40001',
+  version_changed: CONFLICT_STATES,
+  duplicate_request: CONFLICT_STATES,
+  task_conflict: CONFLICT_STATES,
   invalid_input: '22023',
   not_ready: '55000',
   deal_removed: '55000',

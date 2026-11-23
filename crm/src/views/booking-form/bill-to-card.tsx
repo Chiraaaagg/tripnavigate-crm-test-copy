@@ -1,6 +1,7 @@
 'use client';
 
 import { Pencil, Search, Upload, UserRound, X } from 'lucide-react';
+import { isSessionEnded, SignInNewTabLink } from '../b11/session-link';
 import { useCallback, useRef, useState, type ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn, focusRing } from '@/components/ui/cn';
@@ -27,7 +28,7 @@ import { GST_STATES, dateText } from '../b11/book-fields';
 import { SelectField, TextField } from '../b11/controls';
 import { useSectionForm, type SyncSection } from '../b11/draft-sync';
 import { type FieldRef, type UiResult } from '../b11/form-kit';
-import { useAutosave } from './autosave-queue';
+import { reasonRole, SaveRecovery, useAutosave } from './autosave-queue';
 import type { B11Action, BookNowView } from '../b11/shapes';
 import { AddCustomerDialog, PartyPicker, PartyStatus } from './bill-to-parties';
 import type { PartyActions, PartyCheckStatus, PartyOption } from './vn-types';
@@ -168,6 +169,7 @@ export function BillToCard({
   const [adding, setAdding] = useState<{ name: string; type: BillToType } | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const [pickError, setPickError] = useState<string | null>(null);
+  const [pickSignedOut, setPickSignedOut] = useState(false);
   const set = <K extends keyof BillToInput>(k: K, x: BillToInput[K]) => {
     f.setValues((s) => ({ ...s, [k]: x }));
     setSelection((sel) => (sel ? { ...sel, edited: true } : sel));
@@ -231,6 +233,7 @@ export function BillToCard({
                 // Search hits carry only the name and place: read the full details first; on failure nothing changes.
                 setPicked(`Loading ${hit.name}…`);
                 setPickError(null);
+                setPickSignedOut(false);
                 parties
                   .pick(hit.partyId)
                   .then((r) => {
@@ -238,6 +241,7 @@ export function BillToCard({
                     else {
                       setPicked(null);
                       setPickError(`${r.message} The Bill To details were not changed.`);
+                      setPickSignedOut(isSessionEnded({ message: r.message }));
                     }
                   })
                   .catch(() => {
@@ -255,6 +259,7 @@ export function BillToCard({
                 {pickError}
               </p>
             ) : null}
+            {pickError && pickSignedOut ? <SignInNewTabLink className="-mt-2" /> : null}
             <AddCustomerDialog
               open={adding !== null}
               onOpenChange={(o) => {
@@ -381,10 +386,11 @@ export function BillToCard({
           </div>
           <InlineNote>Accounts checks billing details before use.</InlineNote>
           {save.state === 'fix' && save.reason ? (
-            <p id="why-billTo" className="m-0 flex items-start gap-1.5 text-sm font-medium text-status-danger">
+            <p id="why-billTo" role={reasonRole(save)} className="m-0 flex items-start gap-1.5 text-sm font-medium text-status-danger">
               <span>{save.reason}</span>
             </p>
           ) : null}
+          {editable && !verified ? <SaveRecovery save={save} describedBy="why-billTo" /> : null}
         </form>
       </SectionBody>
     </SectionCard>

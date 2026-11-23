@@ -10,6 +10,7 @@ import {
   istBusinessDate,
 } from '../helpers/db';
 import { HOTEL, PURCHASE_CLAIM_SQL, TRANSFER, b1Helpers } from './b1-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase, Track B smoke checks (the builder's own checks; the
@@ -323,7 +324,7 @@ describe('accounts phase track B smoke', () => {
       const REOPEN = 'select public.accounts_tally_reopen($1, $2, $3, $4, $5) as r';
       const voucher = JSON.stringify({ voucherRef: 'PMT/2026/17', voucherDate: today() });
       await refused(MANAGER, MATCH, ['supplier_payment', pay.id, 0, voucher, rid()], 'not_authorized', '42501');
-      await refused(ACC, MATCH, ['supplier_payment', pay.id, 3, voucher, rid()], 'version_changed', '40001');
+      await refused(ACC, MATCH, ['supplier_payment', pay.id, 3, voucher, rid()], 'version_changed', CONFLICT_STATE);
       const m1 = await one<{ rowVersion: number; status: string }>(ACC, MATCH, ['supplier_payment', pay.id, 0, voucher, rid()]);
       expect(m1).toMatchObject({ status: 'matched', rowVersion: 1 });
       await refused(ACC2, MATCH, ['supplier_payment', pay.id, 1, voucher, rid()], 'already_matched', '55000');

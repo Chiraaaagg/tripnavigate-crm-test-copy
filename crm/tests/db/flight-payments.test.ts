@@ -3,6 +3,7 @@ import { FIXTURE_USERS as U, type TestDb, asOwner, createTestDb, istBusinessDate
 import {
   ACC, ACC2, DEAL, DEAL2, FLIGHT, FLIGHT_2, LEG_JDH_DEL, LIMIT, MANAGER, OWNER, PURCHASE, SALES_B, SQL, fare, flightHelpers, rid, ticketFor, typedFlight,
 } from './flight-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Flight build, contract D2, C1/L1, D10 and sections 5.2, 6.2 B9-B13; test
@@ -137,7 +138,7 @@ describe('direct payment cap: cumulative per (Deal, supplier)', () => {
       const proof = await h.evidence(FLIGHT, s.task, 'direct_payment_proof');
       const returned = (await entryOf(b.batchId))!;
       await refused(FLIGHT, SQL.directPayment, [b.batchId, returned.row_version + 3, JSON.stringify({ paymentMode: 'upi', paidOn: istBusinessDate(),
-        reference: 'SYN-UPI-0002', proofEvidenceId: proof }), rid()], 'version_changed', '40001');
+        reference: 'SYN-UPI-0002', proofEvidenceId: proof }), rid()], 'version_changed', CONFLICT_STATE);
       await one(FLIGHT, SQL.directPayment, [b.batchId, returned.row_version, JSON.stringify({ paymentMode: 'upi', paidOn: istBusinessDate(),
         reference: 'SYN-UPI-0002', proofEvidenceId: proof }), rid()]);
       const again = (await entryOf(b.batchId))!;
@@ -175,7 +176,7 @@ describe('direct payment cap: cumulative per (Deal, supplier)', () => {
       const first = await one<Record<string, unknown>>(FLIGHT, SQL.directPayment, [a.batchId, null, fields, req]);
       expect(await one<Record<string, unknown>>(FLIGHT, SQL.directPayment, [a.batchId, null, fields, req])).toMatchObject({ ...first, outcome: 'existing' });
       await refused(FLIGHT, SQL.directPayment, [a.batchId, null, JSON.stringify({ paymentMode: 'upi', paidOn: istBusinessDate(), reference: null,
-        proofEvidenceId: proof }), req], 'duplicate_request', '40001');
+        proofEvidenceId: proof }), req], 'duplicate_request', CONFLICT_STATE);
       expect(await owner('select count(*)::int as n from public.department_cost_entries where flight_batch_id = $1', [a.batchId])).toEqual([{ n: 1 }]);
     });
   });

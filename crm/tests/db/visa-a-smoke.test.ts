@@ -3,6 +3,7 @@ import { type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACC } from './finance-support';
 import { DEAL, MANAGER, OWNER, PURCHASE, SALES_B, SUPER, TRAVELLERS } from './b1-support';
 import { DESK, PASSPORT, SETTING_SQL_B11, SWITCH_REASON, VISA, VISA_CLAIM_SQL, b11Helpers, rid } from './b11-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Track A smoke checks for the Visa and Passport desk build (migrations
@@ -177,7 +178,7 @@ describe('sticker visa journey', () => {
       expect(applied.entryIds).toHaveLength(3);
       expect(applied.applications.map((x) => x.state)).toEqual(['decision_pending', 'decision_pending']);
       expect(await one(DESK, APPLY, [taskId, JSON.stringify({ applicants, ...shared }), req])).toMatchObject({ outcome: 'existing', clubId: applied.clubId });
-      await refused(DESK, APPLY, [taskId, JSON.stringify({ applicants, ...shared, remark: 'other' }), req], '40001', 'duplicate_request');
+      await refused(DESK, APPLY, [taskId, JSON.stringify({ applicants, ...shared, remark: 'other' }), req], CONFLICT_STATE, 'duplicate_request');
       expect(await owner(`select application_id is not null as linked, expense_status, amount_paise::text as a from public.department_cost_entries
         where task_id = $1 order by amount_paise, cost_kind`, [taskId])).toEqual([
         { linked: true, expense_status: 'submitted', a: '100000' },

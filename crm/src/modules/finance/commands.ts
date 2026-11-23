@@ -43,6 +43,7 @@ import {
   AccountsExpenseRecordsPageSchema,
   SalesPaymentClaimsSchema,
 } from './dto';
+import { stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers for the Phase 5A RPCs (migration
@@ -79,7 +80,7 @@ export class FinanceCommandError extends Error {
 export function mapFinanceError(error: FinanceRpcError): FinanceErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(FINANCE_ERROR_STATES, token) && FINANCE_ERROR_STATES[token as FinanceErrorCode] === state) {
+  if (Object.hasOwn(FINANCE_ERROR_STATES, token) && stateMatches(FINANCE_ERROR_STATES[token as FinanceErrorCode], state)) {
     return token as FinanceErrorCode;
   }
   if (SESSION_STATES.has(state)) return 'session';

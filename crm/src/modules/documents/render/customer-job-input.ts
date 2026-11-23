@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { checkContent, contentTitle, type ContentCheck, type CustomerDocumentContent } from '@/modules/customer-documents/content';
+import { CONFLICT_SQLSTATE_NEW, isConflictSqlState } from '@/lib/sqlstate';
 
 /**
  * Customer document render jobs (contract 6.7 worker commands, 6.8): the
@@ -100,7 +101,7 @@ async function call(client: CustomerRenderRpc, command: string, args: Record<str
     throw new CustomerRenderWorkerError(null, command);
   }
   if (reply.error) {
-    if (reply.error.code === '40001' && (reply.error.message ?? '').trim() === 'task_conflict') return { data: null, conflict: true };
+    if (isConflictSqlState(reply.error.code) && (reply.error.message ?? '').trim() === 'task_conflict') return { data: null, conflict: true };
     throw new CustomerRenderWorkerError(reply.error.code ?? null, command, reply.error.hint ?? null);
   }
   return { data: reply.data, conflict: false };
@@ -114,7 +115,7 @@ export async function customerRenderClaim(client: CustomerRenderRpc, worker: str
   const command = 'customer_document_render_claim';
   checkWorker(worker, command);
   const reply = await call(client, command, { p_worker: worker, p_lease_seconds: leaseSeconds });
-  if (reply.conflict) throw new CustomerRenderWorkerError('40001', command);
+  if (reply.conflict) throw new CustomerRenderWorkerError(CONFLICT_SQLSTATE_NEW, command);
   if (reply.data === null || reply.data === undefined) return null;
   const parsed = CustomerRenderClaimSchema.safeParse(reply.data);
   if (!parsed.success) throw new CustomerRenderWorkerError(null, command);
@@ -147,7 +148,7 @@ export async function customerRenderComplete(
     p_error_code: outcome.ok ? null : outcome.errorCode,
     p_file: outcome.ok ? outcome.file : null,
   });
-  if (reply.conflict) throw new CustomerRenderWorkerError('40001', command);
+  if (reply.conflict) throw new CustomerRenderWorkerError(CONFLICT_SQLSTATE_NEW, command);
   const parsed = CustomerRenderCompleteSchema.safeParse(reply.data);
   if (!parsed.success) throw new CustomerRenderWorkerError(null, command);
   return parsed.data;

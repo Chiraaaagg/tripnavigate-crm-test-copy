@@ -51,8 +51,8 @@ describe('Addendum L6 / L7 limits mirror', () => {
 
 describe('section 9 refusals', () => {
   it('every token maps only with its SQLSTATE; every token has frozen text', () => {
-    for (const [token, state] of Object.entries(REFUND_ERROR_STATES)) {
-      expect(mapRefundError({ code: state, message: token })).toBe(token);
+    for (const [token, allowed] of Object.entries(REFUND_ERROR_STATES)) {
+      for (const state of typeof allowed === 'string' ? [allowed] : allowed) expect(mapRefundError({ code: state, message: token })).toBe(token);
       expect(REFUND_ERROR_TEXT[token as keyof typeof REFUND_ERROR_TEXT]).toBeTruthy();
     }
     expect(REFUND_ERROR_TEXT.refund_exceeds_money).toBe('The refund is more than the verified money held minus the customer charge.');

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AccountsDealDetailSchema } from '@/modules/finance/dto';
 import { type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACC, ACC2, ANON, DEAL, DEAL2, MANAGER, PURCHASE, SALES, SUPER, daysAgo, financeHelpers, rid, sha, today } from './finance-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Phase 5A customer receipts (phase-5a-contract.md sections 9-11): record,
@@ -187,8 +188,8 @@ describe('retry identity', () => {
       const again = await h.record(ACC, DEAL, fields, requestId);
       expect(again).toEqual({ ...first, outcome: 'existing' });
       expect((await h.owner<{ n: number }>(`select count(*)::int as n from public.customer_receipts where deal_id = $1`, [DEAL]))[0]!.n).toBe(1);
-      await h.refused(ACC, h.RECORD, [DEAL, JSON.stringify({ ...fields, amountPaise: '2500001' }), requestId], '40001', 'request_conflict');
-      await h.refused(ACC2, h.RECORD, [DEAL, JSON.stringify(fields), requestId], '40001', 'request_conflict');
+      await h.refused(ACC, h.RECORD, [DEAL, JSON.stringify({ ...fields, amountPaise: '2500001' }), requestId], CONFLICT_STATE, 'request_conflict');
+      await h.refused(ACC2, h.RECORD, [DEAL, JSON.stringify(fields), requestId], CONFLICT_STATE, 'request_conflict');
       // A refusal reserves nothing: the refused id can be used for another command.
       const refusedId = rid();
       await h.refused(ACC, h.RECORD, [DEAL, JSON.stringify(await h.bankFields({ amountPaise: '1000' })), refusedId], '22023', 'invalid_input');

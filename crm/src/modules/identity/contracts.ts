@@ -154,3 +154,22 @@ export interface StaffSecurityInfo {
  *                                                        'recovery_pending' to /account-recovery)
  */
 export const RECOVERY_PENDING_ROUTE = '/account-recovery';
+
+/**
+ * Every route the session decision can send to. Kept here, not in
+ * session-policy.ts, because this module has no zod: browser code (for
+ * example the Book now sign-in link) may import it under `script-src 'self'`.
+ * session-policy.ts re-exports it for server callers.
+ */
+export const ROUTES = {
+  signIn: '/sign-in',
+  sessionExpired: '/session-expired',
+  mfaEnroll: '/mfa/enroll',
+  mfaChallenge: '/mfa/challenge',
+  onboardingPassword: '/onboarding/password',
+  finishOnboarding: '/onboarding/finish',
+  accessInactive: '/access-inactive',
+  accountRecovery: RECOVERY_PENDING_ROUTE,
+  signedOut: '/signed-out',
+  home: '/app',
+} as const;

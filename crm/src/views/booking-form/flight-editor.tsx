@@ -23,6 +23,7 @@ import {
 import { isIsoDate, paiseToRupeesText, requestItemsFromStored, rupeesToPaise } from '@/modules/fulfilment/booking-form-model';
 import { guard } from '../booking-forms';
 import { SelectField, TextField } from '../b11/controls';
+import { useSaveRules } from '../b11/draft-sync';
 import { newRequestId, normaliseResult, type UiResult } from '../b11/form-kit';
 import { refusalReason, useSaveQueue } from './autosave-queue';
 import { useFormToast } from './form-toast';
@@ -72,6 +73,8 @@ async function call(action: EditorEnv['fileActions']['upload'], fd: FormData): P
 
 export function FlightEditor({ env, start }: { env: EditorEnv; start: FlightEditorStart | null }) {
   const router = useRouter();
+  // B1-6: in 'server' mode the save and each file action re-render the page themselves.
+  const { serverRefreshes } = useSaveRules();
   const queue = useSaveQueue();
   const toast = useFormToast();
   const src = env.item ?? env.copyOf;
@@ -218,7 +221,7 @@ export function FlightEditor({ env, start }: { env: EditorEnv; start: FlightEdit
       }
       setRemoveIds([]);
       setNewFiles(left);
-      router.refresh();
+      if (!serverRefreshes || failed.length > 0) router.refresh();
       if (failed.length > 0) {
         live.setServer(`The flight is saved. ${failed.join(' ')} Try again or remove the file.`);
         return;

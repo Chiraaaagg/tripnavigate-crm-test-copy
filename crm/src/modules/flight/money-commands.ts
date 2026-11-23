@@ -12,6 +12,7 @@ import {
   type FlightSupplierFields,
   type FlightSupplierUpdateFields,
 } from './money-contracts';
+import { isConflictSqlState, stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers for the flight money commands and reads (migrations
@@ -43,10 +44,10 @@ export class FlightMoneyCommandError extends Error {
 export function mapFlightMoneyError(error: RpcError): FlightMoneyErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(FLIGHT_MONEY_ERROR_STATES, token) && FLIGHT_MONEY_ERROR_STATES[token as FlightMoneyErrorCode] === state) {
+  if (Object.hasOwn(FLIGHT_MONEY_ERROR_STATES, token) && stateMatches(FLIGHT_MONEY_ERROR_STATES[token as FlightMoneyErrorCode], state)) {
     return token as FlightMoneyErrorCode;
   }
-  if (token === 'request_conflict' && state === '40001') return 'duplicate_request';
+  if (token === 'request_conflict' && isConflictSqlState(state)) return 'duplicate_request';
   if (SESSION_STATES.has(state)) return 'session';
   if (state === '42501') return 'not_authorized';
   if (state === 'P0002') return 'not_found';

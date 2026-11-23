@@ -1,4 +1,5 @@
 import type { EvidenceMime } from '@/modules/fulfilment/contracts';
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 /*
  * B1.2 Phase F: branded itineraries from canonical facts (freeze note part 2
@@ -490,13 +491,13 @@ export type ItineraryActionResult<T = undefined> =
       blocks?: string[];
     };
 
-export const ITINERARY_ERROR_STATES: Record<Exclude<ItineraryErrorCode, 'internal_wording' | 'basis_value_unavailable' | 'document_blocked'>, string> = {
+export const ITINERARY_ERROR_STATES: Record<Exclude<ItineraryErrorCode, 'internal_wording' | 'basis_value_unavailable' | 'document_blocked'>, string | readonly string[]> = {
   not_authorized: '42501',
   not_found: 'P0002',
   invalid_input: '22023',
-  version_changed: '40001',
-  request_conflict: '40001',
-  basis_changed: '40001',
+  version_changed: CONFLICT_STATES,
+  request_conflict: CONFLICT_STATES,
+  basis_changed: CONFLICT_STATES,
   differences_not_checked: '55000',
   differences_open: '55000',
   not_ready: '55000',

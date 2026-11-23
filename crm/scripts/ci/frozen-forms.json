@@ -6,7 +6,7 @@
     "'currentSlice' is the slice under way; the guard checks it when no --slice is given. Per slice, 'allow' lists frozen files the slice may add or edit, 'deletes' lists frozen files the slice may only delete (gone from the working tree; once the slice is on main the file is missing at the base too and the entry is history).",
     "Checked by scripts/ci/check-frozen-forms.mjs (CI, pull requests: base origin/main; the run prints the current slice's exceptions). The guard script and its unit test are frozen. Once this file exists at the base it may change in exactly two ways: 'currentSlice' may be set, and new slice entries may be added; every other key, and every slice entry that exists at the base, must stay as it is."
   ],
-  "currentSlice": "R4",
+  "currentSlice": "BF1",
   "frozen": [
     "src/views/booking-form/**",
     "src/views/b11/**",
@@ -145,6 +145,36 @@
       "note": "Accounts. No approved-form exception: no frozen form file changes. The frozen b11 views keep their own headers, so on Reported payments (b11/accounts-claims.tsx) and Department costs (b11/department-cost.tsx) the page file places the Accounts section strip above the view instead of under its header. finance-forms.tsx (imported by the frozen b11/accounts-claims.tsx) is now a re-export barrel over finance-policy-forms.tsx, finance-receipt-forms.tsx and finance-cash-forms.tsx; the shared parts they import were already frozen, so importedByForms needs no new path (the forms' import closure under src/components is the same as on claude/ux-r3). The Money out tab strip lives in accounts/money-out-tabs.tsx, not in supplier-kit.tsx, which the frozen flight/invoices.tsx imports. Guard test (fixture only, no rule changed): the 'slice removed' case removes R1, because R4 is now the current slice.",
       "allow": [
         "tests/unit/check-frozen-forms.test.ts"
+      ],
+      "deletes": []
+    },
+    "BF1": {
+      "note": "Booking fix go-live 1 (owner 'start build', 23 Nov 2026): behaviour fixes on the approved Book now form only — keep typed work when a re-read fails, passenger save recovery, conflict recovery, one refresh per save, step double-click guard, signed-out message, warn before a rename removes ID proofs. Visible changes are the ones listed in the booking-fix build contract section 10 (V1–V8, W2–W12), shown to the owner before go-live.",
+      "allow": [
+        "src/views/b11/book-views.tsx",
+        "src/views/b11/draft-sync.tsx",
+        "src/views/b11/form-kit.tsx",
+        "src/views/b11/result.ts",
+        "src/views/booking-form/autosave-queue.tsx",
+        "src/views/booking-form/before-submit.tsx",
+        "src/views/booking-form/bill-to-card.tsx",
+        "src/views/booking-form/booking-form-host.tsx",
+        "src/views/booking-form/booking-form-screen.tsx",
+        "src/views/booking-form/customer-trip-card.tsx",
+        "src/views/booking-form/fare-box.tsx",
+        "src/views/booking-form/flight-editor.tsx",
+        "src/views/booking-form/id-proof-dialog.tsx",
+        "src/views/booking-form/package-price-card.tsx",
+        "src/views/booking-form/passenger-display.ts",
+        "src/views/booking-form/passengers-card.tsx",
+        "src/views/booking-form/ready-list.tsx",
+        "src/views/booking-form/service-editor.tsx",
+        "src/views/booking-form/service-model.ts",
+        "src/views/booking-form/services-step.tsx",
+        "src/views/booking-form/step-context.tsx",
+        "src/views/booking-form/step-guard.ts",
+        "src/views/booking-form/types.ts",
+        "src/views/booking-forms.tsx"
       ],
       "deletes": []
     }

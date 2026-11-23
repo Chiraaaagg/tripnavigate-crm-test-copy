@@ -24,6 +24,7 @@ import {
 } from './b1-support';
 import { DESK, VISA_CLAIM_SQL, b11Helpers } from './b11-support';
 import { stripBookingFormKeys } from './booking-form-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * B1.2 Phase D (migration 20261120000100_b12_traveller_id_proof): identity
@@ -241,9 +242,9 @@ describe('begin / finish', () => {
       await one(OWNER, FINISH, [failed.fileId, true]);
       expect(await begin(OWNER, { requestId: failedId })).toMatchObject({ status: 'failed', objectPath: null });
       for (const o of [{ size: 4097 }, { name: 'Other.jpg' }, { seq: 2 }]) {
-        await refused(OWNER, BEGIN, beginParams({ requestId, ...o }), '40001', 'request_conflict');
+        await refused(OWNER, BEGIN, beginParams({ requestId, ...o }), CONFLICT_STATE, 'request_conflict');
       }
-      await refused(MANAGER, BEGIN, beginParams({ requestId }), '40001', 'request_conflict');
+      await refused(MANAGER, BEGIN, beginParams({ requestId }), CONFLICT_STATE, 'request_conflict');
       expect(await h.count(`select 1 from public.audit_events where action = 'booking.id_proof_started'`)).toBe(2);
     });
   });
@@ -288,8 +289,8 @@ describe('remove', () => {
     await asOwner(db, async () => {
       await h.draftWithTravellers();
       const f = await storedFile();
-      await refused(OWNER, REMOVE, [f.fileId, f.rowVersion - 1], '40001', 'version_changed');
-      await refused(OWNER, REMOVE, [f.fileId, null], '40001', 'version_changed');
+      await refused(OWNER, REMOVE, [f.fileId, f.rowVersion - 1], CONFLICT_STATE, 'version_changed');
+      await refused(OWNER, REMOVE, [f.fileId, null], CONFLICT_STATE, 'version_changed');
       const removed = await one<Finished>(MANAGER, REMOVE, [f.fileId, f.rowVersion]);
       expect(removed).toEqual({ fileId: f.fileId, status: 'removed', rowVersion: f.rowVersion + 1 });
       expect(await one<Finished>(OWNER, REMOVE, [f.fileId, 999])).toEqual(removed);

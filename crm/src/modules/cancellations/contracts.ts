@@ -16,6 +16,7 @@
  * changeRequestId (null for a trip cancellation) and its cancellationId is
  * null for a removal (migrations 20261205000700..0740).
  */
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 export type Paise = string;
 
@@ -117,12 +118,12 @@ export type CancellationErrorCode =
   | 'task_closed'
   | 'environment_unset';
 
-export const CANCELLATION_ERROR_STATES: Record<CancellationErrorCode, string> = {
+export const CANCELLATION_ERROR_STATES: Record<CancellationErrorCode, string | readonly string[]> = {
   trip_cancelled: '55000',
   not_ready: '55000',
   already_decided: '55000',
   already_recorded: '55000',
-  version_changed: '40001',
+  version_changed: CONFLICT_STATES,
   invalid_input: '22023',
   not_authorized: '42501',
   not_found: 'P0002',

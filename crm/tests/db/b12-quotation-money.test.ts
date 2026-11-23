@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, FIXTURE_USERS as U, type TestDb, asOwner, createTestDb, expectDbError, istBusinessDate, resetActor, setActor } from '../helpers/db';
 import { ACCOUNTS, DEAL, FLIGHT, HOTEL, MANAGER, OWNER, PURCHASE, SALES_B, SUPER, TRANSFER, b1Helpers, rid } from './b1-support';
 import { REPORT, claimHelpers } from './b11-claims-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * B1.2 Phase E quotation money (migration 20261120000300, Mercury): lines,
@@ -144,7 +145,7 @@ describe('quotation_lines_save', () => {
       const m = (await money(OWNER, d.versionId))!;
       expect(m.lines[0]).toMatchObject({ lineNo: 1, unitKind: 'room_night', quantity: 6, lineSellPaise: '3600000', lineCostPaise: '2700300', remark: 'Rate sheet October' });
       // Replacing the set; a stale row version is refused.
-      await refused(OWNER, LINES_SQL, [d.versionId, d.rowVersion, '[]'], '40001', 'version_changed');
+      await refused(OWNER, LINES_SQL, [d.versionId, d.rowVersion, '[]'], CONFLICT_STATE, 'version_changed');
       const empty = await one<RV>(OWNER, LINES_SQL, [d.versionId, saved.rowVersion, '[]']);
       expect(await owner('select 1 from public.quotation_version_lines where quotation_version_id = $1', [d.versionId])).toHaveLength(0);
       expect(empty.rowVersion).toBe(saved.rowVersion + 1);

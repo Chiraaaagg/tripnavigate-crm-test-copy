@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { asRpcClient, type RpcClient, type RpcError } from '@/modules/fulfilment/commands';
 import { ItineraryFactsSchema, ItineraryMoneySchema } from '../commands';
 import { type ItineraryFacts, type ItineraryMoney, RENDER_KINDS, type RenderKind } from '../contracts';
+import { CONFLICT_SQLSTATE_NEW, isConflictSqlState } from '@/lib/sqlstate';
 
 /**
  * Render worker commands (Atlas 0500, review E3-8/E3-13/E5-7): claim a job,
@@ -93,7 +94,7 @@ export class RenderWorkerError extends Error {
 }
 
 function isTaskConflict(error: RpcError): boolean {
-  return error.code === '40001' && (error.message ?? '').trim() === 'task_conflict';
+  return isConflictSqlState(error.code) && (error.message ?? '').trim() === 'task_conflict';
 }
 
 function workerName(worker: string, command: string): string {
@@ -172,7 +173,7 @@ export async function itineraryRenderClaimForWorker(
     throw new RenderWorkerError(null, command, 'leaseSeconds');
   }
   const reply = await workerCall(client, command, { p_worker: worker, p_lease_seconds: input.leaseSeconds });
-  if (reply.conflict) throw new RenderWorkerError('40001', command);
+  if (reply.conflict) throw new RenderWorkerError(CONFLICT_SQLSTATE_NEW, command);
   if (reply.data === null || reply.data === undefined) return null;
   const parsed = ClaimSchema.safeParse(reply.data);
   if (!parsed.success) throw new RenderWorkerError(null, command);

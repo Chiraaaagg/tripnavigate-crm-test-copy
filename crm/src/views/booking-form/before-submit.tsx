@@ -1,6 +1,7 @@
 'use client';
 
 import { CalendarDays, ChevronRight, CircleAlert, FileText, Info, Pencil, Plus, Trash2 } from 'lucide-react';
+import { isSessionEnded, SignInNewTabLink } from '../b11/session-link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -11,18 +12,19 @@ import { MoneyInput } from '@/components/ui/money-input';
 import { Notice } from '@/components/ui/notice';
 import { SaveStatus } from '@/components/ui/save-status';
 import { useChangeMode } from './change-mode-context';
-import { EVIDENCE_MIME_TYPES } from '@/modules/fulfilment/contracts';
+import { BOOK_RELIABILITY_TEXT, EVIDENCE_MIME_TYPES } from '@/modules/fulfilment/contracts';
 import type { BookingFormVM } from '@/modules/fulfilment/booking-form-vm';
 import { formatInr, isIsoDate, paiseToRupeesText, rupeesToPaise } from '@/modules/fulfilment/booking-form-model';
 import { guard } from '../booking-forms';
 import { dateText } from '../b11/book-fields';
 import { SalesClaimsPanel } from '../b11/book-claims';
+import { PartNotLoadedNotice } from '../b11/book-views';
 import { ChangeClassForm, DiscardRevisionForm, SubmitBookingForm } from '../b11/book-review';
 import { QuotationSourceNote } from '../b11/quotation-source';
 import { useSectionForm } from '../b11/draft-sync';
 import { newRequestId, normaliseResult, type UiResult } from '../b11/form-kit';
 import type { BookNowView } from '../b11/shapes';
-import { refusalReason, useAutosave, useSaveQueue } from './autosave-queue';
+import { reasonRole, refusalReason, SaveRecovery, useAutosave, useCardLatest, useSaveQueue } from './autosave-queue';
 import { HiddenDraftInputs, editableOf } from './form-helpers';
 import { useFormToast } from './form-toast';
 import { SectionBody, SectionCard } from './parts';
@@ -93,6 +95,7 @@ export function PlanCard({ view, action, totalPaise }: { view: BookNowView; acti
     check: () => planIssues(f.values.rows),
     send: () => (formRef.current ? f.post(new FormData(formRef.current)) : Promise.resolve({ ok: false, code: 'unexpected', message: '' } as UiResult)),
   });
+  const latest = useCardLatest(f, save);
   const sum = rows.reduce((s, r) => {
     const p = rupeesToPaise(r.amount);
     return s + (typeof p === 'string' ? BigInt(p) : 0n);
@@ -154,11 +157,12 @@ export function PlanCard({ view, action, totalPaise }: { view: BookNowView; acti
             </b>
           </p>
           {save.state === 'fix' && save.reason ? (
-            <p id="why-plan" className="m-0 mt-3 flex items-start gap-1.5 text-sm font-medium text-status-danger">
+            <p id="why-plan" role={reasonRole(save)} className="m-0 mt-3 flex items-start gap-1.5 text-sm font-medium text-status-danger">
               <CircleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
               <span>{save.reason}</span>
             </p>
           ) : null}
+          {editable ? <SaveRecovery save={save} describedBy="why-plan" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="mt-2" /> : null}
         </SectionBody>
       </form>
     </SectionCard>
@@ -268,6 +272,7 @@ export function OkCard({ view, actions }: { view: BookNowView; actions: BookingF
                 {problem}
               </p>
             ) : null}
+            {problem && isSessionEnded({ message: problem }) ? <SignInNewTabLink /> : null}
           </>
         )}
       </SectionBody>
@@ -289,6 +294,8 @@ function Collapsed({ id, summary, children }: { id?: string; summary: React.Reac
 
 /** "Payment already received? (optional)", collapsed: the live payment report, unchanged. */
 export function ClaimCard({ view, actions }: { view: BookNowView; actions: BookingFormActions }) {
+  // B1-3: the payment reports did not load on this render; the booking is not affected.
+  if ((view.partsNotLoaded ?? []).includes('claims')) return <PartNotLoadedNotice part="claims" />;
   if (!view.claims) return null;
   return (
     <Collapsed
@@ -352,12 +359,27 @@ export function ReviewCard({ vm, view, travellersText }: { vm: BookingFormVM; vi
 }
 
 /** The submit card: the note, the live submit with its confirmation, and "Finish N things first". */
-export function SubmitCard({ view, actions, left, reloadHref, onShowList }: { view: BookNowView; actions: BookingFormActions; left: number; reloadHref: string; onShowList: () => void }) {
+export function SubmitCard({
+  view,
+  actions,
+  left,
+  reloadHref,
+  onShowList,
+  checklistMissing = false,
+}: {
+  view: BookNowView;
+  actions: BookingFormActions;
+  left: number;
+  reloadHref: string;
+  onShowList: () => void;
+  /** B1-3: the checklist did not load, so Submit stays off (W3b); Submit's own database check is unchanged. */
+  checklistMissing?: boolean;
+}) {
   const editable = editableOf(view);
   const version = view.version;
   const revision = Boolean(version?.revisesVersionId);
-  const reason = submitBlockedReason(view);
-  const canSubmit = editable && view.canSubmit && left === 0 && view.checklist.every((i) => !i.blocking) && Boolean(version);
+  const reason = checklistMissing ? BOOK_RELIABILITY_TEXT.checklistNotLoaded : submitBlockedReason(view);
+  const canSubmit = editable && view.canSubmit && !checklistMissing && left === 0 && view.checklist.every((i) => !i.blocking) && Boolean(version);
   const changeMode = useChangeMode();
   if (changeMode) return <ChangeModeSubmitNote refNo={changeMode.refNo} />;
   return (
@@ -375,7 +397,7 @@ export function SubmitCard({ view, actions, left, reloadHref, onShowList }: { vi
         {version ? <SubmitBookingForm view={view} disabled={!canSubmit} describedBy="bf-submit-reason" action={actions.submit} reloadHref={reloadHref} triggerId={SUBMIT_TRIGGER_ID} /> : null}
         {revision && editable && version ? <DiscardRevisionForm view={view} action={actions.discardRevision} /> : null}
         <span id="bf-submit-reason" className="text-sm text-quiet">
-          {left > 0 ? (
+          {left > 0 && !checklistMissing ? (
             <>
               Finish {left} {left === 1 ? 'thing' : 'things'} first (see{' '}
               <button type="button" onClick={onShowList} className={cn('cursor-pointer border-0 bg-transparent p-0 text-sm text-brand-strong underline underline-offset-4', focusRing)}>

@@ -18,8 +18,9 @@ import { requestItemsOk, validateServiceFacts } from '@/modules/fulfilment/forms
 
 const requireStaff = vi.fn();
 const rpc = vi.fn();
-vi.mock('@/modules/identity/server/session', () => ({ requireStaff: () => requireStaff() }));
-vi.mock('next/cache', () => ({ revalidatePath: () => undefined }));
+// Booking reliability B1-8: the Book now saves gate with staffForAction (same decision; SESSION_ENDED never returned here).
+vi.mock('@/modules/identity/server/session', () => ({ requireStaff: () => requireStaff(), staffForAction: () => requireStaff(), SESSION_ENDED: Symbol('session_ended') }));
+vi.mock('next/cache', () => ({ revalidatePath: () => undefined, refresh: () => undefined }));
 
 const actions = await import('@/modules/fulfilment/server/flight-fares-actions');
 

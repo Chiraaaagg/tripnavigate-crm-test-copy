@@ -4,6 +4,7 @@ import {
   ACTIVITY, ADD_SQL, ANON, BUDGETS, DEAL, DEAL2, FLIGHT_FACTS, HOTEL, MANAGER, OWNER, PURCHASE, REMOVE_SQL, SALES_B,
   SAVE_ITEM_SQL, SELLING, SVC, TRANSFER, TRAVELLERS, TRAVELLERS_SQL, b1Helpers, rid,
 } from './b1-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * B1 service items (migration 20261118000100_b1_service_items): the intake
@@ -222,8 +223,8 @@ describe('service_item_add', () => {
     await asOwner(db, async () => {
       await setSwitch('service_items_enabled', true);
       const opened = await openDraft();
-      await refused(OWNER, ADD_SQL, [opened.versionId, 7, 'hotel', JSON.stringify(HOTEL), BUDGETS.hotel, rid()], '40001', 'version_changed');
-      await refused(OWNER, ADD_SQL, [opened.versionId, null, 'hotel', JSON.stringify(HOTEL), BUDGETS.hotel, rid()], '40001', 'version_changed');
+      await refused(OWNER, ADD_SQL, [opened.versionId, 7, 'hotel', JSON.stringify(HOTEL), BUDGETS.hotel, rid()], CONFLICT_STATE, 'version_changed');
+      await refused(OWNER, ADD_SQL, [opened.versionId, null, 'hotel', JSON.stringify(HOTEL), BUDGETS.hotel, rid()], CONFLICT_STATE, 'version_changed');
       // B1.1 (20261119000100): visa and passport are sold now; only train stays on hold.
       await refused(OWNER, ADD_SQL, [opened.versionId, 1, 'train', '{}', '0', rid()], '22023', 'service_on_hold');
       await refusedWithHint(OWNER, ADD_SQL, [opened.versionId, 1, 'cruise', '{}', '0', rid()], /^serviceType$/);
@@ -307,7 +308,7 @@ describe('service_item_save and service_item_remove', () => {
       expect(f!.facts).not.toHaveProperty('roomType');
       expect(f!.budget).toBe('5000000');
       expect(f!.hash).toBe(f!.expected);
-      await refused(OWNER, SAVE_ITEM_SQL, [added.itemId, opened.versionId, added.rowVersion, JSON.stringify(HOTEL), '1'], '40001', 'version_changed');
+      await refused(OWNER, SAVE_ITEM_SQL, [added.itemId, opened.versionId, added.rowVersion, JSON.stringify(HOTEL), '1'], CONFLICT_STATE, 'version_changed');
       await refused(OWNER, SAVE_ITEM_SQL, [rid(), opened.versionId, saved.rowVersion, JSON.stringify(HOTEL), '1'], 'P0002', 'not_found');
       await refusedWithHint(OWNER, SAVE_ITEM_SQL, [added.itemId, opened.versionId, saved.rowVersion, JSON.stringify({ ...HOTEL, margin: 1 }), '1'], /^margin$/);
       await refused(SALES_B, SAVE_ITEM_SQL, [added.itemId, opened.versionId, saved.rowVersion, JSON.stringify(HOTEL), '1'], '42501', 'not_authorized');
@@ -367,7 +368,7 @@ describe('deal_travellers_save', () => {
       expect(await owner('select seq, full_name, traveller_type from public.deal_travellers where deal_id = $1 order by seq', [DEAL])).toEqual([
         { seq: 1, full_name: 'Synthetic Solo', traveller_type: 'infant' },
       ]);
-      await refused(OWNER, TRAVELLERS_SQL, [DEAL, saved.rowVersion, JSON.stringify(TRAVELLERS)], '40001', 'version_changed');
+      await refused(OWNER, TRAVELLERS_SQL, [DEAL, saved.rowVersion, JSON.stringify(TRAVELLERS)], CONFLICT_STATE, 'version_changed');
       const bad: unknown[] = [
         [{ fullName: '', type: 'adult', seq: 1 }],
         [{ fullName: 'Synthetic', type: 'pet', seq: 1 }],
@@ -447,7 +448,7 @@ describe('package content hash', () => {
       const after = await readiness(OWNER, opened.versionId);
       expect(after.contentHash).not.toBe(s.contentHash);
       // Confirming against a stale hash is refused.
-      await refused(OWNER, 'select public.booking_confirm($1, $2) as r', [opened.versionId, s.contentHash], '40001', 'version_changed');
+      await refused(OWNER, 'select public.booking_confirm($1, $2) as r', [opened.versionId, s.contentHash], CONFLICT_STATE, 'version_changed');
       // The hotel hash function still ignores items (legacy versions are untouched).
       const [hotel] = await owner<{ same: boolean }>(
         `select authz.booking_hash(null, null, null, null, null, null, null, null, null, null, null, null, v.commercial_revision, '[]'::jsonb)

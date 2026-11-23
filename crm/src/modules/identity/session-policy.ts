@@ -9,7 +9,7 @@
  */
 
 import { z } from 'zod';
-import { RECOVERY_PENDING_ROUTE, type SessionState, type SessionStatus } from './contracts';
+import { ROUTES, type SessionState, type SessionStatus } from './contracts';
 
 export type ProfileStatus = 'invited' | 'active' | 'inactive';
 
@@ -31,18 +31,9 @@ export type SessionDecision =
   | { kind: 'allow' }
   | { kind: 'redirect'; to: string; reason: string };
 
-export const ROUTES = {
-  signIn: '/sign-in',
-  sessionExpired: '/session-expired',
-  mfaEnroll: '/mfa/enroll',
-  mfaChallenge: '/mfa/challenge',
-  onboardingPassword: '/onboarding/password',
-  finishOnboarding: '/onboarding/finish',
-  accessInactive: '/access-inactive',
-  accountRecovery: RECOVERY_PENDING_ROUTE,
-  signedOut: '/signed-out',
-  home: '/app',
-} as const;
+// ROUTES lives in the zod-free contracts module so browser code can import it
+// without pulling zod (and its CSP-blocked `new Function` probe) into the page.
+export { ROUTES };
 
 /**
  * Seconds since the first authentication factor of this session (minimum amr

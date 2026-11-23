@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type TestDb, asOwner, createTestDb, istBusinessDate } from '../helpers/db';
 import { BLANK_KIND, PASSPORT, SQL, STICKER, VISA_A, dayFrom, line, rid, visaHelpers } from './visa-e-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Visa build (contract 8 Nov 2026) test plan 12.1 "Applied": C5 for one
@@ -184,7 +185,7 @@ describe('C5 clubbed', () => {
       };
       const club = (lines: unknown[]) => [taskId, JSON.stringify({ applicants: lines, paidBy: 'customer_direct' }), rid()];
       await refusedHint(VISA_A, SQL.apply, club([line(a1), line(a2), line(notReady)]), 'not_ready', /^applicants\[2\]:documents_missing$/);
-      await refused(VISA_A, SQL.apply, club([line(a1), line(a2, { expectedRowVersion: a2.rowVersion - 1 })]), 'version_changed', '40001');
+      await refused(VISA_A, SQL.apply, club([line(a1), line(a2, { expectedRowVersion: a2.rowVersion - 1 })]), 'version_changed', CONFLICT_STATE);
       await refusedHint(VISA_A, SQL.apply, club([line(a1, { reference: 'SAME-1' }), line(a2, { reference: 'same-1' })]), 'duplicate_reference', /applicants\[1\]\.reference/); // 0-based hints (lead decision 8 Nov)
       await refused(VISA_A, SQL.apply, club([line(a1), line(a2, { appliedOn: dayFrom(1) })]), 'applied_date_in_future', '22023');
       await refusedHint(VISA_A, SQL.apply, club([line(a1), line(a1)]), 'invalid_input');
@@ -233,7 +234,7 @@ describe('C5 idempotency', () => {
       expect(await owner('select count(*)::int as n from public.department_cost_entries where task_id = $1', [taskId])).toEqual([{ n: 1 }]);
       expect(await audits('visa.application_applied')).toHaveLength(1);
       await refused(VISA_A, SQL.apply, [taskId, JSON.stringify({ applicants: [line(a, { reference: 'REPLAY-2' })], paidBy: 'company', paymentMode: 'upi', receiptEvidenceId: null, remark: null }), req],
-        'duplicate_request', '40001');
+        'duplicate_request', CONFLICT_STATE);
     });
   });
 });

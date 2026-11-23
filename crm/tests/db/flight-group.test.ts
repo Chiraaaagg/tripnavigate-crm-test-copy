@@ -4,6 +4,7 @@ import {
   DEAL, DEAL2, FLIGHT, FLIGHT_2, LEG_BLANK, LEG_DEL_GOI, LEG_JDH_DEL, MANAGER, MANAGER_AMD, OWNER, PURCHASE, SALES_B, SQL, VISA,
   flightHelpers, rid, screenshotFlight, typedFlight,
 } from './flight-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Flight build, contract D1 and section 6.1 A1, A2, A13, 9.1; test plan 12.1
@@ -95,7 +96,7 @@ describe('flight_group_claim', () => {
       expect(await h.claim(FLIGHT, DEAL)).toMatchObject({ outcome: 'existing' });
       expect(await h.sectors(b.flightTasks[0]!)).toHaveLength(2);
       // A second Flight person is refused.
-      await refused(FLIGHT_2, SQL.groupClaim, [DEAL, rid()], 'task_conflict', '40001');
+      await refused(FLIGHT_2, SQL.groupClaim, [DEAL, rid()], 'task_conflict', CONFLICT_STATE);
     });
   });
 
@@ -109,7 +110,7 @@ describe('flight_group_claim', () => {
       expect([...(r.taskIds ?? [])].sort()).toEqual([...b.flightTasks].sort());
       for (const t of b.flightTasks) expect(await h.taskRow(t)).toMatchObject({ status: 'in_progress', assignee_user_id: U.movedStaff });
       // The legacy single-task claim by another Flight person is a conflict too.
-      await refused(FLIGHT_2, SQL.taskClaim, [b.flightTasks[0]], 'task_conflict', '40001');
+      await refused(FLIGHT_2, SQL.taskClaim, [b.flightTasks[0]], 'task_conflict', CONFLICT_STATE);
     });
   });
 
@@ -163,7 +164,7 @@ describe('flight_group_reassign', () => {
       for (const actor of [OWNER, FLIGHT, FLIGHT_2, PURCHASE, MANAGER_AMD]) {
         await refused(actor, SQL.groupReassign, [DEAL, U.movedStaff, U.salesAhmedabad, REASON, rid()], 'not_authorized', '42501');
       }
-      await refused(MANAGER, SQL.groupReassign, [DEAL, U.salesAhmedabad, U.salesAhmedabad, REASON, rid()], 'task_conflict', '40001');
+      await refused(MANAGER, SQL.groupReassign, [DEAL, U.salesAhmedabad, U.salesAhmedabad, REASON, rid()], 'task_conflict', CONFLICT_STATE);
       await refusedHint(MANAGER, SQL.groupReassign, [DEAL, U.movedStaff, U.purchaseJodhpur, REASON, rid()], 'invalid_input');
       await refusedHint(MANAGER, SQL.groupReassign, [DEAL, U.movedStaff, U.salesAhmedabad, 'short', rid()], 'invalid_input');
 

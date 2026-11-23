@@ -8,6 +8,7 @@
  * crm/supabase/migrations/20261204000200..0230. Money is whole paise as
  * decimal strings; nothing here is a float.
  */
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 export type Paise = string;
 
@@ -140,10 +141,10 @@ export type DocumentErrorCode =
   | 'not_configured';
 
 /** Each token and the only SQLSTATE it may arrive with. */
-export const DOCUMENT_ERROR_STATES: Readonly<Record<DocumentErrorCode, string>> = Object.freeze({
+export const DOCUMENT_ERROR_STATES: Readonly<Record<DocumentErrorCode, string | readonly string[]>> = Object.freeze({
   documents_off: '55000',
   billing_not_verified: '55000',
-  document_stale: '40001',
+  document_stale: CONFLICT_STATES,
   receipt_not_verified: '55000',
   has_credit_notes: '55000',
   company_identity_missing: '55000',
@@ -151,8 +152,8 @@ export const DOCUMENT_ERROR_STATES: Readonly<Record<DocumentErrorCode, string>> 
   not_ready: '55000',
   already_recorded: '55000',
   wrong_state: '55000',
-  version_changed: '40001',
-  request_conflict: '40001',
+  version_changed: CONFLICT_STATES,
+  request_conflict: CONFLICT_STATES,
   invalid_input: '22023',
   not_authorized: '42501',
   not_found: 'P0002',

@@ -1,6 +1,8 @@
 'use client';
 
+import { Notice } from '@/components/ui/notice';
 import { ProgressChecklist } from '@/components/ui/progress-checklist';
+import { BOOK_RELIABILITY_TEXT } from '@/modules/fulfilment/contracts';
 import type { BookingFormChecklistItem } from '@/modules/fulfilment/booking-form-vm';
 
 /*
@@ -75,10 +77,16 @@ export function readyItems(
   });
 }
 
-export function ReadyList({ items, onGo }: { items: readonly ReadyItem[]; onGo: (key: ReadyKey) => void }) {
-  const all = items.every((i) => i.done);
+export function ReadyList({ items, onGo, checklistMissing = false }: { items: readonly ReadyItem[]; onGo: (key: ReadyKey) => void; /** B1-3: the server's checklist did not load on this render. */ checklistMissing?: boolean }) {
+  // A missing checklist never reads as "Ready to submit" (booking reliability B1-3, W3b).
+  const all = !checklistMissing && items.every((i) => i.done);
   return (
     <section className="rounded-card border border-line bg-card px-5 py-4.5 shadow-card max-sm:px-4" id="ready">
+      {checklistMissing ? (
+        <Notice tone="warning" role="status" className="mb-3">
+          <p>{BOOK_RELIABILITY_TEXT.checklistNotLoaded}</p>
+        </Notice>
+      ) : null}
       <ProgressChecklist id="bf-ready" title={all ? 'Ready to submit' : 'Before you submit'} items={items.map((i) => ({ key: i.key, label: i.done && i.doneNote ? `${i.label} · ${i.doneNote}` : i.label, done: i.done, why: i.why, onSelect: () => onGo(i.key) }))} />
     </section>
   );

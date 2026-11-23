@@ -4,6 +4,7 @@ import {
   ACC, DEAL, DEAL2, FLIGHT, FLIGHT_2, LEG_DEL_GOI, LEG_JDH_DEL, MANAGER, OWNER, PURCHASE, SALES_B, SQL, VISA, confirmFields, fare, flightHelpers,
   nextPnr, nextTicket, rid, ticketFor, typedFlight,
 } from './flight-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Flight build, contract D7, D8 and sections 5.1 (ticket revisions, number
@@ -220,7 +221,7 @@ describe('flight_ticket_correct', () => {
       }
       await refusedHint(FLIGHT, SQL.ticketCorrect, [leg1.id, 1, 1, fields({ ticketNumber: fixed }), 'typo', rid()], 'invalid_input', /reason/);
       await refused(FLIGHT, SQL.ticketCorrect, [leg1.id, 1, 1, fields(), REASON, rid()], 'no_difference', '22023');
-      await refused(FLIGHT, SQL.ticketCorrect, [leg1.id, 1, 2, fields({ ticketNumber: fixed }), REASON, rid()], 'version_changed', '40001');
+      await refused(FLIGHT, SQL.ticketCorrect, [leg1.id, 1, 2, fields({ ticketNumber: fixed }), REASON, rid()], 'version_changed', CONFLICT_STATE);
       await refused(FLIGHT, SQL.ticketCorrect, [leg1.id, 3, 1, fields({ ticketNumber: fixed }), REASON, rid()], 'not_found', 'P0002');
       await refusedHint(FLIGHT, SQL.ticketCorrect, [leg1.id, 1, 1, fields({ airlinePnr: 'bad' }), REASON, rid()], 'invalid_input', /airlinePnr/);
       // Traveller 2's number belongs to someone else.

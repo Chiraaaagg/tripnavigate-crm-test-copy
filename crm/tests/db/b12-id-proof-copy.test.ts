@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, FIXTURE_USERS as U, expectDbError, SYNTHETIC_INTAKE_CONFIG as CONFIG, type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { DEAL, OWNER, PURCHASE, SALES_B, SUPER, SVC } from './b1-support';
 import { b11Helpers } from './b11-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * B1.2 DEC-43 (migration 20261120000700_b12_id_proof_bitrix_copy): copy jobs
@@ -125,7 +126,7 @@ describe('worker commands (service role)', () => {
     await asOwner(db, async () => {
       const { deal } = await importedDealWithProof();
       const [job] = await claim();
-      await refused(SVC, MARK, [job!.jobId, '00000000-0000-4000-8000-000000000000', [11]], '40001', 'task_conflict');
+      await refused(SVC, MARK, [job!.jobId, '00000000-0000-4000-8000-000000000000', [11]], CONFLICT_STATE, 'task_conflict');
       expect(await one(SVC, MARK, [job!.jobId, job!.leaseToken, [11, 12]])).toMatchObject({ status: 'unknown', attempts: 1 });
       expect(await one(SVC, COMPLETE, [job!.jobId, job!.leaseToken, 'sent', null, 13])).toMatchObject({ status: 'sent', attempts: 1, errorCode: null });
       expect((await jobs(deal))[0]).toMatchObject({ status: 'sent', prior_file_ids: '{11,12}', bitrix_file_id: '13' });
@@ -217,7 +218,7 @@ describe('review E7: one job per Deal, circuit breaker, re-arm', () => {
       await one(SVC, MARK, [job!.jobId, job!.leaseToken, [11, 12]]);
       for (const actor of [OWNER, SUPER]) await refused(actor, STOP, [job!.jobId, job!.leaseToken, 'prior_files_lost'], '42501');
       await refused(SVC, STOP, [job!.jobId, job!.leaseToken, 'something_else'], '22023');
-      await refused(SVC, STOP, [job!.jobId, '00000000-0000-4000-8000-000000000000', 'prior_files_lost'], '40001');
+      await refused(SVC, STOP, [job!.jobId, '00000000-0000-4000-8000-000000000000', 'prior_files_lost'], CONFLICT_STATE);
       const stopped = await one<{ stopId: string; switchOn: boolean }>(SVC, STOP, [job!.jobId, job!.leaseToken, 'prior_files_lost']);
       expect(stopped.switchOn).toBe(false);
       expect((await jobs(deal))[0]).toMatchObject({ status: 'failed', last_error_code: 'prior_files_lost' });

@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { isSessionEnded, SignInNewTabLink } from './session-link';
 import { useActionState, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useHandFormStatus } from '@/components/hand-form';
 import { Button } from '@/components/ui/button';
@@ -195,6 +196,12 @@ export function ResultBox({
             ))}
           </ul>
         ) : null}
+        {/* B1-8 (W8): an ended session keeps this page; sign in again in a new tab. */}
+        {isSessionEnded(result) ? (
+          <p className="m-0 mt-1.5">
+            <SignInNewTabLink />
+          </p>
+        ) : null}
         {conflictText && reloadHref ? (
           <p className="m-0 mt-1.5">
             <a href={reloadHref} className={cn('rounded-chip font-medium text-brand-strong underline underline-offset-4', focusRing)}>
@@ -249,6 +256,8 @@ export function useUnsavedGuard(dirty: boolean) {
     const onClick = (e: MouseEvent) => {
       const link = (e.target as Element | null)?.closest?.('a[href]');
       if (!link || link.getAttribute('href')?.startsWith('#')) return;
+      // A link that opens a new tab (for example "Sign in (opens in a new tab)") does not leave this page.
+      if (link.getAttribute('target') === '_blank') return;
       if (!window.confirm('You have unsaved changes. Leave this page without saving them?')) {
         e.preventDefault();
         e.stopPropagation();

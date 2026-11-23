@@ -4,6 +4,7 @@ import {
   ACC, BLANK_KIND, DEAL, EVISA, FLIGHT, MANAGER, MANAGER_AMD, OWNER, PASSPORT, PURCHASE, SQL, STICKER, STICKER_DOCS, VISA_A, VISA_B, dayFrom, line, passportOf, rid,
   visaHelpers,
 } from './visa-e-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Visa build (contract 8 Nov 2026) test plan 12.1: claim (C1), the branch
@@ -38,7 +39,7 @@ describe('C1 claim', () => {
       const claimed = await one<Record<string, unknown>>(VISA_A, SQL.claim, [taskId]);
       expect(claimed).toMatchObject({ taskId, status: 'in_progress', assignedToYou: true, alreadyYours: false, applicationCount: 4 });
       expect(await one(VISA_A, SQL.claim, [taskId])).toMatchObject({ alreadyYours: true });
-      await refused(VISA_B, SQL.claim, [taskId], 'task_conflict', '40001');
+      await refused(VISA_B, SQL.claim, [taskId], 'task_conflict', CONFLICT_STATE);
       const apps = await applicants(taskId);
       expect(apps.map((a) => [a.seq, a.state, a.removed])).toEqual([[1, 'docs_pending', false], [2, 'docs_pending', false], [3, 'docs_pending', false], [4, 'docs_pending', false]]);
       // One not-received document row per documentsNeeded label, source sales, catalogue code by label key.
@@ -121,7 +122,7 @@ describe('C2 passenger row', () => {
         JSON.stringify({ appointmentDate: dayFrom(-30), appointmentTime: '09:15', remark: 'Synthetic remark',
           documents: [{ documentId: a.documents[0]!.documentId, received: true }] }), rid()]);
       expect(r).toMatchObject({ applicationId: a.applicationId, rowVersion: a.rowVersion + 1, ready: false, notReady: ['documents_missing'] });
-      await refused(VISA_A, SQL.setRow, [a.applicationId, a.rowVersion, JSON.stringify({ remark: 'stale' }), rid()], 'version_changed', '40001');
+      await refused(VISA_A, SQL.setRow, [a.applicationId, a.rowVersion, JSON.stringify({ remark: 'stale' }), rid()], 'version_changed', CONFLICT_STATE);
       a = await app(taskId, 1);
       expect(a.appointment).toEqual({ date: dayFrom(-30), time: '09:15' });
       expect(a.remark).toBe('Synthetic remark');
@@ -237,7 +238,7 @@ describe('C3/C4 documents', () => {
       const received = a.documents.find((d) => d.status === 'received')!;
       await refused(VISA_A, SQL.docRemove, [received.documentId, a.rowVersion, rid()], 'document_received', '55000');
       const pan = a.documents.find((d) => d.catalogueCode === 'pan_card')!;
-      await refused(VISA_A, SQL.docRemove, [pan.documentId, a.rowVersion - 1, rid()], 'version_changed', '40001');
+      await refused(VISA_A, SQL.docRemove, [pan.documentId, a.rowVersion - 1, rid()], 'version_changed', CONFLICT_STATE);
       await one(VISA_A, SQL.docRemove, [pan.documentId, a.rowVersion, rid()]);
       a = await app(taskId, 1);
       expect(a.documents.map((d) => d.documentId)).not.toContain(pan.documentId);

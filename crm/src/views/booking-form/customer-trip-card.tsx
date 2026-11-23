@@ -16,7 +16,7 @@ import { useSectionForm } from '../b11/draft-sync';
 import type { FieldRef, UiResult } from '../b11/form-kit';
 import { usePrefillField } from '../b11/prefill-inline';
 import type { B11Action, BookNowView } from '../b11/shapes';
-import { useAutosave } from './autosave-queue';
+import { reasonRole, SaveRecovery, useAutosave, useCardLatest } from './autosave-queue';
 import { HiddenDraftInputs, editableOf, errFor, useShownRefusal } from './form-helpers';
 import { SectionCard } from './parts';
 import type { DealTripFactsView } from './vn-types';
@@ -277,6 +277,7 @@ export function CustomerTripCard({
     send: () => (formRef.current ? f.post(new FormData(formRef.current)) : Promise.resolve<UiResult>({ ok: false, code: 'unexpected', message: '' } as UiResult)),
     refs: CUSTOMER_REFS,
   });
+  const latest = useCardLatest(f, save);
 
   const n = countsOf(v);
   const locked = from.adults;
@@ -460,11 +461,12 @@ export function CustomerTripCard({
             </div>
           </details>
           {reason ? (
-            <p id="why-customer" className="m-0 mt-3 flex items-start gap-1.5 text-sm font-medium text-status-danger">
+            <p id="why-customer" role={reasonRole(save)} className="m-0 mt-3 flex items-start gap-1.5 text-sm font-medium text-status-danger">
               <CircleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
               <span>{reason}</span>
             </p>
           ) : null}
+          {editable ? <SaveRecovery save={save} describedBy="why-customer" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="mt-2" /> : null}
         </div>
       </form>
     </SectionCard>

@@ -1,4 +1,5 @@
 import type { GoAheadState } from '@/modules/procurement/contracts';
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 /**
  * Supplier money contract (Track B of the Purchase build, frozen 2 Nov 2026).
@@ -133,11 +134,11 @@ export type SupplierMoneyErrorCode =
   | 'change_in_progress';
 
 /** SQLSTATE each token arrives with (a token with any other state is not trusted). */
-export const SUPPLIER_MONEY_ERROR_STATES: Record<SupplierMoneyErrorCode, string> = {
+export const SUPPLIER_MONEY_ERROR_STATES: Record<SupplierMoneyErrorCode, string | readonly string[]> = {
   not_authorized: '42501',
   not_found: 'P0002',
-  version_changed: '40001',
-  task_conflict: '40001',
+  version_changed: CONFLICT_STATES,
+  task_conflict: CONFLICT_STATES,
   not_ready: '55000',
   over_budget: '55000',
   already_confirmed: '55000',
@@ -155,7 +156,7 @@ export const SUPPLIER_MONEY_ERROR_STATES: Record<SupplierMoneyErrorCode, string>
   not_self_approval: '42501',
   not_self_verification: '42501',
   already_decided: '55000',
-  duplicate_request: '40001',
+  duplicate_request: CONFLICT_STATES,
   environment_unset: '55000',
   not_configured: '55000',
   procurement_disabled: '55000',

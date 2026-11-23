@@ -212,3 +212,189 @@ export function planTravellerSave(input: { stored: readonly StoredTraveller[]; p
     created: input.posted.filter((t) => !storedSeqs.has(t.seq)).map((t) => t.seq),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Booking reliability B1-4 and B1-9 (screen side, pure): passenger numbers
+// learned from the save answer, rows that keep their place when the saved
+// list arrives, the check after a lost answer, and renames that would remove
+// ID proofs. Nothing here sends anything; the database stays authoritative
+// (planTravellerSave and deal_travellers_save are unchanged).
+// ---------------------------------------------------------------------------
+
+/** The comparison the passengers save uses for duplicates: NFKC, lower case, one space, trimmed. */
+export function travellerNameKey(name: string): string {
+  return nameKey(name);
+}
+
+/** One named row as it was posted, in posted order (the parser's order: adults, children, infants). */
+export interface PostedTraveller {
+  /** Screen identity of the row (stable while the page is open); null when the row has none. */
+  key: string | null;
+  seq: number | null;
+  fullName: string;
+  type: TravellerType;
+}
+
+/** One row of the save answer (BookingTravellersSaveResult.travellers). */
+export interface TravellerAnswerRow {
+  index: number;
+  seq: number;
+  fullName: string;
+  type: TravellerType;
+}
+
+/** The shape of an on-screen passenger row these helpers need. */
+export interface SlotRow {
+  seq: number | null;
+  type: TravellerType;
+  key?: string;
+}
+
+/**
+ * B1-4 (a): writes each saved passenger number into the on-screen row that was
+ * posted at that position, when that row still has no number. The row is found
+ * by its screen key, so a row moved or typed into meanwhile keeps its text and
+ * only gains its number. An answer row whose name or type differs from what was
+ * posted at that position is skipped (the existing refusal stays the
+ * protection), and a number already on screen is never given twice.
+ */
+export function adoptSavedNumbers<R extends SlotRow>(rows: readonly R[], posted: readonly PostedTraveller[], answer: readonly TravellerAnswerRow[]): R[] {
+  const out = [...rows];
+  const onScreen = new Set(out.flatMap((r) => (r.seq !== null ? [r.seq] : [])));
+  for (const a of answer) {
+    const p = posted[a.index];
+    if (!p || p.seq !== null || p.key === null) continue;
+    if (p.type !== a.type || nameKey(p.fullName) !== nameKey(a.fullName)) continue;
+    if (!Number.isSafeInteger(a.seq) || a.seq < 1 || onScreen.has(a.seq)) continue;
+    const at = out.findIndex((r) => r.seq === null && r.key === p.key);
+    if (at < 0) continue;
+    out[at] = { ...out[at]!, seq: a.seq };
+    onScreen.add(a.seq);
+  }
+  return out;
+}
+
+/**
+ * B1-4 (b): the saved list arrives while nothing is typed. Rows on screen keep
+ * their place: a saved passenger already on screen is updated where it is; a
+ * number not on screen goes to the first empty slot of its type (or after the
+ * last row); a row whose number is no longer saved becomes an empty slot in
+ * the same place. Only for a clean form; a dirty form keeps what is typed.
+ */
+export function mergeSavedTravellers<R extends SlotRow>(
+  current: readonly R[],
+  incoming: readonly R[],
+  rules: { isBlank: (row: R) => boolean; blank: (type: TravellerType, key: string | undefined) => R },
+): R[] {
+  const bySeq = new Map(incoming.flatMap((r) => (r.seq !== null ? [[r.seq, r] as const] : [])));
+  const used = new Set<number>();
+  const out: R[] = current.map((r) => {
+    if (r.seq === null) return r;
+    const next = bySeq.get(r.seq);
+    if (!next) return rules.blank(r.type, r.key);
+    used.add(r.seq);
+    return r.key !== undefined ? { ...next, key: r.key } : next;
+  });
+  for (const inc of incoming) {
+    if (inc.seq === null || used.has(inc.seq)) continue;
+    used.add(inc.seq);
+    const at = out.findIndex((r) => r.type === inc.type && r.seq === null && rules.isBlank(r));
+    if (at >= 0) {
+      const key = out[at]!.key;
+      out[at] = key !== undefined ? { ...inc, key } : inc;
+    } else out.push(inc);
+  }
+  return out;
+}
+
+/** Read of the saved passengers (SavedTravellersRead in contracts.ts). */
+export interface SavedTravellersSnapshot {
+  rowVersion: number;
+  travellers: ReadonlyArray<{ seq: number; fullName: string; type: TravellerType }>;
+}
+
+export type LostTravellersSave =
+  /** Every posted row is stored once: adopt the numbers (by posted index); link only for a one-step move. */
+  | { kind: 'stored'; seqs: number[]; ownStep: boolean }
+  /** The post is not stored: values stay, the employee may try again. */
+  | { kind: 'not_stored' }
+  /** The read failed or cannot tell: values stay, nothing is adopted. */
+  | { kind: 'unclear' };
+
+/**
+ * B1-4 (c): after a passengers save whose answer was lost, one read tells what
+ * happened. Stored = every posted named row is found exactly once by
+ * normalised name and type (with its own number, if it had one), every
+ * passenger removed in the post is gone, and nobody else is listed. A read at
+ * the posted row version means nothing was saved since, so the post is not
+ * stored. Two rows with the same name and type, a failed read, or a list that
+ * holds more than was posted are unclear.
+ */
+export function checkLostTravellersSave(input: {
+  posted: readonly PostedTraveller[];
+  removed: readonly number[];
+  postedRowVersion: number;
+  read: SavedTravellersSnapshot | null;
+}): LostTravellersSave {
+  const { posted, removed, postedRowVersion, read } = input;
+  if (!read || !Number.isSafeInteger(read.rowVersion)) return { kind: 'unclear' };
+  if (read.rowVersion < postedRowVersion) return { kind: 'unclear' };
+  if (read.rowVersion === postedRowVersion) return { kind: 'not_stored' };
+  const postedKeys = posted.map((p) => `${p.type}\u0000${nameKey(p.fullName)}`);
+  if (new Set(postedKeys).size !== postedKeys.length) return { kind: 'unclear' };
+  const seqs: number[] = [];
+  let missing = false;
+  for (const [i, p] of posted.entries()) {
+    const matches = read.travellers.filter((t) => `${t.type}\u0000${nameKey(t.fullName)}` === postedKeys[i]);
+    if (matches.length > 1) return { kind: 'unclear' };
+    if (matches.length === 0) {
+      missing = true;
+      continue;
+    }
+    const m = matches[0]!;
+    if (p.seq !== null && m.seq !== p.seq) return { kind: 'unclear' };
+    seqs.push(m.seq);
+  }
+  if (missing) return { kind: 'not_stored' };
+  if (removed.some((s) => read.travellers.some((t) => t.seq === s))) return { kind: 'not_stored' };
+  if (read.travellers.length !== posted.length) return { kind: 'unclear' };
+  return { kind: 'stored', seqs, ownStep: read.rowVersion === postedRowVersion + 1 };
+}
+
+/**
+ * B1-4 (e): "Try again" on the passengers card always reads first. It sends
+ * only when the post is not stored and the card's base row version is the
+ * stored one (nobody saved meanwhile); otherwise it adopts, says the conflict,
+ * or says the check is unclear. Never a send without that read.
+ */
+export function travellersRetryStep(check: LostTravellersSave, baseRowVersion: number, read: SavedTravellersSnapshot | null): 'adopt' | 'send' | 'conflict' | 'unclear' {
+  if (check.kind === 'stored') return 'adopt';
+  if (check.kind === 'unclear' || !read) return 'unclear';
+  return read.rowVersion === baseRowVersion ? 'send' : 'conflict';
+}
+
+/** The database's name comparison for detaching ID proofs on a rename: trim, one space, lower case. */
+function sameProofName(a: string, b: string): boolean {
+  const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+  return norm(a) === norm(b);
+}
+
+/**
+ * B1-9 (P0-3): saved passengers whose posted name differs from the stored one
+ * and who have live ID proofs (uploading or stored). Saving that rename removes
+ * those proofs (the detach rule is unchanged), so the card asks first. A row
+ * whose name is empty is left out (the save refuses it anyway).
+ */
+export function renamesThatDetachProofs(
+  rows: ReadonlyArray<{ seq: number | null; name: string }>,
+  stored: ReadonlyArray<{ seq: number; fullName: string; liveProofs: number }>,
+): Array<{ seq: number; from: string; to: string }> {
+  const out: Array<{ seq: number; from: string; to: string }> = [];
+  for (const r of rows) {
+    if (r.seq === null || r.name.trim() === '') continue;
+    const s = stored.find((t) => t.seq === r.seq);
+    if (!s || s.liveProofs <= 0 || sameProofName(s.fullName, r.name)) continue;
+    out.push({ seq: r.seq, from: s.fullName, to: r.name.trim() });
+  }
+  return out;
+}

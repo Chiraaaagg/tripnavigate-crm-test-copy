@@ -7,7 +7,7 @@ import type { FinanceLikeState } from './shapes';
  * same way (the keys of fieldErrors become the named fields).
  */
 
-export type NormalisedResult = BookingActionResult<unknown> | { ok: false; code: 'unexpected'; message: string; issues?: undefined };
+export type NormalisedResult = BookingActionResult<unknown> | { ok: false; code: 'unexpected'; message: string; issues?: undefined; offline?: true };
 
 /** Finance actions answer FinanceActionState; show them like booking results (fields = keys of fieldErrors). */
 export function normaliseResult(raw: unknown): NormalisedResult {
@@ -22,4 +22,14 @@ export function normaliseResult(raw: unknown): NormalisedResult {
     };
   }
   return raw as NormalisedResult;
+}
+
+/**
+ * One request id per submission (Echo B-H1): the database replays an id only
+ * for the same payload. An exact retry after an unknown outcome (same key:
+ * same values, same version) keeps the id, so the database answers it from
+ * the replay; anything else gets a fresh id (booking reliability B1-4 e).
+ */
+export function requestIdFor(last: { id: string; key: string; unknown: boolean } | null, key: string, fresh: () => string): string {
+  return last && last.unknown && last.key === key ? last.id : fresh();
 }

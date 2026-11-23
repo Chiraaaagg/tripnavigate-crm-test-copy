@@ -3,6 +3,7 @@ import { type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ANON, CHECKLIST_SQL, DEAL, FLIGHT, FLIGHT_CLAIM_SQL, FLIGHT_FACTS, FLIGHT_GET_SQL, OWNER, PURCHASE, SHA, rid } from './b1-support';
 import { FILE_BEGIN_SQL, FILE_FINISH_SQL, formHelpers } from './booking-form-support';
 import { ACC, SALES_B } from './finance-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Book now v2, migrations 20261129000100-0120: fare per person on a flight,
@@ -82,7 +83,7 @@ describe('typed total fare per person, all flights (booking_flight_fares_save)',
       expect(same.rowVersion).toBe(saved.rowVersion);
       await refusedWithHint(OWNER, FARES_SQL, [r.versionId, saved.rowVersion, JSON.stringify({ adultPaise: '-1' }), rid()], /^fares\.adultPaise$/);
       await refusedWithHint(OWNER, FARES_SQL, [r.versionId, saved.rowVersion, JSON.stringify({ sellingPaise: '1' }), rid()], /^fares$/);
-      await refused(OWNER, FARES_SQL, [r.versionId, saved.rowVersion - 1, JSON.stringify({ adultPaise: '1' }), rid()], '40001', 'version_changed');
+      await refused(OWNER, FARES_SQL, [r.versionId, saved.rowVersion - 1, JSON.stringify({ adultPaise: '1' }), rid()], CONFLICT_STATE, 'version_changed');
       const cleared = await one<RV>(OWNER, FARES_SQL, [r.versionId, saved.rowVersion, JSON.stringify({ adultPaise: null }), rid()]);
       expect(await owner('select count(*)::int as n from public.booking_version_flight_fares where booking_version_id = $1', [r.versionId]))
         .toEqual([{ n: 0 }]);

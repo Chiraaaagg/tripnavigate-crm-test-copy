@@ -8,6 +8,7 @@
  * Money is whole paise as decimal strings; dates are YYYY-MM-DD (India).
  * Pure module: no server imports, safe for client components (type imports).
  */
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 export const RATE_CONTRACT_STATUSES = ['draft', 'pending_approval', 'active', 'returned', 'ended'] as const;
 export type RateContractStatus = (typeof RATE_CONTRACT_STATUSES)[number];
@@ -61,11 +62,11 @@ export const RATE_ERROR_STATES = {
   invalid_input: '22023',
   lines_overlap: '22023',
   evidence_rejected: '22023',
-  version_changed: '40001',
-  request_conflict: '40001',
+  version_changed: CONFLICT_STATES,
+  request_conflict: CONFLICT_STATES,
   not_found: 'P0002',
   // Rate-sheet import (existing import tokens).
-  import_stale: '40001',
+  import_stale: CONFLICT_STATES,
   import_applied: '55000',
   import_not_validated: '55000',
   import_too_large: '22023',

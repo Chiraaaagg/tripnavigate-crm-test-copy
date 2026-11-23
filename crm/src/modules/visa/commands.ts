@@ -19,6 +19,7 @@ import {
   VisaRowSaveResultSchema,
   VisaWorkspaceSchema,
 } from './dto';
+import { isConflictSqlState, stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers for the Visa and Passport desk commands and reads (Visa
@@ -58,13 +59,13 @@ export class VisaCommandError extends Error {
 export function mapVisaError(error: RpcError): VisaErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(VISA_ERROR_STATES, token) && VISA_ERROR_STATES[token as VisaErrorCode] === state) {
+  if (Object.hasOwn(VISA_ERROR_STATES, token) && stateMatches(VISA_ERROR_STATES[token as VisaErrorCode], state)) {
     return token as VisaErrorCode;
   }
   // finance_replay's request_conflict when it escapes a wrapper.
-  if (token === 'request_conflict' && state === '40001') return 'duplicate_request';
+  if (token === 'request_conflict' && isConflictSqlState(state)) return 'duplicate_request';
   if (SESSION_STATES.has(state)) return 'session';
-  // Without an exact token only the unambiguous states map (a 55000/40001 is never guessed).
+  // Without an exact token only the unambiguous states map (a 55000/40001/PT409 is never guessed).
   if (state === '42501') return 'not_authorized';
   if (state === 'P0002') return 'not_found';
   if (INPUT_STATES.has(state)) return 'invalid_input';

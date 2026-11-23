@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requireStaff } from '@/modules/identity/server/session';
+import { SESSION_ENDED, staffForAction } from '@/modules/identity/server/session';
 import {
   bookingClassifyRevision,
   bookingCommercialsSave,
@@ -51,11 +51,13 @@ import {
   type TravellerIdentitySaveResult,
 } from '../contracts';
 import { FIELD, readUuid } from '../forms';
-import { fail, failFrom, failWithConflict, isCode } from './b11-results';
+import { type BookRefreshKind, fail, failFrom, failWithConflict, isCode, refreshAfterDraftSave } from './b11-results';
 
 /**
  * Book now server actions (freeze note §5, appendix D §5.3 renamed). Every
- * action: requireStaff() (aal2, active staff); parse the form (frozen FIELD
+ * action: staffForAction() (the requireStaff() decision: aal2, active staff;
+ * an ended session answers `session` instead of redirecting, booking
+ * reliability B1-8); parse the form (frozen FIELD
  * names; never actor, entity, branch or ownership); run the database command
  * under the staff member's OWN session — the database authorizes, validates,
  * audits and decides. No privileged client here. Refusals carry frozen
@@ -69,7 +71,12 @@ type Prev<T> = BookingActionResult<T> | null;
 const SAVED = 'Saved.';
 const REVISION_SAVED_TEXT = 'The fixed booking replaced the returned version, which stays in history. Accounts will check it. No new task was created.';
 
-function revalidateBook(dealId: string): void {
+/** Re-render after an action (booking reliability B1-6): draft saves follow the refresh mode; status changes revalidate as before. */
+function revalidateBook(dealId: string, kind: BookRefreshKind): void {
+  if (kind === 'draft_save') {
+    refreshAfterDraftSave();
+    return;
+  }
   revalidatePath(`/app/deals/${dealId}`);
   revalidatePath(`/app/deals/${dealId}/intake`);
   revalidatePath(`/app/deals/${dealId}/book`);
@@ -91,12 +98,13 @@ const PLAN_HINTS = { instalments: FIELD.instalmentLabel };
  * message never announces a fill (copy BP-12: fields show their marker).
  */
 export async function startBookNowAction(_prev: Prev<BookingStartDraftResult>, formData: FormData): Promise<BookingActionResult<BookingStartDraftResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const dealId = readUuid(formData, FIELD.dealId);
   if (!dealId) return fail('invalid_input', [FIELD.dealId]);
   try {
     const result = await bookingStartDraft(asRpcClient(staff.supabase), dealId);
-    revalidateBook(dealId);
+    revalidateBook(dealId, 'status_change');
     return { ok: true, data: result, message: result.created ? 'Booking started.' : 'Draft booking opened.' };
   } catch (error) {
     return failFrom(error);
@@ -108,7 +116,8 @@ export async function saveBookCustomerAction(
   _prev: Prev<BookingCustomerSaveResult>,
   formData: FormData,
 ): Promise<BookingActionResult<BookingCustomerSaveResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseBookCustomerForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
@@ -122,12 +131,12 @@ export async function saveBookCustomerAction(
       billingExpectedRowVersion: v.billingExpectedRowVersion,
       requestId: v.requestId,
     });
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     const billing = result.billing ? ' Billing details sent to Accounts as a proposal; Accounts verifies them.' : '';
     const replay = result.replayed ? ' (already saved; nothing changed)' : '';
     return { ok: true, data: result, message: `${SAVED}${billing}${replay}` };
   } catch (error) {
-    if (isCode(error, 'version_changed') || isCode(error, 'billing_verified')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed') || isCode(error, 'billing_verified')) revalidateBook(v.dealId, 'draft_save');
     return failWithConflict(error, rpc, v.dealId, CUSTOMER_HINTS);
   }
 }
@@ -139,7 +148,8 @@ export async function saveBookCustomerAction(
  * that; the typed values stay on screen.
  */
 export async function saveBookTripAction(_prev: Prev<DraftSaveResult>, formData: FormData): Promise<BookingActionResult<DraftSaveResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseBookTripForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
@@ -148,15 +158,15 @@ export async function saveBookTripAction(_prev: Prev<DraftSaveResult>, formData:
   try {
     trip = await bookingTripSave(rpc, { versionId: v.versionId, expectedRowVersion: v.expectedRowVersion, fields: v.trip });
   } catch (error) {
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     return failWithConflict(error, rpc, v.dealId, TRIP_HINTS);
   }
   try {
     const result = await dealTravellersSaveDetails(rpc, { dealId: v.dealId, expectedRowVersion: trip.rowVersion, travellers: v.travellers });
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     return { ok: true, data: result, message: SAVED };
   } catch (error) {
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     const refusal = failFrom(error, TRIP_HINTS);
     if (refusal.ok) return refusal;
     return { ...refusal, message: `Trip details saved. The travellers were not saved: ${refusal.message}` };
@@ -172,17 +182,18 @@ const TRIP_BLOCK_HINTS = { trip: FIELD.destination, destination: FIELD.destinati
  * transaction: saved or refused as a whole.
  */
 export async function saveBookTravellersAction(_prev: Prev<DraftSaveResult>, formData: FormData): Promise<BookingActionResult<DraftSaveResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseBookTravellersForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
   const rpc = asRpcClient(staff.supabase);
   try {
     const result = await dealTravellersSaveDetails(rpc, { dealId: v.dealId, expectedRowVersion: v.expectedRowVersion, travellers: v.travellers });
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     return { ok: true, data: result, message: SAVED };
   } catch (error) {
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     return failWithConflict(error, rpc, v.dealId, TRAVELLERS_HINTS);
   }
 }
@@ -193,17 +204,18 @@ export async function saveBookTravellersAction(_prev: Prev<DraftSaveResult>, for
  * destination, scope, start and end together).
  */
 export async function saveBookTripBlockAction(_prev: Prev<DraftSaveResult>, formData: FormData): Promise<BookingActionResult<DraftSaveResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseBookTripBlockForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
   const rpc = asRpcClient(staff.supabase);
   try {
     const result = await bookingTripSave(rpc, { versionId: v.versionId, expectedRowVersion: v.expectedRowVersion, fields: v.trip });
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     return { ok: true, data: result, message: SAVED };
   } catch (error) {
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     return failWithConflict(error, rpc, v.dealId, TRIP_BLOCK_HINTS);
   }
 }
@@ -213,7 +225,8 @@ export async function saveTravellerIdentityAction(
   _prev: Prev<TravellerIdentitySaveResult>,
   formData: FormData,
 ): Promise<BookingActionResult<TravellerIdentitySaveResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseTravellerIdentityForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
@@ -230,62 +243,65 @@ export async function saveTravellerIdentityAction(
       }
     }
     const result = await travellerIdentitySave(rpc, v);
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     const message = 'Identity details saved. They are visible only to the people who need them.';
     return { ok: true, data: result, message: deferred ? `${message} Marriage date and passenger phone or email save after the database update.` : message };
   } catch (error) {
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     return failFrom(error, IDENTITY_HINTS);
   }
 }
 
 /** Who takes part in one service (service_item_travellers_save). */
 export async function saveParticipationAction(_prev: Prev<DraftSaveResult>, formData: FormData): Promise<BookingActionResult<DraftSaveResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseParticipationForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
   const rpc = asRpcClient(staff.supabase);
   try {
     const result = await serviceItemTravellersSave(rpc, { itemId: v.itemId, versionId: v.versionId, expectedRowVersion: v.expectedRowVersion, seqs: v.seqs });
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     return { ok: true, data: result, message: SAVED };
   } catch (error) {
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     return failWithConflict(error, rpc, v.dealId, PARTICIPATION_HINTS);
   }
 }
 
 /** Step 3 · price: list price, discount and the final selling total (commercial readers; booking_commercials_save). */
 export async function saveBookPriceAction(_prev: Prev<DraftSaveResult>, formData: FormData): Promise<BookingActionResult<DraftSaveResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseBookPriceForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
   const rpc = asRpcClient(staff.supabase);
   try {
     const result = await bookingCommercialsSave(rpc, v);
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     return { ok: true, data: result, message: SAVED };
   } catch (error) {
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     return failWithConflict(error, rpc, v.dealId, PRICE_HINTS);
   }
 }
 
 /** Step 3 · payment: the payment plan only (claims use reportPaymentClaimAction). */
 export async function saveBookPaymentAction(_prev: Prev<DraftSaveResult>, formData: FormData): Promise<BookingActionResult<DraftSaveResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseBookPlanForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
   const rpc = asRpcClient(staff.supabase);
   try {
     const result = await bookingInstalmentsSave(rpc, v);
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     return { ok: true, data: result, message: SAVED };
   } catch (error) {
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     return failWithConflict(error, rpc, v.dealId, PLAN_HINTS);
   }
 }
@@ -300,14 +316,15 @@ function fill(template: string, values: Record<string, string | number>): string
  * not_ready the repair list comes from the side-effect-free readiness read.
  */
 export async function submitBookingAction(_prev: Prev<SubmitBookingResult>, formData: FormData): Promise<BookingActionResult<SubmitBookingResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseSubmitBookingForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
   const rpc = asRpcClient(staff.supabase);
   try {
     const result = await submitBooking(rpc, { versionId: v.versionId, expectedContentHash: v.contentHash });
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'status_change');
     revalidatePath('/app/purchase');
     revalidatePath('/app/flight');
     revalidatePath('/app/visa');
@@ -327,29 +344,30 @@ export async function submitBookingAction(_prev: Prev<SubmitBookingResult>, form
       const issues = await readiness(rpc, v.versionId)
         .then((r) => r.issues)
         .catch(() => undefined);
-      revalidateBook(v.dealId);
+      revalidateBook(v.dealId, 'status_change');
       return { ok: false, code: 'not_ready', message: ERROR_TEXT.not_ready, ...(issues ? { issues } : {}) };
     }
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'status_change');
     return failWithConflict(error, rpc, v.dealId);
   }
 }
 
 /** "Fix this booking": open (or reopen) the revision draft of a returned version. */
 export async function openRevisionAction(_prev: Prev<OpenRevisionResult>, formData: FormData): Promise<BookingActionResult<OpenRevisionResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseOpenRevisionForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   try {
     const result = await bookingOpenRevision(asRpcClient(staff.supabase), parsed.value.baseVersionId);
-    revalidateBook(parsed.value.dealId);
+    revalidateBook(parsed.value.dealId, 'status_change');
     return {
       ok: true,
       data: result,
       message: result.created ? 'Fix started as a new version. The returned version stays in history.' : 'Your fix of this booking is open again.',
     };
   } catch (error) {
-    if (error instanceof BookingCommandError && error.code) revalidateBook(parsed.value.dealId);
+    if (error instanceof BookingCommandError && error.code) revalidateBook(parsed.value.dealId, 'status_change');
     return failFrom(error);
   }
 }
@@ -359,35 +377,37 @@ export async function classifyRevisionAction(
   _prev: Prev<ClassifyRevisionResult>,
   formData: FormData,
 ): Promise<BookingActionResult<ClassifyRevisionResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseClassifyRevisionForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
   const rpc = asRpcClient(staff.supabase);
   try {
     const result = await bookingClassifyRevision(rpc, v);
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     return { ok: true, data: result, message: 'Kind of change saved.' };
   } catch (error) {
     if (isCode(error, 'not_ready')) return fail('not_ready', undefined, `${ERROR_TEXT.not_ready} Nothing has changed from the returned version.`);
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     return failWithConflict(error, rpc, v.dealId, { changeClass: FIELD.changeClass, version: FIELD.versionId });
   }
 }
 
 /** "Discard this revision" (revision drafts only; booking_discard_draft). */
 export async function discardRevisionAction(_prev: Prev<DiscardDraftResult>, formData: FormData): Promise<BookingActionResult<DiscardDraftResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseVersionRowForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
   const rpc = asRpcClient(staff.supabase);
   try {
     const result = await bookingDiscardDraft(rpc, v);
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'status_change');
     return { ok: true, data: result, message: REVISION_DISCARD_SUCCESS_TEXT };
   } catch (error) {
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'status_change');
     return failWithConflict(error, rpc, v.dealId);
   }
 }

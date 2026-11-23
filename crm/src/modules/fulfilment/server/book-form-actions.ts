@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { requireStaff } from '@/modules/identity/server/session';
+import { SESSION_ENDED, staffForAction } from '@/modules/identity/server/session';
 import {
   bookingBillingPropose,
   bookingCustomerSave,
@@ -43,10 +43,12 @@ import { asRpcClient, BookingCommandError, FUNCTION_MISSING_STATES } from '../co
 import {
   type BillingProposeResult,
   type BookingActionResult,
+  type BookingTravellersSaveResult,
   BOOKING_FORM_NOT_INSTALLED_TEXT,
   type DraftSaveResult,
   ERROR_TEXT,
   isSpecialRequestCode,
+  type SavedTravellersRead,
   SPECIAL_REQUEST_CODES,
   type TravellerIdentitySaveResult,
   UNKNOWN_OUTCOME_TEXT,
@@ -58,11 +60,13 @@ import type { BookingStartDraftResult } from '../prefill-contract';
 import { countIssues, planTravellerSave } from '../passenger-slots';
 import { selectBillToParty } from '@/modules/parties/server/parties-db';
 import { derivedRequestId, isVnCode, vnFailFrom } from '@/modules/parties/server/party-results';
-import { fail, failFrom, failWithConflict, fieldsFromHint, isCode } from './b11-results';
+import { type BookRefreshKind, fail, failFrom, failWithConflict, fieldsFromHint, isCode, refreshAfterDraftSave } from './b11-results';
 
 /**
  * Booking form server actions (Terra, 22 October 2026). Every action:
- * requireStaff() (aal2, active staff); parse the frozen form names (never an
+ * staffForAction() (the requireStaff() decision: aal2, active staff; an
+ * ended session answers `session` instead of redirecting, so the open form
+ * keeps what was typed; booking reliability B1-8); parse the frozen form names (never an
  * actor, entity, branch, owner or total); run the database command under the
  * staff member's OWN session, which authorizes, validates, audits and
  * decides. The privileged client is used only to store a file after the
@@ -77,7 +81,14 @@ type Prev<T> = BookingActionResult<T> | null;
 
 const SERVICE_BUCKET = 'service-item-files';
 
-function revalidateBook(dealId: string): void {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Re-render after an action (booking reliability B1-6): draft saves follow the refresh mode; status changes revalidate as before. */
+function revalidateBook(dealId: string, kind: BookRefreshKind): void {
+  if (kind === 'draft_save') {
+    refreshAfterDraftSave();
+    return;
+  }
   revalidatePath(`/app/deals/${dealId}`);
   revalidatePath(`/app/deals/${dealId}/book`);
   revalidatePath('/app/deals/[id]/book', 'layout'); // the overview, the booking form layout (route group) and its steps
@@ -112,7 +123,8 @@ const SERVICE_SAVED: Record<string, string> = {
  * start (same behaviour as before this release).
  */
 export async function startBookingFormAction(_prev: Prev<BookingStartDraftResult>, formData: FormData): Promise<BookingActionResult<BookingStartDraftResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const dealId = formData.get(FIELD.dealId);
   const parsedDeal = typeof dealId === 'string' && /^[0-9a-f-]{36}$/i.test(dealId) ? dealId : null;
   if (!parsedDeal) return fail('invalid_input', [FIELD.dealId]);
@@ -126,7 +138,7 @@ export async function startBookingFormAction(_prev: Prev<BookingStartDraftResult
       if (!isMissing(error)) throw error;
       result = await bookingStartDraft(rpc, parsedDeal);
     }
-    revalidateBook(parsedDeal);
+    revalidateBook(parsedDeal, 'status_change');
     return { ok: true, data: result, message: result.created ? 'Booking started.' : 'Draft booking opened.' };
   } catch (error) {
     return failFrom(error);
@@ -190,7 +202,8 @@ function voiceNotesInstalled(form: { tripFacts?: unknown; party?: { adults?: unk
  * form's own-save chain stays right.
  */
 export async function saveBookingCustomerAction(_prev: Prev<DraftSaveResult>, formData: FormData): Promise<BookingActionResult<DraftSaveResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseBookingCustomerForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const { customer, trip, keepStoredContactExtras, adults } = parsed.value;
@@ -238,19 +251,19 @@ export async function saveBookingCustomerAction(_prev: Prev<DraftSaveResult>, fo
     });
     rowVersion = r.rowVersion;
   } catch (error) {
-    if (isCode(error, 'version_changed')) revalidateBook(customer.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(customer.dealId, 'draft_save');
     return failWithConflict(error, rpc, customer.dealId, CUSTOMER_HINTS);
   }
   try {
     const r = await bookingTripSave(rpc, { versionId: trip.versionId, expectedRowVersion: rowVersion, fields: trip.trip });
-    revalidateBook(customer.dealId);
+    revalidateBook(customer.dealId, 'draft_save');
     return {
       ok: true,
       data: r,
       message: legacyDatabase ? 'Customer details saved. Passenger counts, customer type and market save after the database update.' : 'Customer details saved.',
     };
   } catch (error) {
-    revalidateBook(customer.dealId);
+    revalidateBook(customer.dealId, 'draft_save');
     const refusal = failFrom(error, TRIP_HINTS);
     if (refusal.ok) return refusal;
     const hints = error instanceof BookingCommandError ? error.hintKeys : [];
@@ -281,7 +294,8 @@ function bookingAdults(form: { party?: { total?: number | null; children?: numbe
 
 /** "Save hotel / car / flight / …": booking_service_save (item, estimate and who takes part together; nothing saves partly). */
 export async function saveBookingServiceAction(_prev: Prev<ServiceSaveResult>, formData: FormData): Promise<BookingActionResult<ServiceSaveResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseBookingServiceForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
@@ -313,14 +327,14 @@ export async function saveBookingServiceAction(_prev: Prev<ServiceSaveResult>, f
       participants: v.participantSeqs,
       requestId: v.requestId,
     });
-    revalidateBook(v.dealId);
-    revalidatePath('/app/purchase');
-    revalidatePath('/app/flight');
+    // A draft service is not on the Purchase or Flight desks until Submit (a status change, which
+    // revalidates them); revalidating them here emptied the client router cache on every save (gate M0).
+    revalidateBook(v.dealId, 'draft_save');
     const saved = SERVICE_SAVED[v.serviceType] ?? 'Service saved.';
     return { ok: true, data: result, message: v.thenAttach && v.serviceType === 'flight' ? 'Flight saved. Now attach the ticket screenshot.' : saved };
   } catch (error) {
     if (isMissing(error)) return notInstalled();
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     // A hotel with no counts and no adult passengers yet (the database never stores a hotel without adults).
     if (error instanceof BookingCommandError && error.code === 'invalid_input' && error.hintKeys.includes('paxTotal')) {
       return fail('invalid_input', [BOOKING_FORM_FIELD.paxTotal], HOTEL_ADULTS_TEXT);
@@ -359,7 +373,8 @@ function fileName(file: Blob): string {
  * retry never uploads or finishes twice.
  */
 export async function uploadServiceFileAction(_prev: Prev<{ fileId: string }>, formData: FormData): Promise<BookingActionResult<{ fileId: string }>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseItemFileUploadForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
@@ -381,7 +396,7 @@ export async function uploadServiceFileAction(_prev: Prev<{ fileId: string }>, f
     return refusal;
   }
   if (begun.outcome === 'existing') {
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     if (begun.status === 'stored') return { ok: true, data: { fileId: begun.fileId }, message: FILE_TEXT.uploaded };
     if (begun.status === 'pending_upload') return fail('upload_failed', undefined, FILE_TEXT.stillUploading);
     return fail('upload_failed');
@@ -403,7 +418,7 @@ export async function uploadServiceFileAction(_prev: Prev<{ fileId: string }>, f
     // The finish may have committed; never claim an outcome we did not see.
     status = null;
   }
-  revalidateBook(v.dealId);
+  revalidateBook(v.dealId, 'draft_save');
   if (status === 'stored') return { ok: true, data: { fileId: begun.fileId }, message: FILE_TEXT.uploaded };
   if (status === 'failed') return fail('upload_failed');
   return fail('upload_failed', undefined, UNKNOWN_OUTCOME_TEXT);
@@ -411,7 +426,8 @@ export async function uploadServiceFileAction(_prev: Prev<{ fileId: string }>, f
 
 /** "Remove" a flight screenshot (soft removal; the file's own row version is read under the caller's session). */
 export async function removeServiceFileAction(_prev: Prev<{ fileId: string }>, formData: FormData): Promise<BookingActionResult<{ fileId: string }>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseItemFileRemoveForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
@@ -419,11 +435,11 @@ export async function removeServiceFileAction(_prev: Prev<{ fileId: string }>, f
   try {
     // Echo L4: the row version the screen showed guards a stale screen (never re-read here).
     const result = await serviceItemFileRemove(rpc, { fileId: v.fileId, expectedRowVersion: v.expectedRowVersion });
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     return { ok: true, data: { fileId: result.fileId }, message: FILE_TEXT.removed };
   } catch (error) {
     if (isMissing(error)) return notInstalled();
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     // Echo review A L7: removal is refused like an upload while service items are off or the Deal is lost.
     if (isCode(error, 'service_items_disabled')) return fail('service_items_disabled', undefined, FILE_TEXT.removeSwitchedOff);
     if (isCode(error, 'deal_not_active')) return fail('deal_not_active', undefined, FILE_TEXT.removeDealNotActive);
@@ -442,14 +458,15 @@ export async function removeServiceFileAction(_prev: Prev<{ fileId: string }>, f
  * only (the database refuses everyone else before reading an amount).
  */
 export async function saveBookingPricesAction(_prev: Prev<PricesSaveResult>, formData: FormData): Promise<BookingActionResult<PricesSaveResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseBookingPricesForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields, ERROR_TEXT.invalid_input);
   const v = parsed.value;
   const rpc = asRpcClient(staff.supabase);
   try {
     const result = await bookingPricesSave(rpc, { versionId: v.versionId, expectedRowVersion: v.expectedRowVersion, lines: v.lines, requestId: v.requestId });
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     const missing = v.lines.filter((l) => l.quantity > 0).reduce((n, l) => n + [l.purchasePaise, l.markupPaise, l.salePaise].filter((x) => x === null).length, 0);
     const message =
       result.sellingTotalPaise !== null
@@ -460,7 +477,7 @@ export async function saveBookingPricesAction(_prev: Prev<PricesSaveResult>, for
     return { ok: true, data: result, message };
   } catch (error) {
     if (isMissing(error)) return notInstalled();
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     if (isCode(error, 'not_authorized')) return fail('not_authorized', undefined, 'You can’t change the prices on this deal. Ask the deal owner.');
     if (error instanceof BookingCommandError && error.code === 'invalid_input' && error.hintKeys.length > 0) {
       return fail('invalid_input', [...new Set(error.hintKeys.map(priceHintField))]);
@@ -475,7 +492,8 @@ export async function saveBookingPricesAction(_prev: Prev<PricesSaveResult>, for
 
 /** "Save Bill To": the extended billing proposal (a draft for Accounts; Sales never verifies). */
 export async function saveBillToAction(_prev: Prev<BillingProposeResult>, formData: FormData): Promise<BookingActionResult<BillingProposeResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseBillToForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
@@ -504,15 +522,15 @@ export async function saveBillToAction(_prev: Prev<BillingProposeResult>, formDa
         });
         billingRowVersion = picked.billing.rowVersion;
       } catch (error) {
-        if (isVnCode(error, 'billing_verified') || isVnCode(error, 'version_changed')) revalidateBook(v.dealId);
+        if (isVnCode(error, 'billing_verified') || isVnCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
         return vnFailFrom(error, BILL_TO_HINTS);
       }
     }
     const result = await bookingBillingPropose(rpc, { dealId: v.dealId, expectedRowVersion: billingRowVersion, fields: v.fields, requestId: v.requestId });
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     return { ok: true, data: result, message: 'Bill To saved. Accounts checks it before use.' };
   } catch (error) {
-    if (isCode(error, 'version_changed') || isCode(error, 'billing_verified')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed') || isCode(error, 'billing_verified')) revalidateBook(v.dealId, 'draft_save');
     if (isCode(error, 'billing_verified')) {
       return fail('billing_verified', undefined, 'Accounts has already checked these Bill To details, so they can’t be changed here. Ask Accounts. Nothing on this step was saved.');
     }
@@ -571,9 +589,18 @@ function readRemoveSeqs(formData: FormData): number[] | null {
  * removed on purpose (REMOVE_TRAVELLER_FIELD), and one person is never
  * entered twice. Only named rows are posted (empty slots never create a
  * passenger). Standard requests ride along when the database has them.
+ *
+ * Booking reliability B1-4: the answer also lists every posted row by its
+ * position among the named rows posted (`index`, 0-based) with the passenger
+ * number it was stored under, so the screen learns the numbers of new rows
+ * from the answer instead of from the page re-read.
  */
-export async function saveBookingTravellersAction(_prev: Prev<DraftSaveResult>, formData: FormData): Promise<BookingActionResult<DraftSaveResult>> {
-  const staff = await requireStaff();
+export async function saveBookingTravellersAction(
+  _prev: Prev<BookingTravellersSaveResult>,
+  formData: FormData,
+): Promise<BookingActionResult<BookingTravellersSaveResult>> {
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseBookTravellersForm(formData);
   if (!parsed.ok) return fail('invalid_input', parsed.fields);
   const v = parsed.value;
@@ -590,7 +617,7 @@ export async function saveBookingTravellersAction(_prev: Prev<DraftSaveResult>, 
     fromBitrix = countsFromBitrix(form);
     const plan = planTravellerSave({ stored: form.travellers.map((t) => ({ seq: t.seq, fullName: t.fullName, type: t.type })), posted: v.travellers, removeSeqs });
     if (!plan.ok) {
-      revalidateBook(v.dealId);
+      revalidateBook(v.dealId, 'draft_save');
       const fields = plan.code === 'duplicate_passenger' ? v.travellers.flatMap((t, i) => (plan.seqs.includes(t.seq) ? [`${FIELD.travellerName}[${i}]`] : [])) : [FIELD.travellerName];
       return fail('invalid_input', fields, plan.text);
     }
@@ -602,11 +629,14 @@ export async function saveBookingTravellersAction(_prev: Prev<DraftSaveResult>, 
       return dbHasRequests && codes ? { ...t, specialRequests: codes.filter(isSpecialRequestCode) } : t;
     });
     const result = await dealTravellersSaveDetails(rpc, { dealId: v.dealId, expectedRowVersion: v.expectedRowVersion, travellers });
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     const removed = plan.removed.length;
-    return { ok: true, data: result, message: removed > 0 ? `Passengers saved. ${removed === 1 ? '1 passenger was' : `${removed} passengers were`} removed as you asked.` : PASSENGER_TEXT.saved };
+    // v.travellers is the posted order (the parser keeps only named rows); each row was stored under its seq.
+    const posted = v.travellers.map((t, index) => ({ index, seq: t.seq, fullName: t.fullName, type: t.type }));
+    const data: BookingTravellersSaveResult = { rowVersion: result.rowVersion, contentHash: result.contentHash, travellers: posted };
+    return { ok: true, data, message: removed > 0 ? `Passengers saved. ${removed === 1 ? '1 passenger was' : `${removed} passengers were`} removed as you asked.` : PASSENGER_TEXT.saved };
   } catch (error) {
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     if (error instanceof BookingCommandError && error.code === 'invalid_input' && error.hintKeys.some((k) => k === 'adult' || k === 'child' || k === 'infant')) {
       return fail('invalid_input', [FIELD.travellerName], fromBitrix ? `${COUNTS_FROM_BITRIX_TEXT} Nothing was saved.` : PASSENGER_TEXT.exceeded);
     }
@@ -614,6 +644,39 @@ export async function saveBookingTravellersAction(_prev: Prev<DraftSaveResult>, 
   }
 }
 
+
+/**
+ * Booking reliability B1-4: the saved passengers, read after a save whose
+ * answer was lost (or before "Try again"). A read only: booking_form_get
+ * under the viewer's own session (the database decides what this viewer may
+ * see), and the answer carries only each passenger's number, name and type
+ * plus the draft's row version; never identity, ages, needs or requests.
+ * Nothing is written and nothing is re-sent from here.
+ */
+export async function readBookingTravellersAction(dealId: string): Promise<BookingActionResult<SavedTravellersRead>> {
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
+  if (typeof dealId !== 'string' || !UUID.test(dealId)) return fail('invalid_input', [FIELD.dealId]);
+  const rpc = asRpcClient(staff.supabase);
+  let form;
+  try {
+    form = await bookingFormGet(rpc, dealId.toLowerCase());
+  } catch (error) {
+    if (error instanceof BookingCommandError && error.code) return fail(error.code);
+    // A failed read is "could not check" for the screen; nothing was sent.
+    throw new Error('Could not read the saved passengers.');
+  }
+  if (!form) return fail('not_found');
+  if (!form.version || form.version.status !== 'draft') return fail('wrong_state');
+  return {
+    ok: true,
+    data: {
+      rowVersion: form.version.rowVersion,
+      travellers: form.travellers.map((t) => ({ seq: t.seq, fullName: t.fullName, type: t.type })),
+    },
+    message: 'Saved passengers read.',
+  };
+}
 
 function readExtraPhones(formData: FormData): { phones: string[]; bad: number[] } | null {
   const raw = formData.getAll(EXTRA_PHONE_FIELD).map((v) => (typeof v === 'string' ? v : ''));
@@ -638,7 +701,8 @@ function readExtraPhones(formData: FormData): { phones: string[]; bad: number[] 
  * answer says they save after the update).
  */
 export async function saveBookingIdentityAction(_prev: Prev<TravellerIdentitySaveResult>, formData: FormData): Promise<BookingActionResult<TravellerIdentitySaveResult>> {
-  const staff = await requireStaff();
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
   const parsed = parseTravellerIdentityForm(formData);
   const extras = formData.has(EXTRA_PHONE_FIELD) ? readExtraPhones(formData) : undefined;
   const extraFields = extras === null ? [EXTRA_PHONE_FIELD] : (extras?.bad ?? []).map((i) => `${EXTRA_PHONE_FIELD}[${i}]`);
@@ -661,11 +725,11 @@ export async function saveBookingIdentityAction(_prev: Prev<TravellerIdentitySav
       }
     }
     const result = await travellerIdentitySave(rpc, { ...v, fields });
-    revalidateBook(v.dealId);
+    revalidateBook(v.dealId, 'draft_save');
     const message = 'Passenger details saved. They are visible only to the people who need them.';
     return { ok: true, data: result, message: deferred ? `${message} Some new details (extra phones or marriage date) save after the database update.` : message };
   } catch (error) {
-    if (isCode(error, 'version_changed')) revalidateBook(v.dealId);
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
     return failFrom(error, { identity: FIELD.dateOfBirth, dateOfMarriage: IDENTITY_EXTRA_FIELD.dateOfMarriage, phone: IDENTITY_EXTRA_FIELD.phone, email: IDENTITY_EXTRA_FIELD.email, extraPhones: EXTRA_PHONE_FIELD });
   }
 }

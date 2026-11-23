@@ -5,6 +5,7 @@ import {
   ACC, CHANNELS, DEAL, LOUD_TYPES, VISA_J2, MANAGER, MESSAGE_TYPES, OWNER, PURCHASE, QUIET_TYPES, REASON, SQL3, SUPER, WORKER, acc3Helpers, rid,
   text,
 } from './acc3-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase 3, Track T — Track A database tests (contract 5.1-5.10,
@@ -145,7 +146,7 @@ describe('5.4 switches, pilot and templates', () => {
       await refused(SUPER, SQL3.setSwitch, [entity, 'payment_received', 'whatsapp', true, REASON, wa.row_version], 'template_not_approved', '55000');
       await h.templates(['payment_received'], 'approved');
       await one(SUPER, SQL3.setSwitch, [entity, 'payment_received', 'whatsapp', true, REASON, wa.row_version]);
-      await refused(SUPER, SQL3.setSwitch, [entity, 'payment_received', 'whatsapp', false, REASON, wa.row_version], 'version_changed', '40001');
+      await refused(SUPER, SQL3.setSwitch, [entity, 'payment_received', 'whatsapp', false, REASON, wa.row_version], 'version_changed', CONFLICT_STATE);
       const em = rows.find((r) => r.message_type === 'payment_received' && r.channel === 'email')!;
       await one(SUPER, SQL3.setSwitch, [entity, 'payment_received', 'email', true, REASON, em.row_version]);
       const audit = (await h.audits('settings.messages_changed')).slice(-1)[0]!;
@@ -572,7 +573,7 @@ describe('5.3 A1 Deal message preferences', () => {
       await h.prefsSet({ language: 'hi', whatsappMobile: '6000012345', whatsappSameAsMobile: false });
       const row = await h.prefsRow();
       expect(row).toMatchObject({ language: 'hi', whatsapp_mobile: '6000012345' });
-      await refused(MANAGER, SQL3.prefsSet, [DEAL, 0, JSON.stringify({ language: 'en' }), rid()], 'version_changed', '40001');
+      await refused(MANAGER, SQL3.prefsSet, [DEAL, 0, JSON.stringify({ language: 'en' }), rid()], 'version_changed', CONFLICT_STATE);
       await one(MANAGER, SQL3.prefsSet, [DEAL, row!.row_version, JSON.stringify({ emailOverride: 'other@example.test' }), rid()]);
       const audits = await h.audits('messages.prefs_changed');
       expect(audits.length).toBe(2);

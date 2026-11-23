@@ -4,6 +4,7 @@ import { TRAVELLERS } from './b1-support';
 import {
   DEAL, FLIGHT, LEG_DEL_GOI, LEG_GOI_JDH, LEG_JDH_DEL, OWNER, SQL, changeSector, flightHelpers, rid, screenshotFlight, typedFlight,
 } from './flight-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Flight build, contract D6 and sections 6.1 A3, 8; test plan 12.1 "Booking
@@ -133,8 +134,8 @@ describe('flight_booking_change_apply', () => {
       const v2 = await h.revise(b.versionId, async (v, rv) => h.saveFlightFacts(OWNER, b.flightItems[0]!, v, rv,
         typedFlight([LEG_JDH_DEL, { ...LEG_DEL_GOI, flightNo: 'AI 885', departTime: '15:10' }, LEG_GOI_JDH])));
       // Stale expected basis or target.
-      await refused(FLIGHT, SQL.changeApply, [task, v2, v2, rid()], 'version_changed', '40001');
-      await refused(FLIGHT, SQL.changeApply, [task, b.versionId, b.versionId, rid()], 'version_changed', '40001');
+      await refused(FLIGHT, SQL.changeApply, [task, v2, v2, rid()], 'version_changed', CONFLICT_STATE);
+      await refused(FLIGHT, SQL.changeApply, [task, b.versionId, b.versionId, rid()], 'version_changed', CONFLICT_STATE);
       // Only the Flight assignee applies.
       await refused(OWNER, SQL.changeApply, [task, b.versionId, v2, rid()], 'not_authorized', '42501');
       const req = rid();

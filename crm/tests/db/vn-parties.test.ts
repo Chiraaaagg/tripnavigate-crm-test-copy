@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACCOUNTS, ANON, DEAL, DEAL_AMD, MANAGER, MANAGER_AMD, OWNER, PURCHASE, SALES_AMD, SALES_B, SUPER } from './b1-support';
 import { BUSINESS, PERSONAL, SQL, rid, vnHelpers } from './vn-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Voice-note batch, migration 20261128000130: bill-to parties. Access per role
@@ -42,7 +43,7 @@ describe('create and read', () => {
       const p = await create(PERSONAL, OWNER, DEAL, req);
       expect(p).toMatchObject({ rowVersion: 1, checkStatus: 'not_checked', outcome: 'created' });
       expect(await create(PERSONAL, OWNER, DEAL, req)).toMatchObject({ partyId: p.partyId, outcome: 'existing' });
-      await refused(OWNER, SQL.partyCreate, [DEAL, JSON.stringify({ ...PERSONAL, name: 'Other' }), req], '40001', 'request_conflict');
+      await refused(OWNER, SQL.partyCreate, [DEAL, JSON.stringify({ ...PERSONAL, name: 'Other' }), req], CONFLICT_STATE, 'request_conflict');
       const b = await create(BUSINESS);
       expect(await owner('select branch_id = (select branch_id from public.deals where id = $2) as same, check_status from public.customer_parties where id = $1',
         [b.partyId, DEAL])).toEqual([{ same: true, check_status: 'not_checked' }]);
@@ -113,7 +114,7 @@ describe('Sales edit, Accounts edit / check / return', () => {
       expect(s).toMatchObject({ checkStatus: 'checked', rowVersion: 6 });
       expect(await get(ACCOUNTS, p.partyId)).toMatchObject({ checkStatus: 'checked', checkedByName: expect.any(String) });
       await refused(OWNER, SQL.partySave, [p.partyId, 6, JSON.stringify({ city: 'Delhi' })], '55000', 'party_checked');
-      await refused(ACCOUNTS, SQL.partyCheck, [p.partyId, 5, 'checked', null], '40001', 'version_changed');
+      await refused(ACCOUNTS, SQL.partyCheck, [p.partyId, 5, 'checked', null], CONFLICT_STATE, 'version_changed');
       s = await one<Saved>(ACCOUNTS, SQL.partyAccountsSave, [p.partyId, 6, JSON.stringify({ city: 'Delhi' }), null]);
       expect(s).toMatchObject({ checkStatus: 'not_checked' });
       expect((await h.auditRows('party.returned'))[0]).toMatchObject({ reason: 'Synthetic: address does not match ID' });

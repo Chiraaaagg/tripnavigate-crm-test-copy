@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isRealStackRequired } from '@/lib/config';
 import { FIXTURE_EMAILS, FIXTURE_USERS } from '../helpers/db';
 import { createRealStack, resolveRealStackEnv, type SignedIn } from '../helpers/real-stack';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Booking form against the REAL local Supabase stack (PostgREST + GoTrue +
@@ -302,7 +303,7 @@ describe.skipIf(!enabled)('booking form against the real stack', () => {
     const attempts = await Promise.all([0, 1].map(() => owner.client.rpc('booking_prices_save', {
       p_version_id: versionId, p_expected_row_version: d.rowVersion, p_lines: LINES, p_request_id: crypto.randomUUID() })));
     expect(attempts.filter((a) => a.error === null)).toHaveLength(1);
-    expect(attempts.filter((a) => a.error !== null).map((a) => a.error)).toEqual([expect.objectContaining({ code: '40001', message: 'version_changed' })]);
+    expect(attempts.filter((a) => a.error !== null).map((a) => a.error)).toEqual([expect.objectContaining({ code: CONFLICT_STATE, message: 'version_changed' })]);
     const winner = attempts.find((a) => a.error === null)!.data as { rowVersion: number; sellingTotalPaise: string };
     expect(winner.sellingTotalPaise).toBe(TOTAL);
     rowVersion = winner.rowVersion;

@@ -8,6 +8,7 @@
  * crm/supabase/migrations/20261204000300..0350. Money is whole paise as
  * decimal strings; nothing here is a float.
  */
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 export type Paise = string;
 
@@ -304,7 +305,7 @@ export type RefundErrorCode =
   | 'environment_unset'
   | 'not_configured';
 
-export const REFUND_ERROR_STATES: Record<RefundErrorCode, string> = {
+export const REFUND_ERROR_STATES: Record<RefundErrorCode, string | readonly string[]> = {
   refunds_off: '55000',
   refund_open_exists: '23505',
   refund_exceeds_money: '22023',
@@ -315,11 +316,11 @@ export const REFUND_ERROR_STATES: Record<RefundErrorCode, string> = {
   not_self_approval: '42501',
   not_ready: '55000',
   wrong_state: '55000',
-  version_changed: '40001',
+  version_changed: CONFLICT_STATES,
   invalid_input: '22023',
   not_authorized: '42501',
   not_found: 'P0002',
-  request_conflict: '40001',
+  request_conflict: CONFLICT_STATES,
   environment_unset: '55000',
   not_configured: '55000',
 };

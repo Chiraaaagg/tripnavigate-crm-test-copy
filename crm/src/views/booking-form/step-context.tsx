@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createStepGuard } from './step-guard';
 import { FORM_STEPS, type FormStep } from './types';
 
 /*
@@ -18,9 +19,13 @@ import { FORM_STEPS, type FormStep } from './types';
  * move focus, instead of loading a new page.
  */
 
+export { createStepGuard, STEP_BUTTON_PAUSE_MS } from './step-guard';
+
 interface StepContext {
   step: FormStep;
   go: (step: FormStep, focus?: { fieldId?: string | null } | false) => void;
+  /** B1-7: false for 400 ms after a step change (footer step buttons ignore activation meanwhile). */
+  stepButtonReady: () => boolean;
   /** Shows the step holding `id`, opens closed groups around it, then focuses it. False when `id` is not on the page. */
   focusField: (id: string) => boolean;
   hrefs: Record<FormStep, string>;
@@ -76,7 +81,10 @@ function pathOf(href: string): string | null {
 export function FormStepProvider({ initialStep, hrefs, children }: { initialStep: FormStep; hrefs: Record<FormStep, string>; children: ReactNode }) {
   const [step, setStep] = useState<FormStep>(initialStep);
   const stepRef = useRef(step);
+  const [stepGuard] = useState(() => createStepGuard());
   useEffect(() => {
+    // Every change of the step (button, tab, link, Back and Forward) starts the pause.
+    if (stepRef.current !== step) stepGuard.mark();
     stepRef.current = step;
   });
 
@@ -102,6 +110,7 @@ export function FormStepProvider({ initialStep, hrefs, children }: { initialStep
   const go = useCallback(
     (next: FormStep, focus?: { fieldId?: string | null } | false) => {
       if (next !== stepRef.current) {
+        stepGuard.mark();
         setStep(next);
         try {
           window.history.pushState(null, '', hrefs[next]);
@@ -121,7 +130,7 @@ export function FormStepProvider({ initialStep, hrefs, children }: { initialStep
         el.focus({ preventScroll: true });
       });
     },
-    [hrefs, focusEl],
+    [hrefs, focusEl, stepGuard],
   );
 
   const focusField = useCallback(
@@ -207,6 +216,7 @@ export function FormStepProvider({ initialStep, hrefs, children }: { initialStep
     return () => document.removeEventListener('click', onClick, true);
   }, [stepForPath, focusField, go]);
 
-  const value = useMemo<StepContext>(() => ({ step, go, focusField, hrefs }), [step, go, focusField, hrefs]);
+  const stepButtonReady = stepGuard.ready;
+  const value = useMemo<StepContext>(() => ({ step, go, focusField, hrefs, stepButtonReady }), [step, go, focusField, hrefs, stepButtonReady]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -8,6 +8,7 @@ import {
   type VisaFeeRefundResult,
 } from './contracts';
 import { FlightChargeResultSchema, VisaChoiceResultSchema, VisaFeeRefundResultSchema } from './dto';
+import { isConflictSqlState, stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers for C9-C11 (migration 20261204000330) under the staff
@@ -33,11 +34,11 @@ export class CancellationCommandError extends Error {
 export function mapCancellationError(error: RpcError): CancellationErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(CANCELLATION_ERROR_STATES, token) && CANCELLATION_ERROR_STATES[token as CancellationErrorCode] === state) {
+  if (Object.hasOwn(CANCELLATION_ERROR_STATES, token) && stateMatches(CANCELLATION_ERROR_STATES[token as CancellationErrorCode], state)) {
     return token as CancellationErrorCode;
   }
-  // The Visa replay reports a request reused with other details as duplicate_request (40001).
-  if (token === 'duplicate_request' && state === '40001') return 'duplicate_request';
+  // The Visa replay reports a request reused with other details as duplicate_request (40001 or PT409).
+  if (token === 'duplicate_request' && isConflictSqlState(state)) return 'duplicate_request';
   if (SESSION_STATES.has(state)) return 'session';
   if (state === '42501') return 'not_authorized';
   if (state === 'P0002') return 'not_found';

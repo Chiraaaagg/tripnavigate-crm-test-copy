@@ -9,6 +9,7 @@
  * 20261205000700..0740 (track H). Money is whole paise as decimal strings;
  * no floats.
  */
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 export type Paise = string;
 
@@ -109,7 +110,7 @@ export type ChangeErrorCode =
   | 'deal_removed';
 
 /** Each token and the only SQLSTATE it may arrive with. */
-export const CHANGE_ERROR_STATES: Readonly<Record<ChangeErrorCode, string>> = Object.freeze({
+export const CHANGE_ERROR_STATES: Readonly<Record<ChangeErrorCode, string | readonly string[]>> = Object.freeze({
   changes_off: '55000',
   service_changes_off: '55000',
   change_open_exists: '23505',
@@ -126,9 +127,9 @@ export const CHANGE_ERROR_STATES: Readonly<Record<ChangeErrorCode, string>> = Ob
   trip_cancelled: '55000',
   not_ready: '55000',
   wrong_state: '55000',
-  version_changed: '40001',
+  version_changed: CONFLICT_STATES,
   version_superseded: '55000',
-  request_conflict: '40001',
+  request_conflict: CONFLICT_STATES,
   invalid_input: '22023',
   not_authorized: '42501',
   not_found: 'P0002',

@@ -4,6 +4,7 @@ import { type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACCOUNTS, DEAL, HOTEL, OWNER, SUPER, TRIP } from './b1-support';
 import { PARTY, SERVICE_SQL } from './booking-form-support';
 import { BUSINESS, PERSONAL, REASON, SQL, rid, vnHelpers } from './vn-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Voice-note batch fix round (Echo-A review of 24 Oct): M1 customer import
@@ -70,10 +71,10 @@ describe('L3 and L4: apply what was shown; staged cells blanked afterwards', () 
       expect(v.proposalHash).toMatch(/^[0-9a-f]{64}$/);
       // L6: the blank area clears the stored one: noted before apply.
       expect(v).toMatchObject({ clearRows: 1, rowNotes: [{ rowNo: 1, notes: ['will_clear:area'] }] });
-      await refused(SUPER, APPLY4, [s.batchId, v.rowVersion, REASON, '0'.repeat(64)], '40001', 'import_stale');
+      await refused(SUPER, APPLY4, [s.batchId, v.rowVersion, REASON, '0'.repeat(64)], CONFLICT_STATE, 'import_stale');
       // The target changes after the dry run (same counts): stale.
       await one(SUPER, SQL.hotelSave, [await h.entity(), created.id, 1, JSON.stringify({ address: 'Synthetic address' }), REASON]);
-      await refused(SUPER, APPLY4, [s.batchId, v.rowVersion, REASON, v.proposalHash], '40001', 'import_stale');
+      await refused(SUPER, APPLY4, [s.batchId, v.rowVersion, REASON, v.proposalHash], CONFLICT_STATE, 'import_stale');
       const v2 = await one<Batch>(SUPER, SQL.importValidate, [s.batchId]);
       expect(v2.proposalHash).not.toBe(v.proposalHash);
       await one(SUPER, APPLY4, [s.batchId, v2.rowVersion, REASON, v2.proposalHash]);
