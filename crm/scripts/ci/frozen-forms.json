@@ -174,7 +174,11 @@
         "src/views/booking-form/step-context.tsx",
         "src/views/booking-form/step-guard.ts",
         "src/views/booking-form/types.ts",
-        "src/views/booking-forms.tsx"
+        "src/views/booking-forms.tsx",
+        "src/views/b11/session-link.tsx",
+        "src/views/booking-form/refresh-dialog.tsx",
+        "src/views/customer-messages/book-now-card.tsx",
+        "tests/unit/check-frozen-forms.test.ts"
       ],
       "deletes": []
     }

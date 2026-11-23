@@ -16,7 +16,7 @@ import { useSectionForm } from '../b11/draft-sync';
 import type { FieldRef, UiResult } from '../b11/form-kit';
 import { usePrefillField } from '../b11/prefill-inline';
 import type { B11Action, BookNowView } from '../b11/shapes';
-import { reasonRole, SaveRecovery, useAutosave, useCardLatest } from './autosave-queue';
+import { reasonRole, SAVED_ALREADY, SaveRecovery, useAutosave, useCardLatest } from './autosave-queue';
 import { HiddenDraftInputs, editableOf, errFor, useShownRefusal } from './form-helpers';
 import { SectionCard } from './parts';
 import type { DealTripFactsView } from './vn-types';
@@ -276,6 +276,8 @@ export function CustomerTripCard({
     check: () => customerIssues(f.values, dealFacts),
     send: () => (formRef.current ? f.post(new FormData(formRef.current)) : Promise.resolve<UiResult>({ ok: false, code: 'unexpected', message: '' } as UiResult)),
     refs: CUSTOMER_REFS,
+    // Re-review N3: only the first of the card's two database steps can be replayed, so "Try again" reads first.
+    retry: async () => ((await f.readLatestFirst()) ? SAVED_ALREADY : (formRef.current ? f.post(new FormData(formRef.current)) : Promise.resolve<UiResult>({ ok: false, code: 'unexpected', message: '' } as UiResult))),
   });
   const latest = useCardLatest(f, save);
 
