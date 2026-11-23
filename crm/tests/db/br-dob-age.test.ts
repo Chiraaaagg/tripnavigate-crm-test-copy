@@ -249,7 +249,7 @@ describe('privacy and access', () => {
         `insert into public.traveller_identities (traveller_id, deal_id, legal_entity_id, date_of_birth, updated_by)
          select t.id, t.deal_id, t.legal_entity_id, date '2019-12-10', $2 from public.deal_travellers t where t.deal_id = $1 and t.seq = 4`,
         [DEAL, OWNER.userId]);
-      const workspace = JSON.stringify(await one(FLIGHT, 'select public.flight_workspace($1) as r', [task!.id]));
+      const workspace = JSON.stringify(await one(FLIGHT, 'select public.flight_workspace($1) as r', [DEAL]));
       expect(workspace).toContain('"ageYears"');
       expect(workspace).not.toContain('2019-12-10');
       const services = JSON.stringify(await one(PURCHASE, SERVICES_SQL, [DEAL]));

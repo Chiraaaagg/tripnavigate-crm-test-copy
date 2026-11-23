@@ -3,7 +3,7 @@ import { type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { expectConflict } from '../helpers/sqlstates';
 import { ACCOUNTS, DEAL, FLIGHT, OWNER, PURCHASE, SUPER, TRAVELLERS } from './b1-support';
 import { relbHelpers } from './acc3-relb-support';
-import { IDENTITY, PARTICIPATION_SQL, PASSPORT, SETTING_SQL_B11, SWITCH_REASON } from './b11-support';
+import { DESK, IDENTITY, PARTICIPATION_SQL, PASSPORT, SETTING_SQL_B11, SWITCH_REASON, VISA_CLAIM_SQL } from './b11-support';
 import { formHelpers } from './booking-form-support';
 import type { Actor } from '../helpers/db';
 
@@ -157,6 +157,8 @@ describe('booking_passport_items_add', () => {
       const tasks = await owner<{ id: string; service_item_id: string }>(
         `select id, service_item_id from public.fulfilment_tasks where deal_id = $1 and department = 'visa' order by created_at, id`, [DEAL]);
       expect(tasks.map((t) => t.service_item_id).sort()).toEqual(r.items.map((i) => i.itemId).sort());
+      // The desk takes each task: one application per task, for its one applicant.
+      for (const t of tasks) expect(await one(DESK, VISA_CLAIM_SQL, [t.id])).toMatchObject({ applicationCount: 1 });
       const apps = await owner<{ task_id: string; traveller_seq: number }>(
         'select task_id, traveller_seq from public.visa_applications where deal_id = $1 order by traveller_seq', [DEAL]);
       expect(apps.map((a) => a.traveller_seq)).toEqual([1, 2, 3]);
