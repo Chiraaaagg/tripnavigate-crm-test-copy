@@ -17,6 +17,7 @@ import {
   type SmallBalancesPage,
   type WriteOffMonthly,
 } from './dto';
+import { stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers of the write-off commands and reads (contract 6.1 B2, 6.6
@@ -45,7 +46,7 @@ export class WriteOffCommandError extends Error {
 export function mapWriteOffError(error: RpcError): WriteOffErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(WRITE_OFF_ERROR_STATES, token) && WRITE_OFF_ERROR_STATES[token as WriteOffErrorCode] === state) {
+  if (Object.hasOwn(WRITE_OFF_ERROR_STATES, token) && stateMatches(WRITE_OFF_ERROR_STATES[token as WriteOffErrorCode], state)) {
     return token as WriteOffErrorCode;
   }
   if (SESSION_STATES.has(state)) return 'session';

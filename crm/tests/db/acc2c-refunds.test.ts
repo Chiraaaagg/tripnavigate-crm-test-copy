@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FIXTURE_USERS as U, type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACC2, PURCHASE, SALES_B, VISA } from './acc-support';
 import { ACC, ACC_J2, CSQL, DEAL, MANAGER, MANAGER_J2, OWNER, REASON, VISA_J2, acc2cHelpers, rid, today } from './acc2c-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase 2 contract 7.1-7.3 (C1-C6, C12), LD5, LD8, LD10, LD27-LD32,
@@ -131,7 +132,7 @@ describe('who asks, who approves, who pays (7.2, Q6, LD32)', () => {
       const r = await c.request(payoutFields(receipt!.id, '1000000'));
       // Other-branch Manager is not an approver of a Sales-owner request.
       await c.refused(MANAGER_J2, CSQL.decide, [r.refundRequestId, 'approve', '1000000', '1000000', null, 1, rid()], 'not_authorized', '42501');
-      await c.refused(MANAGER, CSQL.decide, [r.refundRequestId, 'approve', '999999', '1000000', null, 1, rid()], 'version_changed', '40001');
+      await c.refused(MANAGER, CSQL.decide, [r.refundRequestId, 'approve', '999999', '1000000', null, 1, rid()], 'version_changed', CONFLICT_STATE);
       await c.refusedHint(MANAGER, CSQL.decide, [r.refundRequestId, 'return', '1000000', '1000000', null, 1, rid()], 'invalid_input', /reason/);
       const back = await c.decide(r.refundRequestId, 'return', MANAGER, 'Synthetic: charge looks too low, check');
       expect(back.status).toBe('returned');

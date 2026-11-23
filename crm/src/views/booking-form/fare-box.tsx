@@ -8,7 +8,7 @@ import type { BookTravellerView } from '@/modules/fulfilment/contracts';
 import { useSectionForm } from '../b11/draft-sync';
 import type { UiResult } from '../b11/form-kit';
 import type { B11Action, BookNowView } from '../b11/shapes';
-import { useAutosave } from './autosave-queue';
+import { SaveRecovery, useAutosave, useCardLatest } from './autosave-queue';
 import { HiddenDraftInputs } from './form-helpers';
 import { FARE_LABEL, fareTotal, fareTypes, flyersOf, type FareKey } from './service-model';
 
@@ -90,6 +90,7 @@ export function FareBox({
     check: () => (types.some((k) => v[k].trim() !== '' && rupeesToPaise(v[k]) === undefined) ? ['Enter the total fare in rupees, with at most two decimal places.'] : []),
     send: () => (formRef.current ? f.post(new FormData(formRef.current)) : Promise.resolve({ ok: false, code: 'unexpected', message: '' } as UiResult)),
   });
+  const latest = useCardLatest(f, save);
   return (
     <form id="bf-fare-box" ref={setForm} onSubmit={(e) => e.preventDefault()} noValidate aria-labelledby="bf-fare-title" className="mx-5 mb-1 flex flex-wrap items-end gap-x-3.5 gap-y-2 rounded-control bg-wash px-3.5 py-3 max-sm:mx-4">
       <HiddenDraftInputs view={view} base={f.base} result={f.state} />
@@ -131,10 +132,11 @@ export function FareBox({
       </p>
       {missing.length > 0 ? <p className="m-0 basis-full text-sm text-status-warning">{missing.map(({ k, t }) => `${FARE_LABEL[k]}: flight ${t.missing.join(', ')} has no fare yet`).join(' · ')}.</p> : null}
       {save.state === 'fix' && save.reason ? (
-        <p role="alert" className="m-0 basis-full text-sm font-medium text-status-danger">
+        <p id="why-fares" role="alert" className="m-0 basis-full text-sm font-medium text-status-danger">
           Not saved: {save.reason}
         </p>
       ) : null}
+      {editable && action ? <SaveRecovery save={save} describedBy="why-fares" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="basis-full" /> : null}
     </form>
   );
 }

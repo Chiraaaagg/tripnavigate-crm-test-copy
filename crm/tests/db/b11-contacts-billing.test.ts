@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACCOUNTS, DEAL, DEAL2, FLIGHT, MANAGER, OWNER, PURCHASE, SALES_B } from './b1-support';
 import { BILLING, CONTACT, CONTACTS_SQL, CUSTOMER_SQL, PROPOSE_SQL, b11Helpers, rid } from './b11-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * B1.1a customer step (migration 20261119000100): booking contacts on the
@@ -76,7 +77,7 @@ describe('booking_contacts_save', () => {
   it('refuses other people, stale row versions, the switch off and hotel versions', async () => {
     await asOwner(db, async () => {
       const d = await draftWithTravellers();
-      await refused(OWNER, CONTACTS_SQL, [d.versionId, d.rowVersion + 5, JSON.stringify(CONTACT)], '40001', 'version_changed');
+      await refused(OWNER, CONTACTS_SQL, [d.versionId, d.rowVersion + 5, JSON.stringify(CONTACT)], CONFLICT_STATE, 'version_changed');
       for (const actor of [SALES_B, PURCHASE, ACCOUNTS, FLIGHT]) {
         await refused(actor, CONTACTS_SQL, [d.versionId, d.rowVersion, JSON.stringify(CONTACT)], '42501', 'not_authorized');
       }
@@ -97,10 +98,10 @@ describe('booking_billing_propose', () => {
       const created = await propose(OWNER, DEAL, 0, BILLING, req);
       expect(created).toEqual({ outcome: 'created', status: 'draft', rowVersion: 1 });
       expect(await propose(OWNER, DEAL, 0, BILLING, req)).toEqual({ outcome: 'existing', status: 'draft', rowVersion: 1 });
-      await refused(OWNER, PROPOSE_SQL, [DEAL, 0, JSON.stringify({ ...BILLING, city: 'Delhi' }), req], '40001', 'request_conflict');
+      await refused(OWNER, PROPOSE_SQL, [DEAL, 0, JSON.stringify({ ...BILLING, city: 'Delhi' }), req], CONFLICT_STATE, 'request_conflict');
       expect(await owner('select prefill_source, status, updated_by from public.customer_billing_profiles where deal_id = $1', [DEAL]))
         .toEqual([{ prefill_source: 'sales', status: 'draft', updated_by: OWNER.userId }]);
-      await refused(OWNER, PROPOSE_SQL, [DEAL, 0, JSON.stringify(BILLING), rid()], '40001', 'version_changed');
+      await refused(OWNER, PROPOSE_SQL, [DEAL, 0, JSON.stringify(BILLING), rid()], CONFLICT_STATE, 'version_changed');
       const updated = await propose(MANAGER, DEAL, 1, { ...BILLING, gstin: '08ABCDE1234F1Z5' });
       expect(updated).toEqual({ outcome: 'updated', status: 'draft', rowVersion: 2 });
       await refusedWithHint(OWNER, PROPOSE_SQL, [DEAL, 2, JSON.stringify({ ...BILLING, gstin: '07ABCDE1234F1Z5' }), rid()], /^gstin$/);
@@ -138,8 +139,8 @@ describe('booking_customer_save', () => {
       const retry = await one<Record<string, unknown>>(OWNER, CUSTOMER_SQL, args);
       expect(retry).toEqual({ ...first, outcome: 'existing' });
       await refused(OWNER, CUSTOMER_SQL, [d.versionId, d.rowVersion, JSON.stringify({ ...CONTACT, contactName: 'Synthetic Else' }), JSON.stringify(BILLING), 0, req],
-        '40001', 'request_conflict');
-      await refused(MANAGER, CUSTOMER_SQL, args, '40001', 'request_conflict');
+        CONFLICT_STATE, 'request_conflict');
+      await refused(MANAGER, CUSTOMER_SQL, args, CONFLICT_STATE, 'request_conflict');
       // Billing without a request id is refused.
       await refusedWithHint(OWNER, CUSTOMER_SQL, [d.versionId, first.rowVersion, JSON.stringify(CONTACT), JSON.stringify(BILLING), 1, null], /^requestId$/);
       expect(await owner('select count(*)::int as n from public.audit_events where action = $1', ['booking.contacts_saved'])).toEqual([{ n: 1 }]);
@@ -161,7 +162,7 @@ describe('booking_customer_save', () => {
       expect(contactOnly).toMatchObject({ rowVersion: saved.rowVersion + 1, billing: null });
       // A stale billing row version refuses both; the contact name did not change.
       await refused(OWNER, CUSTOMER_SQL, [d.versionId, contactOnly.rowVersion, JSON.stringify({ ...CONTACT, contactName: 'Synthetic Other' }),
-        JSON.stringify(BILLING), 0, rid()], '40001', 'version_changed');
+        JSON.stringify(BILLING), 0, rid()], CONFLICT_STATE, 'version_changed');
       expect(await owner('select contact_name from public.booking_version_contacts where booking_version_id = $1', [d.versionId]))
         .toEqual([{ contact_name: 'Synthetic Contact' }]);
     });

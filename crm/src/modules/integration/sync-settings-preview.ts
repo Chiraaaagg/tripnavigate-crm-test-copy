@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { RpcClient, RpcError } from '@/modules/fulfilment/commands';
+import { CONFLICT_STATES, stateMatches } from '@/lib/sqlstate';
 
 /**
  * Direction A Batch 4 (plan M1): sync settings are saved in two steps, both
@@ -29,7 +30,7 @@ export const SYNC_SETTINGS_ERROR_STATES = {
   not_configured: '55000',
   preview_required: '55000',
   preview_used: '55000',
-  preview_stale: '40001',
+  preview_stale: CONFLICT_STATES,
   settings_busy: '55P03',
   invalid_reason: '22023',
   invalid_input: '22023',
@@ -78,7 +79,7 @@ export function mapSyncSettingsError(fn: string, error: RpcError): SyncSettingsE
   if (state === '55000' && (message === 'preview_required' || message === 'preview_used')) {
     return new SyncSettingsError(fn, message, state);
   }
-  if (state === '40001' && message === 'preview_stale') {
+  if (stateMatches(SYNC_SETTINGS_ERROR_STATES.preview_stale, state) && message === 'preview_stale') {
     const why = (['expired', 'settings_changed', 'counts_changed'] as const).find((h) => h === hint) ?? null;
     return new SyncSettingsError(fn, 'preview_stale', state, why);
   }

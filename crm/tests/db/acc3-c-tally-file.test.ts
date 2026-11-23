@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type TestDb, asOwner, createTestDb, resetActor } from '../helpers/db';
 import { CONTACT, PAST_HOTEL_ITEM, PAST_TRIP, SELLING, SENTINEL, dayFrom } from './acc-support';
 import { ACC, DEAL, LEFT_OUT_REASONS, MANAGER, MATCH_OUTCOMES, OWNER, PURCHASE, REASON, SQL3, SUPER, U, acc3Helpers, rid, text, today } from './acc3-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase 3, Track T — Track C Tally import file and matching upload
@@ -245,7 +246,7 @@ describe('7.4 matching upload', () => {
       // Same file twice (same sha) while staged is refused.
       const dup = await h.attempt(ACC, SQL3.matchStage, [await_entity, 'daybook.xml', 'a'.repeat(64), JSON.stringify(rows), rid()]);
       expect(dup.ok).toBe(false);
-      await refused(ACC, SQL3.matchApply, [batchId, 'f'.repeat(64), rid()], 'version_changed', '40001');
+      await refused(ACC, SQL3.matchApply, [batchId, 'f'.repeat(64), rid()], 'version_changed', CONFLICT_STATE);
       await one(ACC, SQL3.matchApply, [batchId, staged.proposalHash, rid()]);
       const recs = await owner<{ status: string; voucher_ref: string | null; xml_line_no: number }>(
         'select status, voucher_ref, xml_line_no from public.tally_records where xml_export_id = $1 order by xml_line_no', [file.id]);
@@ -284,7 +285,7 @@ describe('7.4 matching upload', () => {
       const s2 = await one<{ batchId?: string; id?: string; proposalHash: string }>(ACC, SQL3.matchStage,
         [await_entity, 'b.xml', 'd'.repeat(64), JSON.stringify([{ ...row, voucherRef: 'R-10' }]), rid()]);
       await one(ACC, SQL3.matchApply, [s2.batchId ?? s2.id, s2.proposalHash, rid()]);
-      await refused(ACC, SQL3.matchApply, [s1.batchId ?? s1.id, s1.proposalHash, rid()], 'version_changed', '40001');
+      await refused(ACC, SQL3.matchApply, [s1.batchId ?? s1.id, s1.proposalHash, rid()], 'version_changed', CONFLICT_STATE);
     });
   });
 });

@@ -17,6 +17,7 @@ import {
   RoomTypeWriteSchema,
   SwitchSchema,
 } from './dto';
+import { stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers for the rate contract commands and reads (migrations
@@ -46,7 +47,7 @@ export class RateCommandError extends Error {
 export function mapRateError(error: RpcError): RateErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(RATE_ERROR_STATES, token) && RATE_ERROR_STATES[token as RateErrorCode] === state) return token as RateErrorCode;
+  if (Object.hasOwn(RATE_ERROR_STATES, token) && stateMatches(RATE_ERROR_STATES[token as RateErrorCode], state)) return token as RateErrorCode;
   if (token === REASON_MESSAGE && state === '22023') return 'invalid_input';
   if (SESSION_STATES.has(state)) return 'session';
   if (state === '42501') return 'not_authorized';

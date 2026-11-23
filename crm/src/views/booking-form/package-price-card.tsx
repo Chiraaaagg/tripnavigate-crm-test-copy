@@ -12,7 +12,7 @@ import { bookingPriceLines, editPrice, formatInr, isBelowPurchase, priceFieldId,
 import { useSectionForm } from '../b11/draft-sync';
 import type { FieldRef, UiResult } from '../b11/form-kit';
 import type { B11Action, BookNowView } from '../b11/shapes';
-import { useAutosave } from './autosave-queue';
+import { reasonRole, SaveRecovery, useAutosave, useCardLatest } from './autosave-queue';
 import { HiddenDraftInputs, editableOf, useShownRefusal } from './form-helpers';
 import { SectionBody, SectionCard } from './parts';
 
@@ -138,6 +138,7 @@ export function PackagePriceCard({
     send: () => (formRef.current ? f.post(new FormData(formRef.current)) : Promise.resolve({ ok: false, code: 'unexpected', message: '' } as UiResult)),
     refs,
   });
+  const latest = useCardLatest(f, save);
   const settled = save.state === 'saved' || save.state === 'idle';
   const missing = totals.incomplete.map((c) => PRICE_CATEGORY_LABEL[c]).join(', ');
   const gap = storedTotal ? null : (block ?? (save.state === 'fix' && save.reason ? save.reason : missing ? `Fill purchase, markup and final sale for ${missing}` : !totals.salePaise ? 'Fill the final sale per person' : null));
@@ -269,11 +270,12 @@ export function PackagePriceCard({
           </div>
           <p className="m-0 mt-3 text-sm text-quiet">Purchase, Flight and the Visa desk never see these prices. No tax is calculated here.</p>
           {reason ? (
-            <p id="why-price" className="m-0 mt-3 flex items-start gap-1.5 text-sm font-medium text-status-danger">
+            <p id="why-price" role={reasonRole(save)} className="m-0 mt-3 flex items-start gap-1.5 text-sm font-medium text-status-danger">
               <CircleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
               <span>{reason}</span>
             </p>
           ) : null}
+          {editable ? <SaveRecovery save={save} describedBy="why-price" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="mt-2" /> : null}
         </SectionBody>
       </form>
     </SectionCard>

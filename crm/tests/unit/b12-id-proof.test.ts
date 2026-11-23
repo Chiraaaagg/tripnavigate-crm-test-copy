@@ -25,10 +25,13 @@ const createSignedUrl = vi.fn();
 const storageFrom = vi.fn();
 const adminFactory = vi.fn();
 const revalidatePath = vi.fn();
+const refresh = vi.fn();
 
-vi.mock('@/modules/identity/server/session', () => ({ requireStaff: () => requireStaff() }));
+// Booking reliability B1-8: the Book now saves gate with staffForAction (same decision; SESSION_ENDED never returned here).
+vi.mock('@/modules/identity/server/session', () => ({ requireStaff: () => requireStaff(), staffForAction: () => requireStaff(), SESSION_ENDED: Symbol('session_ended') }));
 vi.mock('@/lib/supabase/admin', () => ({ createSupabaseAdminClient: () => adminFactory() }));
-vi.mock('next/cache', () => ({ revalidatePath: (p: string) => revalidatePath(p) }));
+// Booking reliability B1-6: a draft save re-renders with refresh() (BOOK_SAVE_REFRESH_MODE 'server'), not revalidatePath.
+vi.mock('next/cache', () => ({ revalidatePath: (p: string) => revalidatePath(p), refresh: () => refresh() }));
 vi.mock('@/lib/config', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/config')>()),
   getAppConfig: () => ({ supabaseUrl: 'http://127.0.0.1:54321', supabasePublishableKey: 'sb_publishable_test' }),
@@ -166,7 +169,9 @@ describe('uploadTravellerIdProofAction', () => {
     expect(upload).toHaveBeenCalledWith(PATH, expect.any(Uint8Array), { contentType: 'image/jpeg', upsert: false });
     expect(rpc).toHaveBeenNthCalledWith(2, 'traveller_id_proof_finish', { p_file_id: FILE, p_ok: true });
     expect(rpc.mock.invocationCallOrder[0]!).toBeLessThan(upload.mock.invocationCallOrder[0]!);
-    expect(revalidatePath).toHaveBeenCalledWith(`/app/deals/${DEAL}/book`);
+    // Booking reliability B1-6: a draft save re-renders once with refresh(), never revalidatePath.
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it('database refusals stop before Storage, in frozen words', async () => {

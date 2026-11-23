@@ -6,14 +6,16 @@ import { toPrefillUi } from '@/modules/fulfilment/prefill-ui';
 import { BOOK_NOW_NOT_INSTALLED, loadBookingForm } from '@/modules/fulfilment/server/book-form-load';
 import { requireStaff } from '@/modules/identity/server/session';
 import { dealOwnerText } from '@/views/deal-labels';
-import { BookNowNotAvailableView, BookNowUnavailableView } from '@/views/b11/book-views';
-import { BookingFormScreen } from '@/views/booking-form/booking-form-screen';
+import { BookNowNotAvailableView } from '@/views/b11/book-views';
+import { BookingFormHost } from '@/views/booking-form/booking-form-host';
 import { submitChangeAction } from '@/modules/booking-changes/server/actions';
 import { loadChangePreview, loadDealChangeRequests } from '@/modules/booking-changes/server/queries';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import { changeModeView } from '@/views/booking-changes/adapt';
 import { ChangeModeBanner } from '@/views/booking-changes/change-mode';
 import type { ChangeModeView } from '@/views/booking-changes/types';
+import type { BookingFormScreenProps } from '@/views/booking-form/types';
+import type { BookingFormLoad } from '@/modules/fulfilment/contracts';
 import { setDealMessagePrefsAction } from '@/modules/customer-messages/server/actions';
 import { loadDealMessagePrefs } from '@/modules/customer-messages/server/queries';
 import { BookNowMessagePrefsCard, BookNowMessagePrefsUnavailable } from '@/views/customer-messages/book-now-card';
@@ -28,6 +30,16 @@ import { BOOKING_FORM_ACTIONS, bookLinks, voiceNoteProps } from '../book-actions
  * the step from the address (useSelectedLayoutSegment). Only a draft is
  * edited here; without a draft the overview (/book) decides what to show.
  * The route group (form) keeps the /book landing page outside this layout.
+ *
+ * Booking reliability B1-3: the layout always renders the same tree,
+ * WorkErrorBoundary › (change-mode banner slot) › BookingFormHost › step page,
+ * whether the read worked or not. A failed read (a required read threw)
+ * hands the host { status: 'refresh_failed' } instead of replacing the form:
+ * the host keeps the last good form mounted (typed values, open drawers and
+ * the save queue survive) and says the refresh failed; on a first load it has
+ * nothing to keep and shows the "Booking did not load" view. Answers that are
+ * not failures are unchanged: not installed → intake, not visible → "not
+ * available", not a draft → overview.
  */
 export default async function BookingFormLayout({ children, params }: { children: ReactNode; params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -37,7 +49,7 @@ export default async function BookingFormLayout({ children, params }: { children
   try {
     [loaded, deal] = await Promise.all([loadBookingForm(staff, id, { step: null, ownerText: null }), getVisibleDeal(staff, id)]);
   } catch {
-    return <BookNowUnavailableView dealHref={`/app/deals/${id}`} />;
+    return <BookingFormFrame banner={null} load={{ status: 'refresh_failed' }}>{children}</BookingFormFrame>;
   }
   if (loaded === BOOK_NOW_NOT_INSTALLED) redirect(`/app/deals/${id}/intake`);
   if (!loaded || !deal) return <BookNowNotAvailableView />;
@@ -61,11 +73,38 @@ export default async function BookingFormLayout({ children, params }: { children
       action={setDealMessagePrefsAction as unknown as DecisionAction}
     />
   ) : null;
+  const screen: BookingFormScreenProps = {
+    vm,
+    view,
+    actions: BOOKING_FORM_ACTIONS,
+    // `reload` is the step address the screen is on; the screen keeps it current.
+    links: bookLinks(id, `/app/deals/${id}/book/${vm.initialStep}`),
+    prefillUi,
+    ownerText,
+    vn: voiceNoteProps(id, vm, editable),
+    changeMode,
+    messagePrefsCard,
+  };
+  return (
+    <BookingFormFrame
+      banner={changeMode ? <ChangeModeBanner view={changeMode} submit={changeMode.canSubmit ? (submitChangeAction as unknown as DecisionAction) : null} /> : null}
+      load={{ status: 'ok', ...screen }}
+    >
+      {children}
+    </BookingFormFrame>
+  );
+}
+
+/**
+ * The one tree of the booking form (B1-3). Every render, good or failed,
+ * puts the host in the same place so React keeps it (and the form inside)
+ * mounted across a failed refresh.
+ */
+function BookingFormFrame({ banner, load, children }: { banner: ReactNode; load: BookingFormLoad<BookingFormScreenProps>; children: ReactNode }) {
   return (
     <WorkErrorBoundary title="Book now">
-      {/* `reload` is the step address the screen is on; the screen keeps it current. */}
-      {changeMode ? <ChangeModeBanner view={changeMode} submit={changeMode.canSubmit ? (submitChangeAction as unknown as DecisionAction) : null} /> : null}
-      <BookingFormScreen vm={vm} view={view} actions={BOOKING_FORM_ACTIONS} links={bookLinks(id, `/app/deals/${id}/book/${vm.initialStep}`)} prefillUi={prefillUi} ownerText={ownerText} vn={voiceNoteProps(id, vm, editable)} changeMode={changeMode} messagePrefsCard={messagePrefsCard} />
+      {banner}
+      <BookingFormHost load={load} />
       {children}
     </WorkErrorBoundary>
   );

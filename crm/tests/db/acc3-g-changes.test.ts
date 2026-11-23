@@ -4,6 +4,7 @@ import { FLIGHT, OTHER_ENTITY, SALES_B, SELLING, VISA } from './acc-support';
 import {
   ACC, DEAL, HOTEL, HOTEL_ITEM, MANAGER, MANAGER_J2, NEW_SELLING, OWNER, PURCHASE, REASON, SQLB, TRANSFER_ITEM, U, relbHelpers, rid, text,
 } from './acc3-relb-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase 3, Track T — Release B, Track G: change after a supplier
@@ -230,8 +231,8 @@ describe('10.3 change version and submit', () => {
       void rv;
       const ready2 = await h.readiness(OWNER, v.versionId);
       await h.refusedToken(OWNER, SQLB.crSubmit, [cr.changeRequestId, ready2.contentHash, [hotelItem, b.itemIds[1]], rid()], 'version_changed', undefined,
-        '40001');
-      await h.refusedToken(OWNER, SQLB.crSubmit, [cr.changeRequestId, 'f'.repeat(64), [hotelItem], rid()], 'version_changed', undefined, '40001');
+        CONFLICT_STATE);
+      await h.refusedToken(OWNER, SQLB.crSubmit, [cr.changeRequestId, 'f'.repeat(64), [hotelItem], rid()], 'version_changed', undefined, CONFLICT_STATE);
     });
   });
 

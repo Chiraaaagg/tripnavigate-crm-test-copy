@@ -23,6 +23,7 @@
 export type Paise = string;
 
 import type { FlightBatchCancellationView } from '@/modules/cancellations/contracts';
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 /** ₹50,000 in paise: the cumulative direct-payment ceiling per Deal and supplier. */
 export const FLIGHT_DIRECT_LIMIT_PAISE = '5000000';
@@ -93,11 +94,11 @@ export type FlightMoneyErrorCode =
   | 'not_configured';
 
 /** SQLSTATE each token arrives with (a token with any other state is not trusted). */
-export const FLIGHT_MONEY_ERROR_STATES: Record<FlightMoneyErrorCode, string> = {
+export const FLIGHT_MONEY_ERROR_STATES: Record<FlightMoneyErrorCode, string | readonly string[]> = {
   not_authorized: '42501',
   not_found: 'P0002',
-  version_changed: '40001',
-  duplicate_request: '40001',
+  version_changed: CONFLICT_STATES,
+  duplicate_request: CONFLICT_STATES,
   invalid_input: '22023',
   not_ready: '55000',
   booking_changed: '55000',

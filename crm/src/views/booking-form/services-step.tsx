@@ -13,7 +13,7 @@ import type { BookTravellerView, ServiceType } from '@/modules/fulfilment/contra
 import { loadAirports, type Airport } from '@/lib/airports/search';
 import { dateText } from '../b11/book-fields';
 import { newRequestId, refusedFields, type UiResult } from '../b11/form-kit';
-import { useSectionForm } from '../b11/draft-sync';
+import { useSaveRules, useSectionForm } from '../b11/draft-sync';
 import type { BookNowView } from '../b11/shapes';
 import { refusalReason, useSaveQueue } from './autosave-queue';
 import { ChangeModeServiceMark } from '@/views/booking-changes/change-mode';
@@ -208,6 +208,8 @@ export function ServicesStep({
   searchHotels?: SearchAction<HotelOption> | null;
 }) {
   const router = useRouter();
+  // B1-6: in 'server' mode the save action has already re-rendered the page.
+  const { serverRefreshes } = useSaveRules();
   const toast = useFormToast();
   const queue = useSaveQueue();
   const editable = editableOf(view);
@@ -306,7 +308,7 @@ export function ServicesStep({
     }
     const n = data?.itemIds?.length ?? typedOut.length;
     toast(data?.outcome === 'already_added' ? 'Return flights are already added.' : `${plural(n, 'return flight')} added for ${tripEnd ? dateText(tripEnd) : 'the return date'}. Add flight numbers and times.`);
-    router.refresh();
+    if (!serverRefreshes) router.refresh();
   };
   const addNextFlight = () => {
     const last = flights.at(-1);

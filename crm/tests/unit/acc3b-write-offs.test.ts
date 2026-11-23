@@ -31,8 +31,8 @@ describe('write-off limits mirror', () => {
 
 describe('tokens and words', () => {
   it('maps a token only with its own SQLSTATE', () => {
-    for (const [token, state] of Object.entries(WRITE_OFF_ERROR_STATES)) {
-      expect(mapWriteOffError({ code: state, message: token })).toBe(token);
+    for (const [token, allowed] of Object.entries(WRITE_OFF_ERROR_STATES)) {
+      for (const state of typeof allowed === 'string' ? [allowed] : allowed) expect(mapWriteOffError({ code: state, message: token })).toBe(token);
       expect(WRITE_OFF_ERROR_TEXT[token as keyof typeof WRITE_OFF_ERROR_TEXT]).toBeTruthy();
     }
     expect(mapWriteOffError({ code: '55000', message: 'write_off_over_limit' })).toBeNull();

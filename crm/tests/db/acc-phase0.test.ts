@@ -5,6 +5,7 @@ import {
   ACC, DEAL, DEAL2, FLIGHT, FLIGHT_2, FLIGHT_ITEM, HOTEL_ITEM, MANAGER, OWNER, PASSPORT_ITEM, PURCHASE, SQL, TRANSFER_ITEM,
   VISA_ITEM, accHelpers, rid,
 } from './acc-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase contract, Phase 0 (sections 4.1, 4.2, 5, 12.1), Track E.
@@ -287,7 +288,7 @@ describe('5.3 Flight cancel payment request (requester or current owner)', () =>
   it('approved request: already_decided; stale row version: version_changed; Accounts and Manager cannot cancel', async () => {
     await asOwner(db, async () => {
       const { pay } = await setup();
-      await refused(FLIGHT, SQL.paymentCancel, [pay.id, pay.row_version + 5, rid()], 'version_changed', '40001');
+      await refused(FLIGHT, SQL.paymentCancel, [pay.id, pay.row_version + 5, rid()], 'version_changed', CONFLICT_STATE);
       await refused(ACC, SQL.paymentCancel, [pay.id, pay.row_version, rid()], 'not_authorized', '42501');
       await refused(MANAGER, SQL.paymentCancel, [pay.id, pay.row_version, rid()], 'not_authorized', '42501');
       const approver = pay.route === 'manager' ? MANAGER : ACC;

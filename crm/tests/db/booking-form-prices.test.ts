@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { DEAL, OWNER, PURCHASE, SALES_B, TRAVELLERS, TRIP, rid } from './b1-support';
 import { ADULT_SALE, LINES, LINES_TOTAL, PARTY, PRICES_SQL, formHelpers, line } from './booking-form-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Booking form per-person prices (migrations 20261124000100/0110/0120):
@@ -228,15 +229,15 @@ describe('booking_prices_save', () => {
       expect(await owner(`select count(*)::int as n from public.audit_events where action = 'booking.prices_saved' and target_id = $1`,
         [d.versionId])).toEqual([{ n: 1 }]);
       await refused(OWNER, PRICES_SQL, [d.versionId, d.rowVersion, JSON.stringify([line('adult', 3, '1', '0', '1'), ...LINES.slice(1)]), req],
-        '40001', 'request_conflict');
-      await refused(OWNER, PRICES_SQL, [d.versionId, d.rowVersion, JSON.stringify(LINES), rid()], '40001', 'version_changed');
+        CONFLICT_STATE, 'request_conflict');
+      await refused(OWNER, PRICES_SQL, [d.versionId, d.rowVersion, JSON.stringify(LINES), rid()], CONFLICT_STATE, 'version_changed');
       // A markup-only change keeps the total but still moves the content hash: an old submit hash is refused.
       const before = (await h.readiness(OWNER, d.versionId)).contentHash;
       const moved = await savePrices(OWNER, d.versionId, first.rowVersion,
         [line('adult', 3, '1000001', '234566', ADULT_SALE), ...LINES.slice(1)]);
       expect(moved.sellingTotalPaise).toBe(LINES_TOTAL);
       expect(moved.contentHash).not.toBe(before);
-      await refused(OWNER, 'select public.booking_confirm($1, $2) as r', [d.versionId, before], '40001', 'version_changed');
+      await refused(OWNER, 'select public.booking_confirm($1, $2) as r', [d.versionId, before], CONFLICT_STATE, 'version_changed');
     });
   });
 

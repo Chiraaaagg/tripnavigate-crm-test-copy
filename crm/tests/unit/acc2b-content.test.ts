@@ -18,6 +18,7 @@ import { BRANCHES, COMPANY_IDENTITY, companyGstinGapFor, companyIdentityFor } fr
 import { CustomerDocumentTemplate } from '@/modules/documents/render/customer-templates';
 import { checkDocumentMarkup } from '@/modules/documents/render/checks';
 import { forbiddenKeyPaths } from '@/modules/documents/guard';
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 /**
  * Accounts phase 2, Track B unit tests (contract 6.3-6.5, 9, 12.2): cdoc-1
@@ -88,7 +89,7 @@ describe('cdoc-1 content', () => {
   });
 
   it('refusal tokens: frozen codes and messages (section 9)', () => {
-    expect(DOCUMENT_ERROR_STATES).toMatchObject({ documents_off: '55000', billing_not_verified: '55000', document_stale: '40001',
+    expect(DOCUMENT_ERROR_STATES).toMatchObject({ documents_off: '55000', billing_not_verified: '55000', document_stale: CONFLICT_STATES,
       receipt_not_verified: '55000', has_credit_notes: '55000' });
     expect(DOCUMENT_ERROR_TEXT.documents_off).toBe('Customer documents are not switched on yet.');
     expect(DOCUMENT_ERROR_TEXT.document_stale).toBe('The booking or money changed since this draft was made. Refresh the draft first.');

@@ -20,6 +20,7 @@ import {
   type DocumentList,
   type DocumentListFilter,
 } from './dto';
+import { stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers of the customer document commands and reads (contract 6.7,
@@ -48,7 +49,7 @@ export class DocumentCommandError extends Error {
 export function mapDocumentError(error: RpcError): DocumentErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(DOCUMENT_ERROR_STATES, token) && DOCUMENT_ERROR_STATES[token as DocumentErrorCode] === state) {
+  if (Object.hasOwn(DOCUMENT_ERROR_STATES, token) && stateMatches(DOCUMENT_ERROR_STATES[token as DocumentErrorCode], state)) {
     return token as DocumentErrorCode;
   }
   if (SESSION_STATES.has(state)) return 'session';

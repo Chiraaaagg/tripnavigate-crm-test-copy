@@ -31,6 +31,7 @@ import {
   type ServiceRemovalCharges,
   type TaskReconfirmation,
 } from './dto';
+import { stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers of the change commands and reads (contract 10.2 G1, 10.3
@@ -83,7 +84,7 @@ export class ChangeCommandError extends Error {
 export function mapChangeError(error: RpcError): ChangeErrorCode | 'session' | null {
   const state = error.code ?? '';
   const token = (error.message ?? '').trim();
-  if (Object.hasOwn(CHANGE_ERROR_STATES, token) && CHANGE_ERROR_STATES[token as ChangeErrorCode] === state) {
+  if (Object.hasOwn(CHANGE_ERROR_STATES, token) && stateMatches(CHANGE_ERROR_STATES[token as ChangeErrorCode], state)) {
     return token as ChangeErrorCode;
   }
   if (SESSION_STATES.has(state)) return 'session';

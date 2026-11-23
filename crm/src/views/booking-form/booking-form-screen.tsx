@@ -10,8 +10,10 @@ import { Notice } from '@/components/ui/notice';
 import { BOOKING_FORM_STEP_LABEL } from '@/modules/fulfilment/booking-form-contract';
 import { formatInr, partyFromSaved, tripNights } from '@/modules/fulfilment/booking-form-model';
 import { PREFILL_FIELD } from '@/modules/fulfilment/b11-forms';
+import { BOOK_SAVE_REFRESH_MODE } from '@/modules/fulfilment/book-refresh';
+import { BOOK_RELIABILITY_TEXT } from '@/modules/fulfilment/contracts';
 import { dateText } from '../b11/book-fields';
-import { DraftSyncProvider, useDraftSync, useSectionForm } from '../b11/draft-sync';
+import { DraftSyncProvider, SaveRulesProvider, useDraftSync, useSectionForm, type SaveRules } from '../b11/draft-sync';
 import { PrefillInlineProvider } from '../b11/prefill-inline';
 import { AUTOSAVE_LABEL, AUTOSAVE_TARGET, SaveQueueProvider, useSaveQueue, type AutosaveKey } from './autosave-queue';
 import { ClaimCard, OkCard, PlanCard, ReviewCard, SUBMIT_TRIGGER_ID, SubmitCard } from './before-submit';
@@ -31,7 +33,7 @@ import { FormStepProvider, stepHeadingId, useFormStep } from './step-context';
 import { StepsBar, type StepState } from './steps-bar';
 import { editableOf } from './form-helpers';
 import { ChangeModeProvider } from './change-mode-context';
-import { FORM_STEPS, type BookingFormScreenProps, type FormStep } from './types';
+import { FORM_STEPS, type BookingFormHostExtras, type BookingFormScreenProps, type FormStep } from './types';
 
 /*
  * The booking form, Book now v2 (owner-approved prototype of 26 October 2026,
@@ -48,7 +50,14 @@ import { FORM_STEPS, type BookingFormScreenProps, type FormStep } from './types'
 const SINGULAR: Record<string, [string, string]> = { hotel: ['hotel', 'hotels'], transfer: ['car', 'cars'], flight: ['flight', 'flights'], activity: ['activity', 'activities'], visa: ['visa', 'visas'], passport: ['passport', 'passports'] };
 const STEP_OF_KEY: Record<AutosaveKey, FormStep> = { customer: 'travellers', passengers: 'travellers', fares: 'stay', price: 'finish', billTo: 'finish', plan: 'finish' };
 
-export function BookingFormScreen(props: BookingFormScreenProps) {
+/**
+ * Booking reliability B1-4 and B1-6: in 'server' mode the save action re-renders
+ * the page, so the forms here do not also refresh; a save is not sent while
+ * the browser is offline.
+ */
+const BOOK_SAVE_RULES: SaveRules = { serverRefreshes: BOOK_SAVE_REFRESH_MODE === 'server', offlineCheck: true };
+
+export function BookingFormScreen(props: BookingFormScreenProps & BookingFormHostExtras) {
   const { vm, view, links, prefillUi = null, actions } = props;
   const editable = editableOf(view);
   const hrefs = links.steps as Record<FormStep, string>;
@@ -58,6 +67,7 @@ export function BookingFormScreen(props: BookingFormScreenProps) {
   // Owner ruling: passive "From Bitrix" markers only; no per-value "Bitrix now says … Use it / Keep mine".
   const markersOnly = useMemo(() => (prefillUi?.mode === 'inline' ? { ...prefillUi, sections: prefillUi.sections.map((sec) => ({ ...sec, notices: [] })) } : null), [prefillUi]);
   return (
+    <SaveRulesProvider rules={BOOK_SAVE_RULES}>
     <DraftSyncProvider view={view}>
       <PrefillInlineProvider
         ui={auto ? markersOnly : null}
@@ -82,6 +92,7 @@ export function BookingFormScreen(props: BookingFormScreenProps) {
         </FormStepProvider>
       </PrefillInlineProvider>
     </DraftSyncProvider>
+    </SaveRulesProvider>
   );
 }
 
@@ -116,8 +127,10 @@ function AutoFillOnOpen({ view, prefillUi, actions }: BookingFormScreenProps) {
   return null;
 }
 
-function ScreenBody({ vm, view, actions, links, ownerText, vn, messagePrefsCard }: BookingFormScreenProps) {
-  const { step, go, focusField, hrefs } = useFormStep();
+function ScreenBody({ vm, view, actions, links, ownerText, vn, messagePrefsCard, refreshFailed = false, onRefreshAgain, refreshing = false }: BookingFormScreenProps & BookingFormHostExtras) {
+  const { step, go, focusField, hrefs, stepButtonReady } = useFormStep();
+  // B1-3: optional parts that did not load on this render (a missing checklist never reads as ready).
+  const checklistMissing = (view.partsNotLoaded ?? []).includes('checklist');
   const queue = useSaveQueue();
   const reload = hrefs[step];
   const editable = editableOf(view);
@@ -174,12 +187,18 @@ function ScreenBody({ vm, view, actions, links, ownerText, vn, messagePrefsCard 
     ok: { done: true, why: 'Upload the customer’s yes' },
   });
   const left = ready.filter((r) => !r.done).length;
+  // B1-7: the footer step buttons ignore a second activation right after a step change.
+  const goStep = (s: FormStep) => {
+    if (!stepButtonReady()) return;
+    go(s);
+  };
   const s2Bad = ready.find((r) => r.key === 's2')!.done === false;
   const status: Record<FormStep, StepState> = {
     // As the prototype's stepState: customer and passenger names only (ID proof shows in step 3's list).
-    travellers: ready.find((r) => r.key === 's1')!.done ? 'ok' : 'bad',
-    stay: s2Bad ? 'bad' : flightFlags > 0 || vm.checklist.some((r) => !r.blocking && r.section === 'services') ? 'warn' : 'ok',
-    finish: left === 0 ? 'ok' : 'bad',
+    // B1-3: without the server's checklist no step reads as complete.
+    travellers: !ready.find((r) => r.key === 's1')!.done ? 'bad' : checklistMissing ? 'warn' : 'ok',
+    stay: s2Bad ? 'bad' : checklistMissing || flightFlags > 0 || vm.checklist.some((r) => !r.blocking && r.section === 'services') ? 'warn' : 'ok',
+    finish: left === 0 && !checklistMissing ? 'ok' : 'bad',
   };
   const goReady = (key: ReadyKey) => {
     if (key === 's1' || key === 'id') go('travellers');
@@ -238,7 +257,7 @@ function ScreenBody({ vm, view, actions, links, ownerText, vn, messagePrefsCard 
         <span className="sr-only">Status: </span>
         {statusLine}
       </p>
-      <p className="m-0 mt-0.5 text-sm text-copy">{left > 0 ? `Next: finish ${left} ${left === 1 ? 'thing' : 'things'} (marked in the steps)` : 'Next: review and submit (step 3)'}</p>
+      <p className="m-0 mt-0.5 text-sm text-copy">{left > 0 ? `Next: finish ${left} ${left === 1 ? 'thing' : 'things'} (marked in the steps)` : checklistMissing ? BOOK_RELIABILITY_TEXT.checklistNotLoaded : 'Next: review and submit (step 3)'}</p>
       {view.dealNotActive ? (
         <Notice tone="warning" className="mt-[0.5rem]">
           This deal is lost or rejected in Bitrix, so the booking cannot change.
@@ -248,6 +267,18 @@ function ScreenBody({ vm, view, actions, links, ownerText, vn, messagePrefsCard 
           <Lock aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-faint" />
           View only. The deal owner, assigned Sales or branch Manager can change it.
         </p>
+      ) : null}
+      {refreshFailed ? (
+        <Notice tone="warning" role="status" className="mt-[0.5rem]">
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span>{BOOK_RELIABILITY_TEXT.refreshFailed}</span>
+            {onRefreshAgain ? (
+              <Button size="sm" loading={refreshing} onClick={onRefreshAgain}>
+                {BOOK_RELIABILITY_TEXT.refreshAgain}
+              </Button>
+            ) : null}
+          </p>
+        </Notice>
       ) : null}
 
       <StepsBar status={status} />
@@ -266,7 +297,7 @@ function ScreenBody({ vm, view, actions, links, ownerText, vn, messagePrefsCard 
                 onMorePax={openCorrect}
                 copyApplies={vm.idProofCopyApplies}
                 idProofRequired={vm.idProofRequired}
-                actions={{ saveTravellers: actions.saveTravellers, saveIdentity: actions.saveIdentity, uploadIdProof: actions.uploadIdProof, removeIdProof: actions.removeIdProof, retryIdProofCopy: actions.retryIdProofCopy }}
+                actions={{ saveTravellers: actions.saveTravellers, saveIdentity: actions.saveIdentity, uploadIdProof: actions.uploadIdProof, removeIdProof: actions.removeIdProof, retryIdProofCopy: actions.retryIdProofCopy, readTravellers: actions.readTravellers }}
               />
               {messagePrefsCard ?? null}
             </>,
@@ -278,14 +309,14 @@ function ScreenBody({ vm, view, actions, links, ownerText, vn, messagePrefsCard 
           {stepBox(
             'finish',
             <>
-              <ReadyList items={ready} onGo={goReady} />
+              <ReadyList items={ready} onGo={goReady} checklistMissing={checklistMissing} />
               {vm.prices ? <PackagePriceCard prices={vm.prices} view={view} party={savedParty} countsSaved={countsSaved} action={actions.savePrices} onTotal={onTotal} onGoStep1={() => go('travellers')} /> : <PriceLockedCard />}
               <BillToCard billTo={vm.billTo} view={view} action={actions.saveBillTo} contact={{ name: customer.contactName, phone: customer.mobile, email: customer.email }} parties={vn?.parties ?? null} />
               {view.commercials ? <PlanCard view={view} action={actions.savePlan} totalPaise={total} /> : null}
               <OkCard view={view} actions={actions} />
               <ClaimCard view={view} actions={actions} />
               <ReviewCard vm={vm} view={view} travellersText={travellers} />
-              <SubmitCard view={view} actions={actions} left={left} reloadHref={reload} onShowList={() => focusField('bf-ready-heading')} />
+              <SubmitCard view={view} actions={actions} left={left} reloadHref={reload} onShowList={() => focusField('bf-ready-heading')} checklistMissing={checklistMissing} />
             </>,
           )}
         </div>
@@ -326,13 +357,13 @@ function ScreenBody({ vm, view, actions, links, ownerText, vn, messagePrefsCard 
         </p>
         <div className="flex justify-end gap-2.5">
           {back ? (
-            <Button size="lg" onClick={() => go(back)}>
+            <Button size="lg" onClick={() => goStep(back)}>
               <ArrowLeft aria-hidden="true" />
               Back
             </Button>
           ) : null}
           {next ? (
-            <Button variant="primary" size="lg" onClick={() => go(next)}>
+            <Button variant="primary" size="lg" onClick={() => goStep(next)}>
               Go to step {stepIndex + 2}
               <ArrowRight aria-hidden="true" />
             </Button>

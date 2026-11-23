@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, FIXTURE_USERS as U, type TestDb, asOwner, createTestDb, resetActor } from '../helpers/db';
 import { ACC, MANAGER, PURCHASE, SQL, accHelpers, rid, sha } from './acc-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase 2, Track A (builder's own tests): supplier import, contract
@@ -173,7 +174,7 @@ describe('5.6 dry run, apply, re-import', () => {
       expect(g2[2]!.warnings).toEqual([{ code: 'similar_name_city', supplierId: sup!.id, supplierName: 'Test Lake Hotels Pvt Ltd', hotelSourceRef: null }]);
       // A change since the dry run: apply refused as stale.
       await owner(`update public.suppliers set city = 'Jaipur', row_version = row_version + 1 where id = $1`, [sup!.id]);
-      await h.refused(ACC, SQLI.apply, [id2, s2.rowVersion, REASON, s2.proposalHash, null], 'import_stale', '40001');
+      await h.refused(ACC, SQLI.apply, [id2, s2.rowVersion, REASON, s2.proposalHash, null], 'import_stale', CONFLICT_STATE);
     });
   });
 

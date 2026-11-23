@@ -24,6 +24,7 @@ import {
   saveBookingIdentityAction,
   saveBookingPricesAction,
   saveBookingServiceAction,
+  readBookingTravellersAction,
   saveBookingTravellersAction,
   startBookingFormAction,
   uploadServiceFileAction,
@@ -84,6 +85,17 @@ export const BOOKING_FORM_V2_ACTIONS = {
 };
 
 /**
+ * Booking reliability B1-4: "what is saved" for the passengers card after a
+ * save whose answer was lost, and before its "Try again" (dealId in; a read
+ * that returns passenger numbers, names and types and the draft row version;
+ * never writes). Its own object, like the v2 actions, so the screen types
+ * gain it in one place (BookingFormActions in views/booking-form/types.ts).
+ */
+export const BOOKING_FORM_RELIABILITY_ACTIONS = {
+  readTravellers: readBookingTravellersAction,
+};
+
+/**
  * The booking form (22 October 2026): the Book now actions plus the booking
  * form commands. Start uses booking_form_start (new drafts get the booking
  * form rules); the customer card saves contact, trip and party (billing moved
@@ -107,6 +119,8 @@ export const BOOKING_FORM_ACTIONS: BookingFormActions = {
   saveIdentity: saveBookingIdentityAction,
   // Book now v2
   ...BOOKING_FORM_V2_ACTIONS,
+  // Booking reliability fix batch 1
+  ...BOOKING_FORM_RELIABILITY_ACTIONS,
 };
 
 /**

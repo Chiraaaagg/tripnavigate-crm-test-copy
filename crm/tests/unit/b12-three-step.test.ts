@@ -46,9 +46,12 @@ import {
 const requireStaff = vi.fn();
 const rpc = vi.fn();
 const revalidatePath = vi.fn();
+const refresh = vi.fn();
 
-vi.mock('@/modules/identity/server/session', () => ({ requireStaff: () => requireStaff() }));
-vi.mock('next/cache', () => ({ revalidatePath: (p: string) => revalidatePath(p) }));
+// Booking reliability B1-8: the Book now saves gate with staffForAction (same decision; SESSION_ENDED never returned here).
+vi.mock('@/modules/identity/server/session', () => ({ requireStaff: () => requireStaff(), staffForAction: () => requireStaff(), SESSION_ENDED: Symbol('session_ended') }));
+// Booking reliability B1-6: a draft save re-renders with refresh() (BOOK_SAVE_REFRESH_MODE 'server'), not revalidatePath.
+vi.mock('next/cache', () => ({ revalidatePath: (p: string) => revalidatePath(p), refresh: () => refresh() }));
 vi.mock('@/lib/supabase/admin', () => ({ createSupabaseAdminClient: () => ({}) }));
 
 const book = await import('@/modules/fulfilment/server/book-now-actions');

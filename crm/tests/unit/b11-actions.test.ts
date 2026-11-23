@@ -16,9 +16,12 @@ import { mapFinanceError } from '@/modules/finance/commands';
 const requireStaff = vi.fn();
 const rpc = vi.fn();
 const revalidatePath = vi.fn();
+const refresh = vi.fn();
 
-vi.mock('@/modules/identity/server/session', () => ({ requireStaff: () => requireStaff() }));
-vi.mock('next/cache', () => ({ revalidatePath: (p: string) => revalidatePath(p) }));
+// Booking reliability B1-8: the Book now saves gate with staffForAction (same decision; SESSION_ENDED never returned here).
+vi.mock('@/modules/identity/server/session', () => ({ requireStaff: () => requireStaff(), staffForAction: () => requireStaff(), SESSION_ENDED: Symbol('session_ended') }));
+// Booking reliability B1-6: a draft save re-renders with refresh() (BOOK_SAVE_REFRESH_MODE 'server'), not revalidatePath.
+vi.mock('next/cache', () => ({ revalidatePath: (p: string) => revalidatePath(p), refresh: () => refresh() }));
 vi.mock('@/lib/supabase/admin', () => ({ createSupabaseAdminClient: () => ({}) }));
 
 const book = await import('@/modules/fulfilment/server/book-now-actions');
@@ -118,8 +121,8 @@ describe('refusal token maps', () => {
   });
 
   it('new finance tokens map only with their SQLSTATE; claims tokens have wording', () => {
-    for (const [token, state] of Object.entries(FINANCE_ERROR_STATES)) {
-      expect(mapFinanceError({ code: state, message: token })).toBe(token);
+    for (const [token, allowed] of Object.entries(FINANCE_ERROR_STATES)) {
+      for (const state of typeof allowed === 'string' ? [allowed] : allowed) expect(mapFinanceError({ code: state, message: token })).toBe(token);
     }
     expect(mapFinanceError({ code: '55000', message: 'duplicate_claim' })).toBeNull();
     expect(FINANCE_ERROR_TEXT.claim_over_total).toMatch(/selling total/);
@@ -157,7 +160,9 @@ describe('saveBookCustomerAction', () => {
       p_billing_expected_row_version: 0,
       p_request_id: REQUEST,
     });
-    expect(revalidatePath).toHaveBeenCalledWith(`/app/deals/${DEAL}/book`);
+    // Booking reliability B1-6: a draft save re-renders once with refresh(), never revalidatePath.
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it('an exact retry answered with the stored result says nothing changed', async () => {

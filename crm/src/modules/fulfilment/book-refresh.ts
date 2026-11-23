@@ -8,4 +8,4 @@
  * Set once by the lead after measurement M0 (build contract addendum). Until
  * then nothing reads it, and behaviour is today's.
  */
-export const BOOK_SAVE_REFRESH_MODE: 'client' | 'server' = 'client';
+export const BOOK_SAVE_REFRESH_MODE: 'client' | 'server' = 'server';

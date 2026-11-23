@@ -1,4 +1,5 @@
 import { TRAVELLER_TYPES, type TravellerType } from '@/modules/fulfilment/contracts';
+import { mergeSavedTravellers, type PostedTraveller } from '@/modules/fulfilment/passenger-slots';
 import type { PassengerRow } from './passenger-drawer';
 
 /*
@@ -41,7 +42,9 @@ export function displayRows(rows: readonly PassengerRow[], counts: PartyCountsTy
     rows.forEach((row, stateIndex) => {
       if (row.type !== type) return;
       if (!isRealPassenger(row) && pos >= want) return;
-      out.push({ key: row.seq !== null ? `seq-${row.seq}` : (row.key ?? `${type}-slot-${pos}`), type, pos, stateIndex, row });
+      // A row typed into a slot keeps its screen key after it gains its number (booking reliability
+      // B1-4), so the line is not re-created and the field keeps focus.
+      out.push({ key: row.key ?? (row.seq !== null ? `seq-${row.seq}` : `${type}-slot-${pos}`), type, pos, stateIndex, row });
       pos += 1;
     });
     for (; pos < want; pos += 1) out.push({ key: `${type}-slot-${pos}`, type, pos, stateIndex: null, row: null });
@@ -56,4 +59,40 @@ export function overCount(rows: readonly PassengerRow[], counts: PartyCountsType
     const named = rows.filter((r) => r.type === type && isRealPassenger(r)).length;
     return named > booked ? [{ type, named, booked }] : [];
   });
+}
+
+/**
+ * Booking reliability B1-4: the named rows a passengers save posts, in posted
+ * order (the page lists adults, then children, then infants; the parser keeps
+ * the rows with a name). `index` in the save answer is the position here.
+ */
+export function postedTravellers(rows: readonly PassengerRow[]): PostedTraveller[] {
+  return TRAVELLER_TYPES.flatMap((type) =>
+    rows
+      .filter((r) => r.type === type && isRealPassenger(r) && r.name.trim() !== '')
+      .map((r) => ({ key: r.key ?? (r.seq !== null ? `seq-${r.seq}` : null), seq: r.seq, fullName: r.name.trim(), type })),
+  );
+}
+
+const isBlankRow = (r: PassengerRow) => r.seq === null && r.name.trim() === '' && r.age === '' && r.needs === '' && r.requests.length === 0;
+
+/** B1-4 (b): the saved list merged into the rows on screen (clean card only; see mergeSavedTravellers). */
+export function mergePassengerRows(current: readonly PassengerRow[], incoming: readonly PassengerRow[]): PassengerRow[] {
+  return mergeSavedTravellers(current, incoming, {
+    isBlank: isBlankRow,
+    blank: (type: TravellerType, key: string | undefined) => ({ seq: null, name: '', type, age: '', needs: '', requests: [], ...(key !== undefined ? { key } : {}) }),
+  });
+}
+
+/**
+ * The saved content of a passengers form, whatever the order of the rows on
+ * screen: saved passengers by number, then the unsaved named rows, then the
+ * removals. Used to tell whether the latest view still holds what the card was
+ * opened on (B1-5); empty slots do not count.
+ */
+export function passengersContent(v: { travellers: readonly PassengerRow[]; removed: readonly number[] }): string {
+  const real = v.travellers.filter(isRealPassenger).map((r) => ({ seq: r.seq, name: r.name.trim(), type: r.type, age: r.type === 'adult' ? '' : r.age, needs: r.needs.trim(), requests: [...r.requests].sort() }));
+  const saved = real.filter((r) => r.seq !== null).sort((a, b) => a.seq! - b.seq!);
+  const typed = real.filter((r) => r.seq === null);
+  return JSON.stringify({ saved, typed, removed: [...v.removed].sort((a, b) => a - b) });
 }

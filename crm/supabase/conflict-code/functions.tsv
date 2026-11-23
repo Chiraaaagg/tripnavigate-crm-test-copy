@@ -1,0 +1,109 @@
+schema	name	identity_arguments	stage	source_migration	prosrc_md5_before
+authz	cdoc_auto_run_inner	uuid, text	handler	20261205000270_auto_bills_since.sql	f857e34c01b86820c3024ee24dbac992
+authz	flight_remember	uuid, uuid, text, jsonb, jsonb	handler	20261201000100_flight_workspace.sql	b0314556ae115a7b0a44b2369bc1c3a3
+authz	flight_replay	uuid, uuid, text, jsonb	handler	20261201000100_flight_workspace.sql	ae1c4f215048b5d07230ca970b075c70
+authz	sm_remember	uuid, uuid, text, jsonb, jsonb	handler	20261130000200_supplier_money.sql	b0314556ae115a7b0a44b2369bc1c3a3
+authz	sm_replay	uuid, uuid, text, jsonb	handler	20261130000200_supplier_money.sql	3fb286701f3091007023ecd59faa821b
+authz	visa_remember	uuid, uuid, text, jsonb, jsonb	handler	20261202000110_visa_desk_commands.sql	b0314556ae115a7b0a44b2369bc1c3a3
+authz	visa_replay	uuid, uuid, text, jsonb	handler	20261202000110_visa_desk_commands.sql	ae1c4f215048b5d07230ca970b075c70
+authz	require_row_version	integer, integer	1	20261118000100_b1_service_items.sql	d1e100dcd8ed2488e0e1315853c634c8
+authz	b11_billing_propose	uuid, integer, jsonb, uuid	2	20261124000110_booking_form_commands.sql	671689ad24144f52e111f4d44026baf8
+authz	booking_change_apply	uuid	2	20261205000780_manager_approves_final.sql	0e987373fbeb9319fdc9ef272c38132e
+authz	booking_create_item_tasks	uuid, uuid[]	2	20261205000720_service_change_apply.sql	614d54571069f1b7767e0d9235b21dba
+authz	cdoc_check_version	public.customer_documents, integer	2	20261204000210_customer_documents_commands.sql	ce133229ecfa0bfa9c8dc160312a83fe
+authz	cdoc_release_core	uuid, uuid, text, uuid	2	20261205000210_auto_bills.sql	a8afed5385c3dd28a3a5978c52f5a3ec
+authz	finance_expense_review	uuid, integer, text, uuid, boolean	2	20261119000500_b11_department_forms.sql	a2f5ff815fde6fbbf68f4edb7888e9b8
+authz	finance_remember	uuid, uuid, text, jsonb, jsonb	2	20261101000100_accounts_receipts.sql	49270a41259a1d1c6f4d53009cabe44d
+authz	finance_replay	uuid, uuid, text, jsonb	2	20261101000100_accounts_receipts.sql	081147a5183622c895b19ff46f1a9227
+authz	flight_change_apply_approval	uuid	2	20261201000110_flight_workspace_commands.sql	f9ac8830fbe2359200d2902d28c55f77
+authz	referral_draft_start	uuid, jsonb, text, uuid, text	2	20261123000100_referral_drafts.sql	145e90d301a99b4a8aebbc105ed6e21e
+authz	sm_payment_create	uuid, jsonb, uuid, uuid, text	2	20261205000780_manager_approves_final.sql	18006328d30e51a3793d3aa20c18aca2
+authz	sm_payment_still_valid	uuid	2	20261201000210_flight_money_commands.sql	25651af4f9f22ec3a82cd02547bd4507
+public	accounts_billing_save	uuid, integer, jsonb, uuid	2	20261124000110_booking_form_commands.sql	3fac973f6226a7dafbe5dfb1778fc2eb
+public	accounts_billing_verify	uuid, integer, uuid	2	20261101000100_accounts_receipts.sql	94b58f7fec6421df9749cc756a4ea7f3
+public	accounts_review_approve	uuid, integer, uuid	2	20261101000100_accounts_receipts.sql	1381c4387cb8b6b475f3368e49619dc1
+public	accounts_tally_exception	text, uuid, integer, jsonb, uuid	2	20261205000320_tally_match_upload.sql	663aa5ae4905b05456ec69bf1dd233fc
+public	accounts_tally_invoice_withdraw	uuid, integer, text, uuid	2	20261203000250_accounts_tally_commands.sql	dae1570c2a5c57964ebea10f7d53baf8
+public	accounts_tally_match	text, uuid, integer, jsonb, uuid	2	20261205000320_tally_match_upload.sql	92cdb11db1d09085ced28df4f8fcd2bd
+public	accounts_tally_match_apply	uuid, text, uuid	2	20261205000320_tally_match_upload.sql	78bf0e07502627b0e9309aa97a384226
+public	accounts_tally_reopen	text, uuid, integer, text, uuid	2	20261203000330_accounts_review2_fixes.sql	b128f422d3b6732a1f5beff4f0acf988
+public	admin_set_customer_message_switch	uuid, text, text, boolean, text, integer	2	20261205000120_customer_message_commands.sql	c51562b84114724c0ab0bcf8f3788781
+public	bitrix_destination_scope_set	text, text, text, integer, text	2	20261128000100_vn_bitrix_trip_details.sql	02c18bbd2f751f0df26fdfdcb391e4f1
+public	bitrix_id_proof_copy_complete	uuid, uuid, text, text, bigint	2	20261120000700_b12_id_proof_bitrix_copy.sql	48f9706fd9b71b7f108c94d51d3da39d
+public	bitrix_id_proof_copy_mark_sending	uuid, uuid, bigint[]	2	20261120000700_b12_id_proof_bitrix_copy.sql	dadbf9c1e060e2a5df233c033280df47
+public	bitrix_id_proof_copy_stop	uuid, uuid, text	2	20261120000700_b12_id_proof_bitrix_copy.sql	d41a08c94167fff3628deb94c2c6238d
+public	booking_change_request_decide	uuid, text, text, integer, uuid	2	20261205000780_manager_approves_final.sql	427e21c24341e7bee5f32d0aea9881c8
+public	booking_change_submit	uuid, text, uuid[], uuid	2	20261205000780_manager_approves_final.sql	53af254a2d823a5dc016ad819788b1c6
+public	booking_confirm	uuid, text	2	20261205000720_service_change_apply.sql	dd00512a6e4d15aaaba3bd01473f3bfe
+public	booking_save_draft	uuid, integer, jsonb, bigint, boolean	2	20261205000790_manager_fills_change_without_owner.sql	bc6a969c49dfb5bcc19e52986ceb4006
+public	company_destination_approve	uuid, integer, uuid	2	20261110000100_company_destinations.sql	11c891d378d1cfb30a36629332cb6a0d
+public	company_destination_retire	uuid, integer, text, uuid	2	20261110000100_company_destinations.sql	499831fcb4a616c09c0fc25dac76173d
+public	company_destination_return	uuid, integer, text, uuid	2	20261110000100_company_destinations.sql	2ce93a0bb7d3a8690737c1ba37fc2620
+public	company_destination_submit	uuid, uuid, jsonb, integer, uuid	2	20261110000100_company_destinations.sql	4fda7025ce878f368b3be63a9ae279d8
+public	company_funding_decide	uuid, text, text, integer, uuid	2	20261130000200_supplier_money.sql	0f9fb0286c1dbb1f82b534ac58b90dec
+public	company_funding_mark_recovered	uuid, text, integer, uuid	2	20261130000200_supplier_money.sql	8fc7ef2068c72f9a34b7e8c5e39cc40a
+public	customer_document_release	uuid, integer, text, uuid	2	20261205000210_auto_bills.sql	74d5dd0377456233ee5b30cab7a5d9a1
+public	customer_document_render_complete	uuid, text, boolean, text, jsonb	2	20261204000220_customer_documents_render.sql	51daa63648f57bfd91d4fddb97eb548b
+public	customer_document_render_input	uuid, text	2	20261204000220_customer_documents_render.sql	63a402a30da59961fb1a377701006daf
+public	customer_party_document_begin	uuid, text, uuid, boolean, text, text, integer, text	2	20261128000130_vn_customer_parties.sql	ad91e14b56ecd60ac102c2f70617d3a1
+public	customer_party_tally_name_set	uuid, integer, text, uuid	2	20261205000300_tally_xml_schema.sql	144c06c847ca9b0f982058844949e1eb
+public	customer_refund_decide	uuid, text, bigint, bigint, text, integer, uuid	2	20261204000380_refund_limits_cumulative.sql	a97ab069b92feba038ea66bd38fea889
+public	deal_cancellation_decide	uuid, text, text, integer, uuid	2	20261204000330_cancellation_flight_visa.sql	192cb7dab3531d957f2d18db8e45926c
+public	deal_cancellation_send	uuid, integer, uuid	2	20261204000330_cancellation_flight_visa.sql	9acda53772f73d13acd39d164dd54e80
+public	deal_message_prefs_set	uuid, integer, jsonb, uuid	2	20261205000120_customer_message_commands.sql	2c90139e002cbdaa5e608a427911d757
+public	deal_traveller_name_fill	uuid, uuid, integer, text, text, uuid	2	20261201000190_flight_traveller_name_fill.sql	528174352bffda751b3130605fcad558
+public	flight_booking_change_apply	uuid, uuid, uuid, uuid	2	20261201000160_flight_review_fixes.sql	7d7daf2015408483733019faa52678bb
+public	flight_cancellation_charge_set	uuid, jsonb, integer, uuid	2	20261205000780_manager_approves_final.sql	cdd19441aeb1a047b3b519973048715a
+public	flight_change_decide	uuid, text, text, integer, uuid	2	20261201000160_flight_review_fixes.sql	038a074626235141c36a8ca64fddc9a0
+public	flight_direct_payment_save	uuid, integer, jsonb, uuid	2	20261205000770_removed_flight_visa_work.sql	a2c51d43cc86c2a9a2b40ff61fa200b4
+public	flight_fare_approval_decide	uuid, text, text, integer, uuid	2	20261201000210_flight_money_commands.sql	8cdfa63c1365af45cb77a62a08dc8819
+public	flight_fare_approval_withdraw	uuid, integer, uuid	2	20261201000210_flight_money_commands.sql	b6c533a2e41a31e08b477fcb55458571
+public	flight_group_claim	uuid, uuid	2	20261205000750_closed_tasks_work_lists.sql	b7c1395c6124200dfbc41035fba6da4d
+public	flight_group_complete	uuid, uuid[], uuid	2	20261205000770_removed_flight_visa_work.sql	3bfa87e635d21b5a32ec919e00d32938
+public	flight_group_reassign	uuid, uuid, uuid, text, uuid	2	20261201000160_flight_review_fixes.sql	53218da18f0fa65a310f6081e5e485b1
+public	flight_supplier_update	uuid, integer, jsonb	2	20261204000110_supplier_master_commands.sql	6a5a4b25e7a16dbf59e8bc3c2bc3f35b
+public	flight_ticket_correct	uuid, integer, integer, jsonb, text, uuid	2	20261201000160_flight_review_fixes.sql	89f3d3c886b278779c6b31d6fb41a691
+public	hotel_catalogue_save	uuid, uuid, integer, jsonb, text	2	20261128000120_vn_hotel_catalogue.sql	17ddd714b53671df2a6616a7d5d6bf79
+public	import_batch_apply	uuid, integer, text, text, jsonb	2	20261205000530_rate_sheet_import.sql	f22a58c6e25d28156f729b91cb87ec6e
+public	import_batch_stage	uuid, text, uuid, text, text, jsonb, uuid, boolean	2	20261205000530_rate_sheet_import.sql	3bc2759bde7415b82758870f8975ad0d
+public	integration_apply_sync_settings	uuid, text	2	20261125000100_settings_preview_audit.sql	2147b778bcbec2715c4330ebeda81255
+public	itinerary_create_standalone	uuid, jsonb, text, uuid	2	20261123000100_referral_drafts.sql	2c79eaaacf5f7568e21de499f5038511
+public	itinerary_differences_save	uuid, integer, text, uuid, text, jsonb	2	20261120000500_b12_itineraries.sql	2bb86078b1deb49f280f6e388704151c
+public	itinerary_document_create	text, uuid, text, uuid	2	20261123000100_referral_drafts.sql	8d954d6b883bcac2a38cfbc17c993681
+public	itinerary_render_complete	uuid, text, boolean, text, jsonb	2	20261120000500_b12_itineraries.sql	60290b14441e10123a63f723d9374b95
+public	itinerary_render_input	uuid, text	2	20261120000800_b12_document_branch_code.sql	a4442264459c3c47f06645d787e59e02
+public	payment_claim_report	uuid, jsonb, uuid	2	20261119000200_b11_payment_claims.sql	d82289d30a93b9196260ba70c0756b5b
+public	payment_claim_withdraw	uuid, integer, text, uuid	2	20261119000200_b11_payment_claims.sql	8c6017c2416c09c396252ed8bb086f31
+public	purchase_booking_change_ack	uuid, uuid, uuid	2	20261203000430_purchase_booking_change.sql	cb6ba3debc1cec82c422b8044dc3f55f
+public	purchase_booking_request_send	uuid, integer, text, text[], text, text, uuid	2	20261130000110_purchase_workflow_commands.sql	5474a0a07fea01e45f0e0a5ac3f7c865
+public	purchase_cancellation_charge_set	uuid, bigint, bigint, text, uuid, integer, uuid	2	20261205000780_manager_approves_final.sql	bbbc1b5b559390cbbbf72c4be9f9762f
+public	purchase_cost_approve_over_budget	uuid, integer	2	20261205000600_cost_approval_booking_version.sql	c3ea5941484b4f069c1fb159cc441586
+public	purchase_cost_propose	uuid, uuid, integer, bigint, date, text, uuid	2	20261130000110_purchase_workflow_commands.sql	1f1a628377dc7546191f22f441e62f38
+public	purchase_go_ahead_decide	uuid, text, text, integer, uuid	2	20261130000110_purchase_workflow_commands.sql	9bb13f7438aa145a433485a8f2b6a7cb
+public	purchase_supplier_confirm	uuid, integer, text	2	20261205000780_manager_approves_final.sql	92f3088fdc957464b88389b15a830366
+public	purchase_task_claim	uuid	2	20261205000780_manager_approves_final.sql	62c83ddfd459a7bad5a71fdfee9a5875
+public	purchase_task_reassign	uuid, uuid, uuid	2	20261201000110_flight_workspace_commands.sql	468ced6e7fb1944025abf78c893c9601
+public	purchase_task_release	uuid	2	20261005000200_procurement_owner_decisions.sql	a39cce0382de106594261007ad08951e
+public	quotation_accept	uuid, text, uuid, text, uuid	2	20261120000200_b12_quotations.sql	4dd0ebef50ec14d94da133c4e9c4cf49
+public	quotation_convert_to_booking	uuid, text, uuid	2	20261128000110_vn_booking_trip_rules.sql	aa3d61cfab26e025cc191a7c04dbea01
+public	quotation_create	text, uuid, text, uuid	2	20261123000100_referral_drafts.sql	5420c0f86a6f79387d5353174bc572a4
+public	quotation_create_standalone	uuid, jsonb, text, uuid	2	20261123000100_referral_drafts.sql	8775b4cc4c7b04ae00436be144e96b34
+public	quotation_mark_sent	uuid, text, text, uuid	2	20261120000200_b12_quotations.sql	e66a4860241bb3cf1166ecf559bcda9c
+public	service_item_file_begin	uuid, uuid, text, jsonb, uuid	2	20261124000110_booking_form_commands.sql	f2394b63fd87ef81daa50289a195bac7
+public	supplier_approve_beneficiary	uuid, integer	2	20261005000200_procurement_owner_decisions.sql	e6f535d277de7d7c87761762a5cd7650
+public	supplier_contact_remove	uuid, integer, text, uuid	2	20261204000110_supplier_master_commands.sql	d302af5bb51e62abfbee9161df9118d5
+public	supplier_contact_save	uuid, uuid, integer, jsonb, uuid	2	20261204000110_supplier_master_commands.sql	76f5abac5b3125841a6b3e30ab64a2a8
+public	supplier_document_review	uuid, text, text, integer, uuid	2	20261130000200_supplier_money.sql	efc99ae960236c3cca535cb54574834b
+public	supplier_payment_decide	uuid, text, text, integer, uuid	2	20261201000210_flight_money_commands.sql	148459640ffa3d08a7179590a1af5dda
+public	supplier_payment_record	uuid, date, text, text, uuid, integer, uuid	2	20261130000200_supplier_money.sql	968fd2f0369b0c3beb5c0472ae31e8e4
+public	supplier_payment_request_cancel	uuid, integer, uuid	2	20261203000120_phase0_flight_cancel.sql	b433ce00e62be47a859e308acfd00b21
+public	supplier_payment_verify	uuid, integer, uuid	2	20261130000200_supplier_money.sql	48027268cbaedf0062c773dcb17f7307
+public	supplier_update	uuid, integer, jsonb	2	20261204000110_supplier_master_commands.sql	9fdeaba5a20bd24a426150eb40d9b5f6
+public	supplier_verify	uuid, integer	2	20261005000200_procurement_owner_decisions.sql	753b87fe673ba65cc676c83c90b69267
+public	tally_mapping_set	uuid, integer, jsonb, text, uuid	2	20261204000400_tally_mapping.sql	f18f80d9f842b55090e4569e5e77f92c
+public	traveller_id_proof_begin	uuid, integer, uuid, boolean, text, text, integer, text	2	20261120000100_b12_traveller_id_proof.sql	90fd95ecdf40b1ac80ba2669ae7ce379
+public	visa_cancellation_fee_set	uuid, bigint, text, integer, uuid	2	20261205000780_manager_approves_final.sql	f2e017d70aedde63e04bfa51b15f5bab
+public	visa_task_claim	uuid	2	20261202000110_visa_desk_commands.sql	401a5133bf15020765f8ea43557ae985
+public	write_off_decide	uuid, text, bigint, text, integer, uuid	2	20261205000220_write_off_commands.sql	8644440ff516284fc460e95b3d26e851
+public	write_off_undo	uuid, integer, text, uuid	2	20261205000220_write_off_commands.sql	44d2447c21ab169e5be60363f29507be
+public	write_off_withdraw	uuid, integer, text, uuid	2	20261205000220_write_off_commands.sql	85570246a335f085a32ff655c72e6de5

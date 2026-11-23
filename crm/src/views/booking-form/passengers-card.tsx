@@ -1,6 +1,7 @@
 'use client';
 
 import { CircleAlert, CircleCheck, Clock, Check, MoreHorizontal, Paperclip, Trash2, TriangleAlert, Users } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/cn';
@@ -8,20 +9,23 @@ import { Input } from '@/components/ui/input';
 import { Notice } from '@/components/ui/notice';
 import { fieldDescribedBy } from '@/components/ui/field';
 import { SaveStatus } from '@/components/ui/save-status';
-import { ID_PROOF_TEXT, type BookTravellerView, type TravellerType } from '@/modules/fulfilment/contracts';
+import { BOOK_RELIABILITY_TEXT, ERROR_TEXT, ID_PROOF_TEXT, type BookTravellerView, type SavedTravellersRead, type TravellerType } from '@/modules/fulfilment/contracts';
+import { adoptSavedNumbers, checkLostTravellersSave, renamesThatDetachProofs, travellerNameKey, travellersRetryStep, type TravellerAnswerRow } from '@/modules/fulfilment/passenger-slots';
+import { PartNotLoadedNotice } from '../b11/book-views';
 import { TRAVELLER_SEQ_FIELD, TRAVELLER_SEQ_MAX_FIELD } from '@/modules/fulfilment/b11-forms';
 import { guard } from '../booking-forms';
 import { idProofsDetachedByRename, travellerSeqHighWater } from '../b11/book-fields';
 import { useSectionForm } from '../b11/draft-sync';
 import { normaliseResult, type FieldRef, type UiResult } from '../b11/form-kit';
 import type { B11Action, BookNowView } from '../b11/shapes';
-import { refusalReason, useAutosave, useSaveQueue } from './autosave-queue';
+import type { BookingFormActions } from './types';
+import { cardStateOf, reasonRole, refusalReason, SaveRecovery, useAutosave, useCardLatest, useSaveQueue, type SendOutcome } from './autosave-queue';
 import { ConfirmDialog } from './confirm-dialog';
 import { HiddenDraftInputs, editableOf, useShownRefusal } from './form-helpers';
 import { useFormToast } from './form-toast';
 import { IdProofDialog } from './id-proof-dialog';
 import { PassengerDrawer, type PassengerRow } from './passenger-drawer';
-import { displayRows, isRealPassenger, overCount, REMOVE_TRAVELLER_FIELD, type DisplayRow, type PartyCountsTyped } from './passenger-display';
+import { displayRows, isRealPassenger, mergePassengerRows, overCount, passengersContent, postedTravellers, REMOVE_TRAVELLER_FIELD, type DisplayRow, type PartyCountsTyped } from './passenger-display';
 import { CountPill, SectionCard } from './parts';
 
 export { displayRows, isRealPassenger, overCount, type DisplayRow, type PartyCountsTyped };
@@ -48,9 +52,33 @@ export interface PassengerActions {
   uploadIdProof: B11Action;
   removeIdProof: B11Action;
   retryIdProofCopy?: B11Action;
+  /** Booking reliability B1-4: reads the saved passengers (writes nothing). */
+  readTravellers?: BookingFormActions['readTravellers'];
 }
 
 const plural = (n: number, t: TravellerType) => `${n} ${TYPE_PLURAL[t][n === 1 ? 0 : 1]}`;
+
+type PaxValues = { travellers: PassengerRow[]; removed: number[] };
+
+const cardOutcome = (card: NonNullable<SendOutcome['card']>): SendOutcome => ({ ok: false, code: 'unexpected', message: card.reason ?? '', card }) as SendOutcome;
+
+const NOT_ON_SCREEN: UiResult = { ok: false, code: 'unexpected', message: '' } as UiResult;
+
+/** The read after a lost answer: the saved passengers, "signed out", or null (could not check). */
+async function readSaved(read: PassengerActions['readTravellers'], dealId: string): Promise<SavedTravellersRead | 'session' | null> {
+  if (!read) return null;
+  try {
+    const r = await read(dealId);
+    if (r.ok) return r.data;
+    return r.code === 'session' ? 'session' : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Live ID proofs (uploading or stored) per saved passenger: a rename removes them (B1-9). */
+const storedWithProofs = (travellers: readonly BookTravellerView[]) =>
+  travellers.map((t) => ({ seq: t.seq, fullName: t.fullName, liveProofs: (t.idProofs ?? []).filter((p) => p.status === 'pending_upload' || p.status === 'stored').length }));
 
 function rowsOf(view: BookNowView): PassengerRow[] {
   return [...view.travellers]
@@ -86,6 +114,11 @@ export function PassengersCard({
   const editable = editableOf(view);
   const toast = useFormToast();
   const queue = useSaveQueue();
+  const router = useRouter();
+  const viewRef = useRef(view);
+  useEffect(() => {
+    viewRef.current = view;
+  });
   const [renameBase, setRenameBase] = useState<Pick<BookNowView, 'travellers'> | null>(null);
   const [detached, setDetached] = useState<Array<{ seq: number; fullName: string }>>([]);
   if (renameBase && renameBase.travellers !== view.travellers) {
@@ -103,9 +136,18 @@ export function PassengersCard({
     rowVersion: view.version?.rowVersion ?? 0,
     saveable: false,
     tracksDirty: true,
-    onSuccess: () => {
+    // B1-4 (b): the saved list arriving while nothing is typed keeps every row in its place.
+    merge: (current: PaxValues, incoming: PaxValues): PaxValues => ({ travellers: mergePassengerRows(current.travellers, incoming.travellers), removed: incoming.removed }),
+    same: (a: PaxValues, b: PaxValues) => passengersContent(a) === passengersContent(b),
+    onSuccess: (result, { submitted, adopt }) => {
       setDetached([]);
-      setRenameBase({ travellers: view.travellers });
+      setRenameBase({ travellers: viewRef.current.travellers });
+      // B1-4 (a): the answer numbers every posted row by its posted position; the rows learn them now.
+      const answer = result.ok ? (result.data as { travellers?: unknown } | undefined)?.travellers : undefined;
+      if (Array.isArray(answer)) {
+        const posted = postedTravellers(submitted.travellers);
+        adopt((v) => ({ ...v, travellers: adoptSavedNumbers(v.travellers, posted, answer as TravellerAnswerRow[]) }));
+      }
     },
   });
   const rows = f.values.travellers;
@@ -158,7 +200,90 @@ export function PassengersCard({
     },
     [bindForm],
   );
-  const sendNow = useCallback((): Promise<UiResult> => (formRef.current ? f.post(new FormData(formRef.current)) : Promise.resolve({ ok: false, code: 'unexpected', message: '' } as UiResult)), [f]);
+  const fRef = useRef(f);
+  useEffect(() => {
+    fRef.current = f;
+  });
+
+  /**
+   * B1-4 (c): a save whose answer was lost. One read (never a send) tells
+   * what happened: stored → the numbers are adopted and the rows are saved
+   * (W5); not stored → values stay with "Try again" (W6b); unclear → values
+   * stay, nothing adopted (W6c). Runs inside the same queue job as the save.
+   */
+  const checkAfterLostAnswer = useCallback(
+    async (lost: UiResult, posted: PaxValues, postedRowVersion: number): Promise<SendOutcome> => {
+      const read = await readSaved(actions.readTravellers, viewRef.current.dealId);
+      if (read === 'session') return { ...lost, card: cardStateOf({ ok: false, code: 'session', message: ERROR_TEXT.session }) };
+      const rows = postedTravellers(posted.travellers);
+      const check = checkLostTravellersSave({ posted: rows, removed: posted.removed, postedRowVersion, read });
+      if (check.kind === 'stored' && read) {
+        const answer: TravellerAnswerRow[] = check.seqs.map((seq, index) => ({ index, seq, fullName: rows[index]!.fullName, type: rows[index]!.type }));
+        const found: UiResult = { ok: true, data: { rowVersion: read.rowVersion }, message: BOOK_RELIABILITY_TEXT.passengersFoundSaved };
+        fRef.current.markSaved(posted, check.ownStep ? { from: postedRowVersion, to: read.rowVersion } : null, (v) => ({ ...v, travellers: adoptSavedNumbers(v.travellers, rows, answer) }), found);
+        // The answer with the new page was lost too: read the page once (a read, not a save).
+        router.refresh();
+        return { ...found, card: { state: 'saved', reason: null, note: BOOK_RELIABILITY_TEXT.passengersFoundSaved } };
+      }
+      if (check.kind === 'not_stored') return { ...lost, card: { state: 'fix', reason: BOOK_RELIABILITY_TEXT.passengersNotStored, retry: true, paused: true } };
+      return { ...lost, card: { state: 'fix', reason: BOOK_RELIABILITY_TEXT.passengersCheckUnclear, paused: true } };
+    },
+    [actions.readTravellers, router],
+  );
+
+  /** One passengers save (the caller holds the page queue). The passengers save has no request id. */
+  const sendOnce = useCallback(async (): Promise<SendOutcome> => {
+    const form = formRef.current;
+    if (!form) return NOT_ON_SCREEN;
+    const fd = new FormData(form);
+    const r = await fRef.current.post(fd);
+    if (r.ok || r.code !== 'unexpected' || ('offline' in r && r.offline)) return r;
+    const posted = fRef.current.getSubmitted();
+    if (!posted) return r;
+    return checkAfterLostAnswer(r, posted, Number(fd.get('rowVersion')));
+  }, [checkAfterLostAnswer]);
+
+  /**
+   * B1-4 (e): "Try again" on passengers always reads first, and sends only
+   * when the post is not stored and the card's base is the stored version.
+   */
+  const retryPassengers = useCallback(async (): Promise<SendOutcome> => {
+    const cur = fRef.current;
+    const read = await readSaved(actions.readTravellers, viewRef.current.dealId);
+    if (read === 'session') return cardOutcome(cardStateOf({ ok: false, code: 'session', message: ERROR_TEXT.session }));
+    const rows = postedTravellers(cur.values.travellers);
+    const check = checkLostTravellersSave({ posted: rows, removed: cur.values.removed, postedRowVersion: cur.base, read });
+    const step = travellersRetryStep(check, cur.base, read);
+    if (step === 'send') return sendOnce();
+    if (step === 'adopt' && check.kind === 'stored' && read) {
+      const answer: TravellerAnswerRow[] = check.seqs.map((seq, index) => ({ index, seq, fullName: rows[index]!.fullName, type: rows[index]!.type }));
+      const found: UiResult = { ok: true, data: { rowVersion: read.rowVersion }, message: BOOK_RELIABILITY_TEXT.passengersFoundSaved };
+      cur.markSaved(cur.values, check.ownStep ? { from: cur.base, to: read.rowVersion } : null, (v) => ({ ...v, travellers: adoptSavedNumbers(v.travellers, rows, answer) }), found);
+      router.refresh();
+      return { ...found, card: { state: 'saved', reason: null, note: BOOK_RELIABILITY_TEXT.passengersFoundSaved } };
+    }
+    if (step === 'conflict') return cardOutcome({ state: 'fix', reason: ERROR_TEXT.version_changed, conflict: true });
+    return cardOutcome({ state: 'fix', reason: BOOK_RELIABILITY_TEXT.passengersCheckUnclear, paused: true });
+  }, [actions.readTravellers, router, sendOnce]);
+
+  // B1-9 (W12): ask before a save that renames a passenger with ID proofs (the rename removes them).
+  const [renameAsk, setRenameAsk] = useState<{ renames: Array<{ seq: number; from: string; to: string }>; resolve: (go: boolean) => void } | null>(null);
+  const confirmedRenames = useRef(new Map<number, string>());
+  const confirmRename = useCallback((): Promise<boolean> => {
+    const renames = renamesThatDetachProofs(fRef.current.values.travellers, storedWithProofs(viewRef.current.travellers)).filter((r) => confirmedRenames.current.get(r.seq) !== travellerNameKey(r.to));
+    if (renames.length === 0) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => setRenameAsk({ renames, resolve }));
+  }, []);
+  const answerRename = (go: boolean) => {
+    const ask = renameAsk;
+    if (!ask) return;
+    setRenameAsk(null);
+    if (go) for (const r of ask.renames) confirmedRenames.current.set(r.seq, travellerNameKey(r.to));
+    // "Keep the old name": the stored name comes back and nothing is sent for it.
+    else f.setValues((v) => ({ ...v, travellers: v.travellers.map((row) => ask.renames.find((x) => x.seq === row.seq) ? { ...row, name: ask.renames.find((x) => x.seq === row.seq)!.from } : row) }));
+    ask.resolve(go);
+  };
+
   const over = overCount(rows, counts);
   const save = useAutosave({
     key: 'passengers',
@@ -167,9 +292,12 @@ export function PassengersCard({
     enabled: editable,
     hasStored: view.travellers.length > 0,
     check: () => overCount(f.values.travellers, countsRef.current).map((o) => `${plural(o.named, o.type)} named, but the booking has ${o.booked}. Remove ${o.named - o.booked === 1 ? 'one' : o.named - o.booked}, or change the counts above.`),
-    send: sendNow,
+    send: sendOnce,
     refs,
+    confirm: confirmRename,
+    retry: retryPassengers,
   });
+  const latest = useCardLatest(f, save);
 
   // A save started by the drawer or by "Attach ID proof" runs after the edited row is on screen.
   const pendingSave = useRef<null | ((ok: boolean) => void)>(null);
@@ -178,7 +306,17 @@ export function PassengersCard({
     if (saveTick === 0 || !pendingSave.current) return;
     const done = pendingSave.current;
     pendingSave.current = null;
-    void queue.run(sendNow).then((r) => done(r.ok));
+    void confirmRename().then((go) => {
+      if (!go) {
+        done(false);
+        return;
+      }
+      void queue.run(sendOnce).then((r) => {
+        // The card's line says what this save did (a lost answer, offline, signed out).
+        save.settle(cardStateOf(r, refs));
+        done(r.ok);
+      });
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per requested save, after the row is committed
   }, [saveTick]);
   const saveNow = () =>
@@ -239,6 +377,7 @@ export function PassengersCard({
   const proofTraveller: BookTravellerView | null = proofFor !== null ? (saved.get(proofFor) ?? null) : null;
   const noCounts = counts.adults === null;
   const reason = save.state === 'fix' ? save.reason : null;
+  const copiesNotLoaded = proofsVisible && copyApplies && (view.partsNotLoaded ?? []).includes('idProofCopies');
   // Named rows save at once; the pill is honest ("Saved") and a warning names the travellers still unnamed.
   const unnamedCount = shown.filter((d) => !d.row?.name.trim()).length;
   // A type over its count: the rows past the count keep a Remove button (lead ruling).
@@ -405,12 +544,14 @@ export function PassengersCard({
             </span>
           </p>
         ) : null}
+        {copiesNotLoaded ? <PartNotLoadedNotice part="idProofCopies" className="mx-5 mb-3 max-sm:mx-4" /> : null}
         {reason ? (
-          <p id="why-passengers" className="m-0 flex items-start gap-1.5 px-5 pb-3 text-sm font-medium text-status-danger max-sm:px-4">
+          <p id="why-passengers" role={reasonRole(save)} className="m-0 flex items-start gap-1.5 px-5 pb-3 text-sm font-medium text-status-danger max-sm:px-4">
             <CircleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
             <span>{reason}</span>
           </p>
         ) : null}
+        {editable ? <SaveRecovery save={save} describedBy="why-passengers" latest={latest.latest} onLoadLatest={latest.onLoadLatest} className="px-5 pb-3 max-sm:px-4" /> : null}
       </form>
       {openRow ? (
         <PassengerDrawer
@@ -447,6 +588,25 @@ export function PassengersCard({
           }}
         />
       ) : null}
+      <ConfirmDialog
+        open={renameAsk !== null}
+        onOpenChange={(o) => {
+          if (!o) answerRename(false);
+        }}
+        title={BOOK_RELIABILITY_TEXT.renameRemovesIdProofs}
+        description={
+          <span className="flex flex-col gap-0.5">
+            {(renameAsk?.renames ?? []).map((r) => (
+              <span key={r.seq}>
+                {r.from} → {r.to}
+              </span>
+            ))}
+          </span>
+        }
+        confirmLabel={BOOK_RELIABILITY_TEXT.renameConfirm}
+        cancelLabel={BOOK_RELIABILITY_TEXT.renameKeep}
+        onConfirm={() => answerRename(true)}
+      />
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(o) => {

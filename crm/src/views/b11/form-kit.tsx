@@ -249,6 +249,8 @@ export function useUnsavedGuard(dirty: boolean) {
     const onClick = (e: MouseEvent) => {
       const link = (e.target as Element | null)?.closest?.('a[href]');
       if (!link || link.getAttribute('href')?.startsWith('#')) return;
+      // A link that opens a new tab (for example "Sign in (opens in a new tab)") does not leave this page.
+      if (link.getAttribute('target') === '_blank') return;
       if (!window.confirm('You have unsaved changes. Leave this page without saving them?')) {
         e.preventDefault();
         e.stopPropagation();

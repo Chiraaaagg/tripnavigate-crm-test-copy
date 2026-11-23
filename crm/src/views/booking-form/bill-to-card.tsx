@@ -27,7 +27,7 @@ import { GST_STATES, dateText } from '../b11/book-fields';
 import { SelectField, TextField } from '../b11/controls';
 import { useSectionForm, type SyncSection } from '../b11/draft-sync';
 import { type FieldRef, type UiResult } from '../b11/form-kit';
-import { useAutosave } from './autosave-queue';
+import { reasonRole, SaveRecovery, useAutosave } from './autosave-queue';
 import type { B11Action, BookNowView } from '../b11/shapes';
 import { AddCustomerDialog, PartyPicker, PartyStatus } from './bill-to-parties';
 import type { PartyActions, PartyCheckStatus, PartyOption } from './vn-types';
@@ -381,10 +381,11 @@ export function BillToCard({
           </div>
           <InlineNote>Accounts checks billing details before use.</InlineNote>
           {save.state === 'fix' && save.reason ? (
-            <p id="why-billTo" className="m-0 flex items-start gap-1.5 text-sm font-medium text-status-danger">
+            <p id="why-billTo" role={reasonRole(save)} className="m-0 flex items-start gap-1.5 text-sm font-medium text-status-danger">
               <span>{save.reason}</span>
             </p>
           ) : null}
+          {editable && !verified ? <SaveRecovery save={save} describedBy="why-billTo" /> : null}
         </form>
       </SectionBody>
     </SectionCard>

@@ -1,18 +1,21 @@
 'use client';
 
 import { CircleAlert } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
+import { cn, focusRing } from '@/components/ui/cn';
 import { Drawer, DrawerBody, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { SuggestMultiSelect, type SuggestItem } from '@/components/ui/suggest-multiselect';
 import { TravellerChips, type ChipPerson } from '@/components/ui/traveller-chips';
 import { VISA_DOCUMENT_CATALOGUE } from '@/modules/visa/contracts';
 import type { BookingFormServiceItemView } from '@/modules/fulfilment/booking-form-contract';
 import { isIsoDate } from '@/modules/fulfilment/booking-form-model';
-import type { BookTravellerView, ServiceType } from '@/modules/fulfilment/contracts';
+import { BOOK_RELIABILITY_TEXT, ERROR_TEXT, type BookTravellerView, type ServiceType } from '@/modules/fulfilment/contracts';
+import { ROUTES } from '@/modules/identity/session-policy';
 import { AreaField, SelectField, TextField } from '../b11/controls';
-import { useSectionForm } from '../b11/draft-sync';
+import { useSectionForm, type LatestOutcome } from '../b11/draft-sync';
 import { newRequestId, type UiResult } from '../b11/form-kit';
+import { requestIdFor } from '../b11/result';
 import type { B11Action, BookNowView } from '../b11/shapes';
 import { refusalReason, useSaveQueue } from './autosave-queue';
 import { changeModeEditable, useChangeMode } from './change-mode-context';
@@ -20,7 +23,7 @@ import { useFormToast } from './form-toast';
 import { CarEditor } from './car-editor';
 import { FlightEditor, type FlightEditorStart } from './flight-editor';
 import { HotelEditor } from './hotel-editor';
-import { str } from './service-model';
+import { sameServiceItem, str } from './service-model';
 import { SERVICE_KIND_LABEL } from './service-labels';
 import type { HotelOption, SearchAction } from './vn-types';
 
@@ -41,6 +44,18 @@ export function escapeClosesListFirst(e: KeyboardEvent) {
   const el = document.activeElement;
   if (el instanceof HTMLElement && el.getAttribute('role') === 'combobox' && el.getAttribute('aria-expanded') === 'true') e.preventDefault();
 }
+
+/**
+ * Booking reliability (B1-5, B1-8) for one drawer: the last answer of its save
+ * and "Load the latest and keep my entries". EditorShell shows the controls
+ * under the problem line, so the editors themselves are unchanged.
+ */
+interface DrawerRecovery {
+  code: string | null;
+  latest: LatestOutcome;
+  onLoadLatest: () => void;
+}
+const DrawerRecoveryCtx = createContext<DrawerRecovery | null>(null);
 
 /** What every editor gets from step 2. */
 export interface EditorEnv {
@@ -104,9 +119,13 @@ export function EditorShell({
     });
     return () => cancelAnimationFrame(t);
   }, []);
+  const recovery = useContext(DrawerRecoveryCtx);
+  // B1-5: after a re-base the refusal is cleared and the drawer says to press Save.
+  const rebased = recovery?.latest === 'rebased';
+  const shownProblem = rebased && problem === ERROR_TEXT.version_changed ? null : problem;
   useEffect(() => {
-    if (problem) bodyRef.current?.querySelector('#svc-problem')?.scrollIntoView({ block: 'nearest' });
-  }, [problem]);
+    if (shownProblem) bodyRef.current?.querySelector('#svc-problem')?.scrollIntoView({ block: 'nearest' });
+  }, [shownProblem]);
   // Change 4: a synchronous in-flight flag, so a double press never sends twice (state updates arrive a render later).
   const inflight = useRef(false);
   const submit = (e: FormEvent) => {
@@ -142,11 +161,26 @@ export function EditorShell({
           <DrawerBody className="flex flex-col gap-4">
             <div ref={bodyRef} className="flex flex-col gap-4">
               {children}
-              {problem ? (
+              {shownProblem ? (
                 <div id="svc-problem" role="alert" className="flex scroll-mb-24 gap-2.5 rounded-control border border-status-danger-line bg-status-danger-tint px-3.5 py-3 text-sm text-status-danger-strong">
                   <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-                  <span>{problem}</span>
+                  <span>{shownProblem}</span>
                 </div>
+              ) : null}
+              {editable && recovery && shownProblem && recovery.code === 'session' ? (
+                <a href={ROUTES.signIn} target="_blank" rel="noopener noreferrer" className={cn('self-start rounded-chip text-sm font-semibold text-brand-strong underline underline-offset-4', focusRing)}>
+                  {BOOK_RELIABILITY_TEXT.signInNewTab}
+                </a>
+              ) : null}
+              {editable && recovery && shownProblem === ERROR_TEXT.version_changed && recovery.latest !== 'changed' ? (
+                <Button size="sm" className="self-start" loading={recovery.latest === 'waiting'} aria-describedby="svc-problem" onClick={recovery.onLoadLatest}>
+                  {BOOK_RELIABILITY_TEXT.loadLatestKeepEntries}
+                </Button>
+              ) : null}
+              {recovery?.latest === 'rebased' || recovery?.latest === 'changed' ? (
+                <p role="status" className="m-0 text-sm text-copy">
+                  {recovery.latest === 'rebased' ? BOOK_RELIABILITY_TEXT.latestLoadedKeepEntries : BOOK_RELIABILITY_TEXT.sameItemChanged}
+                </p>
               ) : null}
             </div>
           </DrawerBody>
@@ -414,7 +448,7 @@ export function ServiceEditorDrawer(p: ServiceEditorProps) {
         .map(([k, v]) => `${k}=${typeof v === 'string' ? v : `${v.name}:${v.size}`}`)
         .join('&');
       const last = lastSend.current;
-      const id = last && last.unknown && last.key === key ? last.id : newRequestId();
+      const id = requestIdFor(last, key, newRequestId);
       fd.set('requestId', id);
       lastSend.current = { key, id, unknown: true };
       const r = await (p.action as (prev: never, fd: FormData) => Promise<{ ok: boolean; code?: string }>)(prev, fd);
@@ -439,6 +473,25 @@ export function ServiceEditorDrawer(p: ServiceEditorProps) {
     tracksDirty: false,
   });
   const { setValues, post } = f;
+  // B1-5: what the drawer was opened on (taken again after one of its own saves lands).
+  const [openedOn, setOpenedOn] = useState(p.item);
+  const retake = useRef(false);
+  useEffect(() => {
+    if (!retake.current) return;
+    retake.current = false;
+    setOpenedOn(p.item);
+  }, [p.item]);
+  const compare = useRef({ openedOn, latest: p.item });
+  useEffect(() => {
+    compare.current = { openedOn, latest: p.item };
+  });
+  const loadLatest = f.loadLatest;
+  const recovery: DrawerRecovery = {
+    code: f.state && !f.state.ok ? f.state.code : null,
+    latest: f.latest,
+    // A new item has nothing to overwrite: it re-bases (the database decides on Save).
+    onLoadLatest: () => loadLatest(() => sameServiceItem(compare.current.openedOn, compare.current.latest)),
+  };
   const env: EditorEnv = {
     view: p.view,
     item: p.item,
@@ -468,11 +521,13 @@ export function ServiceEditorDrawer(p: ServiceEditorProps) {
         if (p.item) fd.set('itemId', p.item.itemId);
         build(fd);
         setValues(values);
-        return post(fd);
+        return post(fd).then((r) => {
+          if (r.ok) retake.current = true;
+          return r;
+        });
       }),
   };
-  if (p.type === 'hotel') return <HotelEditor env={env} />;
-  if (p.type === 'transfer') return <CarEditor env={env} />;
-  if (p.type === 'flight') return <FlightEditor env={env} start={p.flightStart ?? null} />;
-  return <OtherEditor env={env} type={p.type} />;
+  const editor =
+    p.type === 'hotel' ? <HotelEditor env={env} /> : p.type === 'transfer' ? <CarEditor env={env} /> : p.type === 'flight' ? <FlightEditor env={env} start={p.flightStart ?? null} /> : <OtherEditor env={env} type={p.type} />;
+  return <DrawerRecoveryCtx.Provider value={recovery}>{editor}</DrawerRecoveryCtx.Provider>;
 }

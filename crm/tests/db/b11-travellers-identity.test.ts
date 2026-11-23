@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type TestDb, asOwner, createTestDb, expectDbError, resetActor, setActor } from '../helpers/db';
 import { ACCOUNTS, DEAL, FLIGHT, HOTEL, MANAGER, OWNER, PURCHASE, SALES_B, SUPER, TRAVELLERS, TRAVELLERS_SQL } from './b1-support';
 import { IDENTITY, IDENTITY_SQL, VISA, b11Helpers } from './b11-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * B1.1a travellers (migration 20261119000100): age and special needs, stable
@@ -70,7 +71,7 @@ describe('traveller_identity_save', () => {
       expect(first).toEqual({ seq: 1, rowVersion: 1 });
       expect(await owner('select date_of_birth::text as dob, nationality, passport_number from public.traveller_identities'))
         .toEqual([{ dob: '1990-05-17', nationality: 'Indian', passport_number: 'Z1234567' }]);
-      await refused(OWNER, IDENTITY_SQL, [DEAL, 1, 0, JSON.stringify(IDENTITY)], '40001', 'version_changed');
+      await refused(OWNER, IDENTITY_SQL, [DEAL, 1, 0, JSON.stringify(IDENTITY)], CONFLICT_STATE, 'version_changed');
       const second = await saveIdentity(MANAGER, DEAL, 1, 1, { ...IDENTITY, passportExpiry: null });
       expect(second.rowVersion).toBe(2);
       const cleared = await saveIdentity(OWNER, DEAL, 1, 2, { dateOfBirth: null, nationality: null, passportNumber: null, passportExpiry: null });

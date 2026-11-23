@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACTIVITY, ADD_SQL, FLIGHT_FACTS, HOTEL, OWNER, PURCHASE, TRANSFER } from './b1-support';
 import { PARTICIPATION_SQL, PASSPORT, VISA, b11Helpers, rid } from './b11-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * B1.1a facts and participation (migration 20261119000100): additive fact
@@ -89,7 +90,7 @@ describe('service_item_travellers_save', () => {
         await refusedWithHint(OWNER, PARTICIPATION_SQL, [hotel.itemId, d.versionId, saved.rowVersion, seqs], /^travellers$/);
       }
       await refusedWithHint(OWNER, PARTICIPATION_SQL, [passport.itemId, d.versionId, saved.rowVersion, [1, 2]], /^travellers$/);
-      await refused(OWNER, PARTICIPATION_SQL, [hotel.itemId, d.versionId, saved.rowVersion - 1, [1]], '40001', 'version_changed');
+      await refused(OWNER, PARTICIPATION_SQL, [hotel.itemId, d.versionId, saved.rowVersion - 1, [1]], CONFLICT_STATE, 'version_changed');
       await refused(PURCHASE, PARTICIPATION_SQL, [hotel.itemId, d.versionId, saved.rowVersion, [1]], '42501', 'not_authorized');
       await refused(OWNER, PARTICIPATION_SQL, [rid(), d.versionId, saved.rowVersion, [1]], 'P0002', 'not_found');
       // Empty is allowed here (readiness blocks it).

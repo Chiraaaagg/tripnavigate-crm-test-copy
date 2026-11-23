@@ -14,6 +14,7 @@ import {
 } from '@/modules/visa/forms';
 import { visaStepViews } from '@/modules/visa/status';
 import { travellerSeqHighWater } from '@/views/b11/book-fields';
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 /**
  * Visa build (contract 8 Nov 2026) test plan 12.3, written from the contract:
@@ -24,12 +25,12 @@ import { travellerSeqHighWater } from '@/views/b11/book-fields';
  */
 
 describe('6.1 refusal tokens and frozen messages', () => {
-  const FROZEN: Array<[string, string, string]> = [
+  const FROZEN: Array<[string, string | readonly string[], string]> = [
     ['not_authorized', '42501', 'You cannot do this on this visa task.'],
     ['not_found', 'P0002', 'This item is no longer available. Reload the page.'],
-    ['version_changed', '40001', 'Someone changed this passenger meanwhile. Reload and try again.'],
-    ['duplicate_request', '40001', 'This was already sent with different details. Reload the page.'],
-    ['task_conflict', '40001', 'Someone at the desk took this task first.'],
+    ['version_changed', CONFLICT_STATES, 'Someone changed this passenger meanwhile. Reload and try again.'],
+    ['duplicate_request', CONFLICT_STATES, 'This was already sent with different details. Reload the page.'],
+    ['task_conflict', CONFLICT_STATES, 'Someone at the desk took this task first.'],
     ['invalid_input', '22023', 'Check the highlighted field.'],
     ['task_closed', '55000', 'This task is complete. Nothing can be changed here now.'],
     ['application_closed', '55000', 'This passenger is closed. Nothing can be changed here now.'],
@@ -47,7 +48,7 @@ describe('6.1 refusal tokens and frozen messages', () => {
     ['cost_locked', '55000', 'This fee is with Accounts and cannot be changed now.'],
   ];
   it.each(FROZEN)('%s (%s): frozen wording', (token, code, message) => {
-    expect(VISA_ERROR_STATES[token as keyof typeof VISA_ERROR_STATES]).toBe(code);
+    expect(VISA_ERROR_STATES[token as keyof typeof VISA_ERROR_STATES]).toEqual(code);
     expect(VISA_ERROR_TEXT[token as keyof typeof VISA_ERROR_TEXT]).toBe(message);
   });
   it('traveller_changed names the "OK, checked" button (typographic apostrophe allowed)', () => {

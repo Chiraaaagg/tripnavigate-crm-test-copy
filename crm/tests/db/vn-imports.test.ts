@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACCOUNTS, ANON, MANAGER, OWNER, PURCHASE, SUPER } from './b1-support';
 import { GSTIN_08, REASON, SQL, rid, vnHelpers } from './vn-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Voice-note batch, migration 20261128000140: protected imports of hotels and
@@ -72,7 +73,7 @@ describe('hotel import (Super Admin)', () => {
       expect(await owner('select count(*)::int as n from public.hotel_catalogue')).toEqual([{ n: 0 }]);
 
       await refused(SUPER, SQL.importApply, [s.batchId, v.rowVersion, 'short'], '22023');
-      await refused(SUPER, SQL.importApply, [s.batchId, v.rowVersion - 1, REASON], '40001', 'version_changed');
+      await refused(SUPER, SQL.importApply, [s.batchId, v.rowVersion - 1, REASON], CONFLICT_STATE, 'version_changed');
       const a = await apply(SUPER, s.batchId, v.rowVersion);
       expect(a).toEqual({ batchId: s.batchId, status: 'applied', created: 3, updated: 0, unchanged: 0, skippedChecked: 0, invalid: 4 });
       expect(await apply(SUPER, s.batchId, v.rowVersion)).toMatchObject({ created: 3, outcome: 'existing' });
@@ -117,7 +118,7 @@ describe('hotel import (Super Admin)', () => {
       const v = await validate(SUPER, s.batchId);
       // A record with that source reference appears after the dry run.
       await one(SUPER, SQL.hotelSave, [await h.entity(), null, 0, JSON.stringify({ name: 'Synthetic Other', city: 'Jaipur', sourceRef: 'S-1' }), REASON]);
-      await refused(SUPER, SQL.importApply, [s.batchId, v.rowVersion, REASON], '40001', 'import_stale');
+      await refused(SUPER, SQL.importApply, [s.batchId, v.rowVersion, REASON], CONFLICT_STATE, 'import_stale');
       const c = await one<Batch>(SUPER, SQL.importCancel, [s.batchId, v.rowVersion]);
       expect(c).toMatchObject({ status: 'cancelled' });
       await refused(SUPER, SQL.importValidate, [s.batchId], '55000', 'wrong_state');

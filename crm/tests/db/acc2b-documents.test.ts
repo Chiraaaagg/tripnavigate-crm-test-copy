@@ -6,6 +6,7 @@ import { CustomerDocumentContentSchema } from '@/modules/customer-documents/cont
 import {
   ACC, ACC2, DEAL, FLIGHT, FLIGHT_ITEM, HOTEL_ITEM, VISA_ITEM, MANAGER, OWNER, PURCHASE, REASON, SALES_B, SELLING, SUPER, accHelpers, rid, today,
 } from './acc-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase 2, Track B builder tests (contract section 6): customer
@@ -147,8 +148,8 @@ describe('6.3 / 6.4 Advance Invoice', () => {
       await base();
       const rec = await h.receipt(DEAL, '2500000');
       const d = await draft('advance_invoice', { receiptId: rec.id });
-      await refused(ACC, SQL.release, [d.documentId, d.rowVersion, '0'.repeat(64), rid()], 'version_changed', '40001');
-      await refused(ACC, SQL.release, [d.documentId, d.rowVersion + 1, d.contentSha256, rid()], 'version_changed', '40001');
+      await refused(ACC, SQL.release, [d.documentId, d.rowVersion, '0'.repeat(64), rid()], 'version_changed', CONFLICT_STATE);
+      await refused(ACC, SQL.release, [d.documentId, d.rowVersion + 1, d.contentSha256, rid()], 'version_changed', CONFLICT_STATE);
       await owner(`update public.customer_billing_profiles set status = 'draft', verified_by = null, verified_at = null,
                    row_version = row_version + 1 where deal_id = $1`, [DEAL]).catch(() => undefined);
       const [billing] = await owner<{ status: string }>('select status from public.customer_billing_profiles where deal_id = $1', [DEAL]);
@@ -189,7 +190,7 @@ describe('6.3 Invoice, stale drafts, replace, Tally link', () => {
       // Money changes -> the draft is stale; release refused; refresh clears it.
       await h.receipt(DEAL, '100000');
       expect((await one<DealDocs>(ACC, SQL.dealDocs, [DEAL])).documents[0]!.stale).toBe(true);
-      await refused(ACC, SQL.release, [d.documentId, d.rowVersion, d.contentSha256, rid()], 'document_stale', '40001');
+      await refused(ACC, SQL.release, [d.documentId, d.rowVersion, d.contentSha256, rid()], 'document_stale', CONFLICT_STATE);
       const fresh = await one<Done>(ACC, SQL.refresh, [d.documentId, d.rowVersion, rid()]);
       expect((await content(d.documentId)).paidPaise).toBe('100000');
       const r = await release(fresh);
@@ -380,7 +381,7 @@ describe('6.7 worker commands, B8 retry, B10 download', () => {
       }
       const job = await one<{ jobId: string; objectPath: string; contentSha256: string }>(WORKER, SQL.claim, ['local-1', 60]);
       expect(job.contentSha256).toBe(r.contentSha256);
-      await refused(WORKER, SQL.input, [job.jobId, 'other-worker'], 'task_conflict', '40001');
+      await refused(WORKER, SQL.input, [job.jobId, 'other-worker'], 'task_conflict', CONFLICT_STATE);
       const input = await one<{ status: string; content: Content }>(WORKER, SQL.input, [job.jobId, 'local-1']);
       expect(input.status).toBe('running');
       expect(input.content.number).toBe(r.number);

@@ -3,6 +3,7 @@ import { FIXTURE_USERS as U, type TestDb, asOwner, createTestDb } from '../helpe
 import { HOTEL_ITEM } from './acc-support';
 import { SQL } from './acc-support';
 import { ACC, DEAL, MANAGER, OWNER, PURCHASE, REASON, SQL2, SUPER, acc2Helpers, rid, today } from './acc2-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase 2, Track D's own database checks (migrations
@@ -70,7 +71,7 @@ describe('8.1 Tally mapping', () => {
       expect((await one<{ outcome: string }>(ACC, SQL2.mappingSet,
         [row.mappingId, row.rowVersion, JSON.stringify({ debitLedger: 'Synthetic Bank A/c' }), REASON, req])).outcome).toBe('existing');
       await h.refusedHint(ACC, SQL2.mappingSet, [row.mappingId, row.rowVersion, JSON.stringify({ debitLedger: 'Other' }), REASON, rid()],
-        'version_changed', undefined, '40001');
+        'version_changed', undefined, CONFLICT_STATE);
       await h.refusedHint(ACC, SQL2.mappingSet, [row.mappingId, row.rowVersion + 1, JSON.stringify({ debitLedger: '=SUM(A1)' }), REASON, rid()],
         'invalid_input', /debitLedger/, '22023');
       await h.refusedHint(ACC, SQL2.mappingSet, [row.mappingId, row.rowVersion + 1, JSON.stringify({ debitLedger: 'Bank' }), 'short', rid()],

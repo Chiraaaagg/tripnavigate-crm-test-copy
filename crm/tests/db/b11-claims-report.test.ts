@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FIXTURE_USERS as U, type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { CLAIMS_SUITE_LOCK, REPORT, WITHDRAW, claimHelpers, utr } from './b11-claims-support';
 import { ANON, DEAL, DEAL2, MANAGER, PURCHASE, SALES, SALES_B, SUPER, ACC, daysAgo, rid, today } from './finance-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * B1.1b advance claims, Sales side (appendix B section 2.1 and 2.2):
@@ -161,9 +162,9 @@ describe('payment_claim_report', () => {
       const again = await h.report(SALES, claim, DEAL, requestId);
       expect(again).toMatchObject({ outcome: 'existing', id: first.id });
       expect((await h.owner('select 1 from public.customer_payment_claims')).length).toBe(1);
-      await h.refused(SALES, REPORT, [DEAL, fields({ ...claim, amountPaise: '1000001' }), requestId], '40001', 'request_conflict');
+      await h.refused(SALES, REPORT, [DEAL, fields({ ...claim, amountPaise: '1000001' }), requestId], CONFLICT_STATE, 'request_conflict');
       await h.addSalesAssignment(DEAL, U.salesDelhiB);
-      await h.refused(SALES_B, REPORT, [DEAL, fields(claim), requestId], '40001', 'request_conflict');
+      await h.refused(SALES_B, REPORT, [DEAL, fields(claim), requestId], CONFLICT_STATE, 'request_conflict');
     });
   });
 
@@ -251,7 +252,7 @@ describe('payment_claim_withdraw', () => {
     await asOwner(db, async () => {
       await h.bookedDeal();
       const res = await h.report(SALES, h.cashClaim());
-      await h.refused(SALES, WITHDRAW, [res.id, 2, 'Synthetic withdrawal reason', rid()], '40001', 'version_changed');
+      await h.refused(SALES, WITHDRAW, [res.id, 2, 'Synthetic withdrawal reason', rid()], CONFLICT_STATE, 'version_changed');
       await h.refused(SALES, WITHDRAW, [res.id, 1, 'short', rid()], '22023', 'invalid_input');
       await h.refused(SALES_B, WITHDRAW, [res.id, 1, 'Synthetic withdrawal reason', rid()], '42501', 'not_authorized');
       await h.refused(ACC, WITHDRAW, [res.id, 1, 'Synthetic withdrawal reason', rid()], '42501', 'not_authorized');

@@ -10,6 +10,7 @@ import {
   resetActor,
   setActor,
 } from '../helpers/db';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Phase 4 Purchase hotel procurement: database contract
@@ -372,7 +373,7 @@ describe('P4-03 authority', () => {
       await refused(PURCHASE_2, COST_SQL, [taskId, quoteId, 1, '1000', null, null, crypto.randomUUID()], '42501', 'not_authorized');
       await refused(PURCHASE_2, BEGIN_SQL, [taskId, 'quote', 'q.pdf', 'application/pdf', 10, SHA], '42501', 'not_authorized');
       await refused(PURCHASE_2, CONFIRM_SQL, [taskId, 1, 'SYN'], '42501', 'not_authorized');
-      await refused(PURCHASE_2, 'select public.purchase_task_claim($1) as r', [taskId], '40001', 'task_conflict');
+      await refused(PURCHASE_2, 'select public.purchase_task_claim($1) as r', [taskId], CONFLICT_STATE, 'task_conflict');
     });
   });
 
@@ -425,7 +426,7 @@ describe('P4-04 / P4-05 idempotency and concurrency (sequential half)', () => {
       const { supplierId } = await createSupplier();
       const { quoteId } = await addQuote(PURCHASE, taskId, supplierId);
       await propose(PURCHASE, taskId, quoteId, 0, '4200000');
-      await refused(PURCHASE, COST_SQL, [taskId, quoteId, 0, '4100000', null, null, crypto.randomUUID()], '40001', 'version_changed');
+      await refused(PURCHASE, COST_SQL, [taskId, quoteId, 0, '4100000', null, null, crypto.randomUUID()], CONFLICT_STATE, 'version_changed');
       await propose(PURCHASE, taskId, quoteId, 1, '4100000');
       const ws = await workspace(PURCHASE, taskId);
       expect((ws!.costVersions as Array<{ versionNo: number; amountPaise: string; stage: string }>).map((c) => [c.versionNo, c.amountPaise, c.stage])).toEqual([
@@ -444,7 +445,7 @@ describe('P4-04 / P4-05 idempotency and concurrency (sequential half)', () => {
       expect(await one(PURCHASE, upd, [supplierId, 1, JSON.stringify({ ...SUPPLIER, city: 'Other Synthetic City' })]))
         // Accounts phase 2 (5.5 A2): + near-duplicate warnings.
         .toEqual({ supplierId, rowVersion: 2, warnings: [] });
-      await refused(PURCHASE, upd, [supplierId, 1, JSON.stringify(SUPPLIER)], '40001', 'version_changed');
+      await refused(PURCHASE, upd, [supplierId, 1, JSON.stringify(SUPPLIER)], CONFLICT_STATE, 'version_changed');
       await refused(PURCHASE, upd, [supplierId, 2, JSON.stringify({ ...SUPPLIER, unknownKey: 1 })], '22023', 'invalid_input');
       // No command sets verified (P4-D1 open).
       await refused(PURCHASE, upd, [supplierId, 2, JSON.stringify({ ...SUPPLIER, verificationStatus: 'verified' })], '22023', 'invalid_input');
@@ -478,10 +479,10 @@ describe('P4-06 / P4-07 supplier confirmation', () => {
   it('creates one committed cost, selects the quote, freezes the task; repeat is existing, a different reference conflicts', async () => {
     await asOwner(db, async () => {
       const { taskId, quoteId } = await readyTask();
-      await refused(PURCHASE, CONFIRM_SQL, [taskId, 0, 'SYN-1'], '40001', 'version_changed');
+      await refused(PURCHASE, CONFIRM_SQL, [taskId, 0, 'SYN-1'], CONFLICT_STATE, 'version_changed');
       expect(await confirmSupplier(PURCHASE, taskId, 1, 'SYN-1')).toEqual({ outcome: 'created', taskId });
       expect(await confirmSupplier(PURCHASE, taskId, 1, 'SYN-1')).toEqual({ outcome: 'existing', taskId });
-      await refused(PURCHASE, CONFIRM_SQL, [taskId, 1, 'SYN-2'], '40001', 'task_conflict');
+      await refused(PURCHASE, CONFIRM_SQL, [taskId, 1, 'SYN-2'], CONFLICT_STATE, 'task_conflict');
 
       const ws = await workspace(PURCHASE, taskId);
       expect((ws!.task as { status: string }).status).toBe('supplier_confirmed');
@@ -516,7 +517,7 @@ describe('P4-06 / P4-07 supplier confirmation', () => {
       expect(await confirmSupplier(PURCHASE, taskId, 2, 'SYN-IDENTITY')).toEqual({ outcome: 'created', taskId });
       // Proposal 1 names a different offer. Version 3 is the new committed cost.
       for (const version of [0, 1, 3, 99, null]) {
-        await refused(PURCHASE, CONFIRM_SQL, [taskId, version, 'SYN-IDENTITY'], '40001', 'task_conflict');
+        await refused(PURCHASE, CONFIRM_SQL, [taskId, version, 'SYN-IDENTITY'], CONFLICT_STATE, 'task_conflict');
       }
       // Exact retry still answers existing after the live switch is off.
       await db.exec(`update public.procurement_settings set live_supplier_confirmation_enabled = false`);
@@ -713,7 +714,7 @@ describe('A1 P4-D1 supplier verification', () => {
     await asOwner(db, async () => {
       const { supplierId } = await createSupplier();
       for (const actor of [PURCHASE, OWNER, ADMIN, OTHER_ENTITY]) await refused(actor, VERIFY_SQL, [supplierId, 1], '42501', 'not_authorized');
-      await refused(MANAGER_OTHER_BRANCH, VERIFY_SQL, [supplierId, 0], '40001', 'version_changed');
+      await refused(MANAGER_OTHER_BRANCH, VERIFY_SQL, [supplierId, 0], CONFLICT_STATE, 'version_changed');
       expect(await one(MANAGER_OTHER_BRANCH, VERIFY_SQL, [supplierId, 1])).toEqual({ supplierId, rowVersion: 2, outcome: 'created' });
       expect(await one(MANAGER, VERIFY_SQL, [supplierId, 1])).toEqual({ supplierId, rowVersion: 2, outcome: 'existing' });
       const seen = await supplierView(PURCHASE, supplierId);
@@ -785,7 +786,7 @@ describe('A1 P4-D4 bank detail approval', () => {
       await refused(MANAGER, APPROVE_BEN_SQL, [supplierId, 2], '42501', 'not_authorized');
       // A newer revision supersedes an unapproved older one.
       await recordBank(PURCHASE, supplierId, '555544443333');
-      await refused(MANAGER_OTHER_BRANCH, APPROVE_BEN_SQL, [supplierId, 2], '40001', 'version_changed');
+      await refused(MANAGER_OTHER_BRANCH, APPROVE_BEN_SQL, [supplierId, 2], CONFLICT_STATE, 'version_changed');
       expect(await one(MANAGER_OTHER_BRANCH, APPROVE_BEN_SQL, [supplierId, 3])).toMatchObject({ outcome: 'created' });
 
       // Bank values stay immutable and an approval cannot be undone directly.
@@ -813,7 +814,7 @@ describe('A1 P4-D2 over-budget approval', () => {
       for (const actor of [PURCHASE, OWNER, MANAGER_OTHER_BRANCH, ADMIN]) {
         await refused(actor, APPROVE_COST_SQL, [taskId, 2], '42501', 'not_authorized');
       }
-      await refused(MANAGER, APPROVE_COST_SQL, [taskId, 1], '40001', 'version_changed');
+      await refused(MANAGER, APPROVE_COST_SQL, [taskId, 1], CONFLICT_STATE, 'version_changed');
       expect(await one(MANAGER, APPROVE_COST_SQL, [taskId, 2])).toEqual({ taskId, versionNo: 2, outcome: 'created' });
       expect(await one(MANAGER, APPROVE_COST_SQL, [taskId, 2])).toEqual({ taskId, versionNo: 2, outcome: 'existing' });
       // Owner decision 1: the approved final rate still needs its booking request and the Accounts go-ahead.
@@ -875,7 +876,7 @@ describe('A1 P4-D5 release and reassignment', () => {
       expect(await activeAssignments(taskId)).toEqual([U.purchaseJodhpur]);
       expect((await workspace(PURCHASE, taskId))!.canRelease).toBe(true);
       for (const actor of [OWNER, MANAGER, ADMIN]) await refused(actor, RELEASE_SQL, [taskId], '42501', 'not_authorized');
-      await refused(PURCHASE_2, RELEASE_SQL, [taskId], '40001', 'task_conflict');
+      await refused(PURCHASE_2, RELEASE_SQL, [taskId], CONFLICT_STATE, 'task_conflict');
       expect(await one(PURCHASE, RELEASE_SQL, [taskId])).toEqual({ taskId, status: 'not_started', outcome: 'created' });
       expect(await one(PURCHASE, RELEASE_SQL, [taskId])).toEqual({ taskId, status: 'not_started', outcome: 'existing' });
       const ws = await workspace(PURCHASE, taskId);
@@ -891,7 +892,7 @@ describe('A1 P4-D5 release and reassignment', () => {
       await one(PURCHASE_2, 'select public.purchase_task_claim($1) as r', [taskId]);
       expect(await activeAssignments(taskId)).toEqual([U.visaJodhpur]);
       expect((await workspace(PURCHASE_2, taskId))!.issues).toEqual([]);
-      await refused(PURCHASE, RELEASE_SQL, [taskId], '40001', 'task_conflict');
+      await refused(PURCHASE, RELEASE_SQL, [taskId], CONFLICT_STATE, 'task_conflict');
       await confirmSupplier(PURCHASE_2, taskId, 1);
       await refused(PURCHASE_2, RELEASE_SQL, [taskId], '55000', 'already_confirmed');
       const audit = await db.query<{ n: string }>(`select count(*)::text as n from public.audit_events where action = 'fulfilment.task_released' and target_id = $1`, [taskId]);
@@ -909,7 +910,7 @@ describe('A1 P4-D5 release and reassignment', () => {
         await refused(actor, REASSIGN_SQL, [taskId, U.purchaseJodhpur, U.visaJodhpur], '42501', 'not_authorized');
       }
       // The manager saw a different assignee (someone released or reassigned meanwhile).
-      await refused(MANAGER, REASSIGN_SQL, [taskId, U.salesDelhiB, U.visaJodhpur], '40001', 'task_conflict');
+      await refused(MANAGER, REASSIGN_SQL, [taskId, U.salesDelhiB, U.visaJodhpur], CONFLICT_STATE, 'task_conflict');
       for (const target of [U.salesDelhiA, U.formerStaff, U.salesEntityB, U.accountsJodhpur]) {
         await refused(MANAGER, REASSIGN_SQL, [taskId, U.purchaseJodhpur, target], '22023', 'invalid_input');
       }
@@ -931,7 +932,7 @@ describe('A1 P4-D5 release and reassignment', () => {
     await asOwner(db, async () => {
       await addSecondPurchase();
       const unclaimed = await confirmedTask();
-      await refused(MANAGER, REASSIGN_SQL, [unclaimed, U.purchaseJodhpur, U.visaJodhpur], '40001', 'task_conflict');
+      await refused(MANAGER, REASSIGN_SQL, [unclaimed, U.purchaseJodhpur, U.visaJodhpur], CONFLICT_STATE, 'task_conflict');
       expect(await one(PURCHASE, RELEASE_SQL, [unclaimed])).toMatchObject({ outcome: 'existing' });
       await one(PURCHASE, 'select public.purchase_task_claim($1) as r', [unclaimed]);
       const fails = (sql: string) => expectDbError(db, () => db.query(sql, [unclaimed]), { code: '42501' });
@@ -976,8 +977,8 @@ describe('Phase 6 F1 / F2: confirmation retries while the gate is closed; one re
         const before = await footprint(done.taskId);
         expect(await confirmSupplier(PURCHASE, done.taskId, 1, 'SYN-F1')).toEqual({ outcome: 'existing', taskId: done.taskId });
         expect(await confirmSupplier(PURCHASE, done.taskId, 1, '  SYN-F1 ')).toEqual({ outcome: 'existing', taskId: done.taskId });
-        await refused(PURCHASE, CONFIRM_SQL, [done.taskId, 1, 'SYN-OTHER'], '40001', 'task_conflict');
-        await refused(PURCHASE, CONFIRM_SQL, [done.taskId, 2, 'SYN-F1'], '40001', 'task_conflict');
+        await refused(PURCHASE, CONFIRM_SQL, [done.taskId, 1, 'SYN-OTHER'], CONFLICT_STATE, 'task_conflict');
+        await refused(PURCHASE, CONFIRM_SQL, [done.taskId, 2, 'SYN-F1'], CONFLICT_STATE, 'task_conflict');
         // Authorization stays before the retry answer: nobody else learns "existing".
         for (const actor of [PURCHASE_2, OWNER, MANAGER, ADMIN]) {
           await refused(actor, CONFIRM_SQL, [done.taskId, 1, 'SYN-F1'], '42501', 'not_authorized');
@@ -1010,7 +1011,7 @@ describe('Phase 6 F1 / F2: confirmation retries while the gate is closed; one re
       for (let i = 0; i < 3; i += 1) {
         expect((await confirmSupplier(PURCHASE, taskId, 1, 'SYN-F2')).outcome).toBe('existing');
       }
-      await refused(PURCHASE, CONFIRM_SQL, [taskId, 1, 'SYN-F2-OTHER'], '40001', 'task_conflict');
+      await refused(PURCHASE, CONFIRM_SQL, [taskId, 1, 'SYN-F2-OTHER'], CONFLICT_STATE, 'task_conflict');
       const [row] = await db.query<{ audits: number; committed: number; outbox: number }>(
         `select
            (select count(*)::int from public.audit_events where action = 'purchase.supplier_confirmed' and target_id = $1) as audits,
@@ -1113,7 +1114,7 @@ describe('Purchase build: go-ahead validity, e-mail results, cancellation self-a
       const statuses = await db.query<{ id: string; status: string }>(
         'select id, status from public.purchase_go_ahead_requests where task_id = $1', [taskId]);
       expect(statuses.find((r) => r.id === g.id)!.status).toBe('superseded');
-      await refused(ACCOUNTS, GO_AHEAD_DECIDE_SQL, [g.id, 'approve', null, g.row_version, crypto.randomUUID()], '40001', 'version_changed');
+      await refused(ACCOUNTS, GO_AHEAD_DECIDE_SQL, [g.id, 'approve', null, g.row_version, crypto.randomUUID()], CONFLICT_STATE, 'version_changed');
       expect(await one(ACCOUNTS, GO_AHEAD_DECIDE_SQL, [next.id, 'approve', null, next.row_version, crypto.randomUUID()])).toMatchObject({ status: 'approved' });
       expect((await workspace(PURCHASE, taskId))!.issues).toEqual([]);
     });

@@ -3,6 +3,7 @@ import { FIXTURE_USERS as U, type TestDb, asOwner, createTestDb, expectDbError }
 import {
   ACC, DEAL, FLIGHT, MANAGER, OWNER, PURCHASE, SALES_B, SQL, VISA_A, VISA_B, line, rid, visaHelpers,
 } from './visa-e-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Visa build, test plan 12.1 "Notices" and the Home rows (contract sections
@@ -75,7 +76,7 @@ describe('result notices (5.3, C6, C14, Q11)', () => {
       // Same request id and payload: the stored result, no second notice.
       expect(await one(VISA_A, SQL.decide, [a1.applicationId, a1.rowVersion, fields, req])).toMatchObject({ outcome: 'existing' });
       // A second decision cannot happen: stale version, or wrong state on the fresh one.
-      await h.refused(VISA_A, SQL.decide, [a1.applicationId, a1.rowVersion, fields, rid()], 'version_changed', '40001');
+      await h.refused(VISA_A, SQL.decide, [a1.applicationId, a1.rowVersion, fields, rid()], 'version_changed', CONFLICT_STATE);
       await h.refused(VISA_A, SQL.decide, [a1.applicationId, first.rowVersion, JSON.stringify({ decision: 'rejected', outcomeEvidenceId: proof,
         reason: 'Synthetic second decision' }), rid()], 'wrong_state', '55000');
       expect(await noticeRows(taskId)).toEqual([{ application_id: a1.applicationId, outcome: 'approved', seen_by: null }]);

@@ -6,6 +6,7 @@ import {
   SERVICES_SQL, TRANSFER,
 } from './b1-support';
 import { FORM_SQL, PASSPORT as PASSPORT_FACTS, TRIP, VISA as VISA_FACTS, b11Helpers, rid } from './b11-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Stage 3 revision path for package versions (migration 20261119000300):
@@ -118,7 +119,7 @@ describe('opening, classifying and discarding a revision', () => {
       const { baseId } = await confirmedAndReturned();
       const opened = await one<Opened>(OWNER, OPEN, [baseId]);
       await h.storeEvidence(OWNER, opened.versionId, 'acceptance_message', 'e'.repeat(64));
-      await refused(OWNER, DISCARD, [opened.versionId, opened.rowVersion - 1], '40001', 'version_changed');
+      await refused(OWNER, DISCARD, [opened.versionId, opened.rowVersion - 1], CONFLICT_STATE, 'version_changed');
       await refused(OWNER, DISCARD, [baseId, 1], '55000', 'already_confirmed');
       expect(await one(OWNER, DISCARD, [opened.versionId, opened.rowVersion])).toEqual({ outcome: 'discarded' });
       expect(await one(OWNER, DISCARD, [opened.versionId, opened.rowVersion])).toEqual({ outcome: 'existing' });

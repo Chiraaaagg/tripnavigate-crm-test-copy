@@ -10,7 +10,10 @@ import { BOOK_NOW_NOT_INSTALLED, loadBookNowWithRecord } from './book-now';
  * database authorizes; no privileged client), then the booking form view
  * model. Returns null for the same cases as loadBookNow (malformed id, Deal
  * not visible, a viewer who neither edits nor accepts the booking) and
- * 'not_installed' on a database without booking_form_get.
+ * 'not_installed' on a database without booking_form_get. Optional parts
+ * that did not load are listed in view.partsNotLoaded (booking reliability
+ * B1-3); a required read that fails throws, and the layout turns that into
+ * { status: 'refresh_failed' } for the screen host.
  *
  * Privacy: `vm.prices` and item estimates exist only for viewers who may read
  * the deal's commercials; the view's price readiness texts are masked for
@@ -21,7 +24,11 @@ type Staff = Pick<StaffContext, 'supabase' | 'access'>;
 
 export { BOOK_NOW_NOT_INSTALLED };
 
-export interface BookingFormLoad {
+/**
+ * What one successful read gives the layout (named apart from the contract's
+ * BookingFormLoad<Props>, which is what the layout hands the screen host).
+ */
+export interface BookingFormRead {
   view: BookNowView;
   vm: BookingFormVM;
 }
@@ -30,7 +37,7 @@ export async function loadBookingForm(
   staff: Staff,
   dealId: string,
   opts: { step: BookingFormStep | null; ownerText: string | null },
-): Promise<BookingFormLoad | null | typeof BOOK_NOW_NOT_INSTALLED> {
+): Promise<BookingFormRead | null | typeof BOOK_NOW_NOT_INSTALLED> {
   const loaded = await loadBookNowWithRecord(staff, dealId);
   if (loaded === null || loaded === BOOK_NOW_NOT_INSTALLED) return loaded;
   const view = maskViewChecklist(loaded.view, loaded.commercialAllowed);

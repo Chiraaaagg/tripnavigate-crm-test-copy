@@ -1,4 +1,5 @@
 import type { BookingTrip, EvidenceMime, ServiceFacts, ServiceType, TripScope } from '@/modules/fulfilment/contracts';
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 /*
  * B1.2 quotations (Phase E): TypeScript contracts for the quotation module
@@ -766,12 +767,12 @@ export const QUOTATION_ERROR_TEXT: Record<QuotationErrorCode | 'session' | 'uplo
 };
 
 /** SQLSTATE per token (Atlas shapes note). A token maps only when message AND state match (fail closed). */
-export const QUOTATION_ERROR_STATES: Record<QuotationErrorCode, string> = {
+export const QUOTATION_ERROR_STATES: Record<QuotationErrorCode, string | readonly string[]> = {
   not_authorized: '42501',
   not_found: 'P0002',
   invalid_input: '22023',
-  version_changed: '40001',
-  request_conflict: '40001',
+  version_changed: CONFLICT_STATES,
+  request_conflict: CONFLICT_STATES,
   wrong_state: '55000',
   not_ready: '55000',
   valid_until_past: '22023',

@@ -9,6 +9,7 @@
  * This is an internal operational record, not an official ledger, a tax
  * receipt voucher or a tax invoice.
  */
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 export const FINANCE_EVIDENCE_BUCKET = 'finance-evidence';
 export const FINANCE_EVIDENCE_MAX_BYTES = 4 * 1024 * 1024;
@@ -93,7 +94,7 @@ export type FinanceErrorCode =
   | 'review_return_committed';
 
 /** SQLSTATE each token must arrive with; anything else maps to null (fail closed). */
-export const FINANCE_ERROR_STATES: Record<FinanceErrorCode, string> = {
+export const FINANCE_ERROR_STATES: Record<FinanceErrorCode, string | readonly string[]> = {
   not_authorized: '42501',
   not_self_approval: '42501',
   environment_unset: '55000',
@@ -101,8 +102,8 @@ export const FINANCE_ERROR_STATES: Record<FinanceErrorCode, string> = {
   mode_not_live: '55000',
   invalid_input: '22023',
   duplicate_reference: '23505',
-  request_conflict: '40001',
-  version_changed: '40001',
+  request_conflict: CONFLICT_STATES,
+  version_changed: CONFLICT_STATES,
   wrong_state: '55000',
   cash_cap_exceeded: '55000',
   evidence_required: '55000',

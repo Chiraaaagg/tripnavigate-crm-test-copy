@@ -7,6 +7,7 @@ import {
   COST_SAVE_SQL, COST_SUBMIT_SQL, DESK, EV_DOWNLOAD_SQL, EXPENSE_ACCEPT_SQL, EXPENSE_LIST_SQL, EXPENSE_RETURN_SQL, VISA_CLAIM_SQL,
   b11Helpers, rid,
 } from './b11-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Expense records, Accounts side (migration 20261119000500; appendix B
@@ -65,7 +66,7 @@ describe('expense records for Accounts', () => {
       const own = await one<Page>(ACC2, EXPENSE_LIST_SQL, ['submitted', null, null]);
       expect(own.items[0]).toMatchObject({ actions: { accept: 'own_submission', return: 'own_submission' } });
       await refused(ACC2, EXPENSE_ACCEPT_SQL, [e.entryId, e.rowVersion, rid()], '42501', 'not_self_approval');
-      await refused(ACC, EXPENSE_ACCEPT_SQL, [e.entryId, e.rowVersion + 1, rid()], '40001', 'version_changed');
+      await refused(ACC, EXPENSE_ACCEPT_SQL, [e.entryId, e.rowVersion + 1, rid()], CONFLICT_STATE, 'version_changed');
       for (const actor of [OWNER, PURCHASE]) await refused(actor, EXPENSE_ACCEPT_SQL, [e.entryId, e.rowVersion, rid()], '42501');
       // Accounts may open the receipt of a record it reviews.
       expect(await one(ACC, EV_DOWNLOAD_SQL, [e.receipt])).toMatchObject({ mime: 'application/pdf' });

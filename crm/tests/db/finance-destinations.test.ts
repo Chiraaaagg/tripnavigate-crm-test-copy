@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, FIXTURE_USERS as U, type TestDb, asOwner, createTestDb, expectDbError } from '../helpers/db';
 import { ACC, ACC2, ANON, DEAL, MANAGER, PURCHASE, SALES, SUPER, financeHelpers, rid } from './finance-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Stage 2 company destinations (stage-2-company-destinations-contract-2026-10-08.md,
@@ -126,11 +127,11 @@ describe('expected versions, one open version and replay', () => {
       await h.addSecondAccounts();
       const d = await approvedBank();
       const stale = d.rowVersion - 1;
-      await h.refused(ACC, SUBMIT, [await h.entityId(), d.destinationId, JSON.stringify(BANK_VALUES), stale, rid()], '40001', 'version_changed');
+      await h.refused(ACC, SUBMIT, [await h.entityId(), d.destinationId, JSON.stringify(BANK_VALUES), stale, rid()], CONFLICT_STATE, 'version_changed');
       const next = await submitNext(ACC, d.destinationId, d.rowVersion, BANK_VALUES);
-      await h.refused(ACC2, APPROVE, [next.versionId, d.rowVersion, rid()], '40001', 'version_changed');
-      await h.refused(ACC2, RETURN, [next.versionId, d.rowVersion, 'Synthetic stale return reason', rid()], '40001', 'version_changed');
-      await h.refused(ACC2, RETIRE, [d.destinationId, d.rowVersion, 'Synthetic stale retire reason', rid()], '40001', 'version_changed');
+      await h.refused(ACC2, APPROVE, [next.versionId, d.rowVersion, rid()], CONFLICT_STATE, 'version_changed');
+      await h.refused(ACC2, RETURN, [next.versionId, d.rowVersion, 'Synthetic stale return reason', rid()], CONFLICT_STATE, 'version_changed');
+      await h.refused(ACC2, RETIRE, [d.destinationId, d.rowVersion, 'Synthetic stale retire reason', rid()], CONFLICT_STATE, 'version_changed');
     });
   });
 
@@ -151,8 +152,8 @@ describe('expected versions, one open version and replay', () => {
       const first = await submitNew(ACC, 'bank', requestId);
       const again = await submitNew(ACC, 'bank', requestId);
       expect(again).toMatchObject({ outcome: 'existing', versionId: first.versionId });
-      await h.refused(ACC, SUBMIT, [await h.entityId(), null, JSON.stringify({ kind: 'upi', label: 'Other', payeeName: 'X', upiId: UPI }), null, requestId], '40001', 'request_conflict');
-      await h.refused(ACC2, SUBMIT, [await h.entityId(), null, JSON.stringify({ kind: 'bank', label: 'Synthetic current account', ...BANK_VALUES }), null, requestId], '40001', 'request_conflict');
+      await h.refused(ACC, SUBMIT, [await h.entityId(), null, JSON.stringify({ kind: 'upi', label: 'Other', payeeName: 'X', upiId: UPI }), null, requestId], CONFLICT_STATE, 'request_conflict');
+      await h.refused(ACC2, SUBMIT, [await h.entityId(), null, JSON.stringify({ kind: 'bank', label: 'Synthetic current account', ...BANK_VALUES }), null, requestId], CONFLICT_STATE, 'request_conflict');
       const approveId = rid();
       await approve(ACC2, first.versionId, first.rowVersion, approveId);
       expect((await approve(ACC2, first.versionId, first.rowVersion, approveId)).outcome).toBe('existing');

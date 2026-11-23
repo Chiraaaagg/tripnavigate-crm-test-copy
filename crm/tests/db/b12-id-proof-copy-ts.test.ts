@@ -14,8 +14,9 @@ import { staffAs } from './b12-ts-support';
  */
 
 const requireStaff = vi.fn();
-vi.mock('@/modules/identity/server/session', () => ({ requireStaff: () => requireStaff() }));
-vi.mock('next/cache', () => ({ revalidatePath: () => undefined }));
+// Booking reliability B1-8: the Book now saves gate with staffForAction (same decision; SESSION_ENDED never returned here).
+vi.mock('@/modules/identity/server/session', () => ({ requireStaff: () => requireStaff(), staffForAction: () => requireStaff(), SESSION_ENDED: Symbol('session_ended') }));
+vi.mock('next/cache', () => ({ revalidatePath: () => undefined, refresh: () => undefined }));
 vi.mock('@/lib/supabase/admin', () => ({
   createSupabaseAdminClient: () => {
     throw new Error('not used');

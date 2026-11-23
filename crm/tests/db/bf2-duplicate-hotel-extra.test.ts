@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { DEAL, HOTEL, OWNER, rid } from './b1-support';
 import { SERVICE_SQL, formHelpers } from './booking-form-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Book now v2 change 4 (UX-004): reproduction of the "duplicate hotel" on a
@@ -46,7 +47,7 @@ describe('double "Save hotel" on a new hotel', () => {
       const r = await h.readyForm();
       const req = rid();
       await h.saveService(OWNER, r.versionId, r.rowVersion, { type: 'hotel', facts: NEW_HOTEL, participants: [1, 2], requestId: req });
-      await refused(OWNER, SERVICE_SQL, post(r.versionId, r.rowVersion, req, { ...NEW_HOTEL, mealPlan: 'Half board' }), '40001', 'request_conflict');
+      await refused(OWNER, SERVICE_SQL, post(r.versionId, r.rowVersion, req, { ...NEW_HOTEL, mealPlan: 'Half board' }), CONFLICT_STATE, 'request_conflict');
       expect(await hotels()).toBe(2);
     });
   });
@@ -55,7 +56,7 @@ describe('double "Save hotel" on a new hotel', () => {
     await asOwner(db, async () => {
       const r = await h.readyForm();
       await h.saveService(OWNER, r.versionId, r.rowVersion, { type: 'hotel', facts: NEW_HOTEL, participants: [1, 2] });
-      await refused(OWNER, SERVICE_SQL, post(r.versionId, r.rowVersion, rid()), '40001', 'version_changed');
+      await refused(OWNER, SERVICE_SQL, post(r.versionId, r.rowVersion, rid()), CONFLICT_STATE, 'version_changed');
       expect(await hotels()).toBe(2);
     });
   });

@@ -10,6 +10,7 @@ import type {
   VisaStepKey,
   VisaTaskStep,
 } from './dto';
+import { CONFLICT_STATES } from '@/lib/sqlstate';
 
 /**
  * Visa and Passport desk contract (Visa build contract, frozen 8 Nov 2026;
@@ -184,12 +185,12 @@ export type VisaErrorCode =
   // Accounts phase 2 (Track C, LD12): new Visa spending stops once the trip cancellation is approved.
   | 'trip_cancelled';
 
-export const VISA_ERROR_STATES: Record<VisaErrorCode, string> = {
+export const VISA_ERROR_STATES: Record<VisaErrorCode, string | readonly string[]> = {
   not_authorized: '42501',
   not_found: 'P0002',
-  version_changed: '40001',
-  duplicate_request: '40001',
-  task_conflict: '40001',
+  version_changed: CONFLICT_STATES,
+  duplicate_request: CONFLICT_STATES,
+  task_conflict: CONFLICT_STATES,
   invalid_input: '22023',
   deal_removed: '55000',
   task_closed: '55000',

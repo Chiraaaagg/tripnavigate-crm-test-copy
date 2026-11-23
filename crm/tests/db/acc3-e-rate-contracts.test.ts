@@ -5,6 +5,7 @@ import { MANAGER_F } from './acc3-support';
 import {
   ACC, HOTEL_ITEM, MANAGER, OWNER, PURCHASE, REASON, SQLB, STAY, type Price, U, relbHelpers, rid, sha, text,
 } from './acc3-relb-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Accounts phase 3, Track T — Release B, Track E: rate contracts (contract
@@ -529,7 +530,7 @@ describe('9.4 rate-sheet import', () => {
       const id2 = await stage(PURCHASE, [row('SYN-H-RS1', 'SYN-S-RS1', { roomType: 'Synthetic Hill Room' })]);
       const s2 = await one<Summary>(PURCHASE, SQLB.importValidate, [id2]);
       await h.roomType(hotel, 'Synthetic Hill Room');
-      await h.refused(PURCHASE, SQLB.importApply, [id2, s2.rowVersion, REASON, s2.proposalHash, null], 'import_stale', '40001');
+      await h.refused(PURCHASE, SQLB.importApply, [id2, s2.rowVersion, REASON, s2.proposalHash, null], 'import_stale', CONFLICT_STATE);
     });
   });
 });

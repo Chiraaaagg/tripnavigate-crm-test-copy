@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { ACCOUNTS, ANON, MANAGER, OWNER, PURCHASE, SUPER, SVC } from './b1-support';
 import { CONFIG, PORTAL, REASON, SQL, vnHelpers } from './vn-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Voice-note batch, migration 20261128000100: the switch
@@ -157,7 +158,7 @@ describe('destination option names in the daily name refresh', () => {
       await refused(SUPER, SQL.scopeSet, ['DEAL_DESTINATION', '101', 'abroad', 0, REASON], '22023', 'invalid_input');
       expect(await one(SUPER, SQL.scopeSet, ['DEAL_DESTINATION', '101', 'international', 0, REASON]))
         .toEqual({ changed: true, scope: 'international', rowVersion: 1 });
-      await refused(SUPER, SQL.scopeSet, ['DEAL_DESTINATION', '101', 'domestic', 0, REASON], '40001', 'version_changed');
+      await refused(SUPER, SQL.scopeSet, ['DEAL_DESTINATION', '101', 'domestic', 0, REASON], CONFLICT_STATE, 'version_changed');
       expect(await one(SUPER, SQL.scopeSet, ['DEAL_DESTINATION', '101', null, 1, REASON]))
         .toEqual({ changed: true, scope: null, rowVersion: 2 });
       const audit = await h.auditRows('integration.destination_scope_set');

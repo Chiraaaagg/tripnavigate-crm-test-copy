@@ -5,6 +5,7 @@ import {
   ACC, DEAL, FLIGHT, FLIGHT_2, LEG_JDH_DEL, MANAGER, OWNER, SQL, changeSector, fare, flightHelpers, nextTicket, rid, screenshotFlight, sectorInput, ticketFor,
   typedFlight,
 } from './flight-support';
+import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
  * Flight build, contract D10, D11 and sections 6.1 A4, A12, 7; test plan
@@ -131,7 +132,7 @@ describe('mark flight done', () => {
       expect(await one<Record<string, number | null>>(FLIGHT, SQL.homeCounts)).toMatchObject({ flightReadyToFinish: 1 });
 
       // Complete: expected task set, assignee only.
-      await refused(FLIGHT, SQL.groupComplete, [DEAL, [onward], rid()], 'version_changed', '40001');
+      await refused(FLIGHT, SQL.groupComplete, [DEAL, [onward], rid()], 'version_changed', CONFLICT_STATE);
       for (const actor of [FLIGHT_2, OWNER, MANAGER]) {
         await refused(actor, SQL.groupComplete, [DEAL, b.flightTasks, rid()], 'not_authorized', '42501');
       }

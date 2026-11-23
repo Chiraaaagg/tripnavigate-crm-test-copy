@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { BitrixRefreshOutcome } from '@/modules/fulfilment/booking-form-contract';
 import type { BookingFormVM } from '@/modules/fulfilment/booking-form-vm';
-import type { BookingActionResult } from '@/modules/fulfilment/contracts';
+import type { BookingActionResult, SavedTravellersRead } from '@/modules/fulfilment/contracts';
 import type { PrefillUiVM } from '@/modules/fulfilment/prefill-contract';
 import type { BookLinks } from '../b11/book-screen';
 import type { B11Action, BookActions, BookNowView } from '../b11/shapes';
@@ -40,6 +40,13 @@ export interface BookingFormActions extends BookActions {
   addReturnFlights?: B11Action;
   /** "Refresh from Bitrix now": reads this one Deal from Bitrix at once (never writes to Bitrix). */
   refreshFromBitrix?: (dealId: string) => Promise<BookingActionResult<{ outcome: BitrixRefreshOutcome; readAt: string | null; retryAfterSeconds?: number }>>;
+  /**
+   * Booking reliability B1-4 (readBookingTravellersAction, S4): reads the saved
+   * passengers (number, name, type) and the draft row version under the
+   * viewer's own session. Writes nothing. Absent until the server wiring lands;
+   * the passengers card then treats a lost answer as "could not check".
+   */
+  readTravellers?: (dealId: string) => Promise<BookingActionResult<SavedTravellersRead>>;
 }
 
 export interface BookingFormScreenProps {
@@ -56,4 +63,14 @@ export interface BookingFormScreenProps {
   changeMode?: ChangeModeView | null;
   /** Accounts phase 3 (contract 5.3 A1, screen 15.1): the Deal's customer language and WhatsApp card, shown on the customer step. */
   messagePrefsCard?: ReactNode;
+}
+
+/**
+ * What BookingFormHost (B1-3) adds to the screen: the last refresh failed and
+ * the form shows the last good load, with "Refresh again".
+ */
+export interface BookingFormHostExtras {
+  refreshFailed?: boolean;
+  onRefreshAgain?: () => void;
+  refreshing?: boolean;
 }

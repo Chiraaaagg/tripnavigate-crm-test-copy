@@ -213,3 +213,39 @@ export function nextFlightFrom(last: FlightLeg | null): { from: string; date: st
 }
 
 export { addDays };
+
+/** JSON with object keys sorted, so two reads of the same item compare equal. */
+function stableJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stableJson).join(',')}]`;
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o)
+      .filter((k) => o[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stableJson(o[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(v ?? null);
+}
+
+/**
+ * Booking reliability B1-5: whether the latest view still holds the service
+ * item a drawer was opened on (facts, travellers, budget, estimate, hotel,
+ * lock and files). Equal: the drawer may re-base and keep the typed entries.
+ * Different, or the item is gone: a colleague changed this same item, so the
+ * drawer does not re-base. A drawer adding a new item has nothing to compare.
+ */
+export function sameServiceItem(opened: BookingFormServiceItemView | null, latest: BookingFormServiceItemView | null): boolean {
+  if (opened === null) return true;
+  if (latest === null || latest.itemId !== opened.itemId) return false;
+  const pick = (i: BookingFormServiceItemView) => ({
+    facts: i.facts,
+    participants: [...(i.participants ?? [])].sort((a, b) => a - b),
+    purchaseBudgetPaise: i.purchaseBudgetPaise,
+    estimate: i.estimate,
+    catalogueHotelId: i.catalogueHotelId,
+    locked: i.locked,
+    files: (i.files ?? []).map((f) => f.fileId).sort(),
+  });
+  return stableJson(pick(opened)) === stableJson(pick(latest));
+}

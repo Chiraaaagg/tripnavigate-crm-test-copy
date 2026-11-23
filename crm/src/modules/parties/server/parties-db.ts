@@ -1,6 +1,7 @@
 import 'server-only';
 import { z } from 'zod';
 import type { RpcClient, RpcError } from '@/modules/fulfilment/commands';
+import { CONFLICT_STATES, stateMatches } from '@/lib/sqlstate';
 
 /**
  * Typed wrappers for the voice-note batch customer (bill-to party) commands
@@ -18,9 +19,9 @@ import type { RpcClient, RpcError } from '@/modules/fulfilment/commands';
 /** Refusal tokens of the batch and the only SQLSTATE each may arrive with. */
 export const VN_ERROR_STATES = {
   not_authorized: '42501',
-  version_changed: '40001',
-  request_conflict: '40001',
-  import_stale: '40001',
+  version_changed: CONFLICT_STATES,
+  request_conflict: CONFLICT_STATES,
+  import_stale: CONFLICT_STATES,
   not_found: 'P0002',
   invalid_input: '22023',
   consent_required: '22023',
@@ -70,7 +71,7 @@ export function mapVnError(error: RpcError): { code: VnErrorCode | null; hintKey
   const token = (error.message ?? '').trim();
   const hint = (error.hint ?? '').trim();
   const keys = HINT_KEYS.test(hint) ? hint.split(',') : [];
-  if (Object.hasOwn(VN_ERROR_STATES, token) && VN_ERROR_STATES[token as keyof typeof VN_ERROR_STATES] === state) {
+  if (Object.hasOwn(VN_ERROR_STATES, token) && stateMatches(VN_ERROR_STATES[token as keyof typeof VN_ERROR_STATES], state)) {
     return { code: token as VnErrorCode, hintKeys: HINTED.has(token) ? keys : [] };
   }
   if (token === REASON_MESSAGE && state === '22023') return { code: 'invalid_input', hintKeys: ['reason'] };
