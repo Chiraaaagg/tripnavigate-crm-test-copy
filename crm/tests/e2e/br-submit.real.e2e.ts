@@ -34,7 +34,8 @@ import {
  * run in the disposable database (as the investigation run did; production
  * has both on) and restored afterwards.
  *
- * One Sales booking on a Bitrix-style Deal at "Won - Payment Received": two
+ * One Sales booking on a synthetic CRM-native Deal (the 'test' environment's
+ * finance gate lets Accounts read synthetic Deals only): two
  * adults with ID proofs, one hotel, package price, Bill To from the booking
  * contact, a payment plan equal to the total, acceptance evidence, Submit once.
  * Then asserted:
@@ -68,7 +69,9 @@ test.describe('Fix batch 1: journey to a stored Submit and the Accounts queue @b
     const rec = new Recorder('br-submit', testInfo);
     await loadFixture(testInfo);
     const tag = String(Date.now()).slice(-8);
-    const deal = await newDeal(tag, `Synthetic submit journey ${tag}`);
+    // Synthetic CRM-native Deal: in the 'test' environment the finance gate shows Accounts only
+    // synthetic Deals, so a Bitrix-style header (is_synthetic false) could never reach "To check".
+    const deal = await newDeal(tag, `Synthetic submit journey ${tag}`, { kind: 'crm-native' });
     rec.facts.deal = deal;
     const { context, page } = await newSalesContext(browser, rec, 'sales');
     const main = page.locator('main');

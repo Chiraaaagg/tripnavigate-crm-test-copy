@@ -116,9 +116,12 @@ export async function loadFixture(testInfo: TestInfo) {
  * stage UC_AD0SLH, the seeded trigger stage), as live Deals arrive from Bitrix.
  * Falls back to a CRM-native Deal header (also allowed to submit) and says so.
  */
-export async function newDeal(tag: string, title: string): Promise<{ id: string; kind: 'bitrix-won' | 'crm-native'; note: string | null }> {
+export async function newDeal(tag: string, title: string, opts: { kind?: 'bitrix-won' | 'crm-native' } = {}): Promise<{ id: string; kind: 'bitrix-won' | 'crm-native'; note: string | null }> {
   const sourceDealId = 800_000_000 + Number(tag.slice(-7)) + Math.floor(Math.random() * 1000);
   try {
+    // A CRM-native header is synthetic (deals.is_synthetic default true): the only kind the
+    // 'test' environment's finance gate lets into Accounts reads (authz.finance_gate_issue).
+    if (opts.kind === 'crm-native') throw new Error('CRM-native Deal asked for');
     const admin = createClient(supabaseUrl!, secretKey!, { auth: noPersist });
     const recorded = await admin.rpc('integration_record_bitrix_event', { p_member_id: PORTAL, p_event_type: 'ONCRMDEALADD', p_deal_id: sourceDealId, p_source_ts: Math.floor(Date.now() / 1000) });
     if (recorded.error) throw new Error(`inbox: ${recorded.error.message}`);
