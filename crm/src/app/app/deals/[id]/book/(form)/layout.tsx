@@ -8,7 +8,6 @@ import { requireStaff } from '@/modules/identity/server/session';
 import { dealOwnerText } from '@/views/deal-labels';
 import { BookNowNotAvailableView } from '@/views/b11/book-views';
 import { BookingFormHost } from '@/views/booking-form/booking-form-host';
-import { submitChangeAction } from '@/modules/booking-changes/server/actions';
 import { loadChangePreview, loadDealChangeRequests } from '@/modules/booking-changes/server/queries';
 import type { DecisionAction } from '@/views/accounts/supplier-forms';
 import { changeModeView } from '@/views/booking-changes/adapt';
@@ -16,10 +15,10 @@ import { ChangeModeBanner } from '@/views/booking-changes/change-mode';
 import type { ChangeModeView } from '@/views/booking-changes/types';
 import type { BookingFormScreenProps } from '@/views/booking-form/types';
 import type { BookingFormLoad } from '@/modules/fulfilment/contracts';
-import { setDealMessagePrefsAction } from '@/modules/customer-messages/server/actions';
 import { loadDealMessagePrefs } from '@/modules/customer-messages/server/queries';
 import { BookNowMessagePrefsCard, BookNowMessagePrefsUnavailable } from '@/views/customer-messages/book-now-card';
 import { BOOKING_FORM_ACTIONS, bookLinks, voiceNoteProps } from '../book-actions';
+import { setDealMessagePrefsBookAction, submitChangeBookAction } from '../book-session-actions';
 
 /**
  * The booking form (/app/deals/[id]/book/{travellers|stay|finish}; Echo
@@ -70,7 +69,7 @@ export default async function BookingFormLayout({ children, params }: { children
   ) : prefs ? (
     <BookNowMessagePrefsCard
       prefs={{ dealId: prefs.dealId, language: prefs.language, whatsappSameAsMobile: prefs.whatsappSameAsMobile, whatsappMasked: prefs.whatsappMasked, rowVersion: prefs.rowVersion }}
-      action={setDealMessagePrefsAction as unknown as DecisionAction}
+      action={setDealMessagePrefsBookAction as unknown as DecisionAction}
     />
   ) : null;
   const screen: BookingFormScreenProps = {
@@ -87,7 +86,7 @@ export default async function BookingFormLayout({ children, params }: { children
   };
   return (
     <BookingFormFrame
-      banner={changeMode ? <ChangeModeBanner view={changeMode} submit={changeMode.canSubmit ? (submitChangeAction as unknown as DecisionAction) : null} /> : null}
+      banner={changeMode ? <ChangeModeBanner view={changeMode} submit={changeMode.canSubmit ? (submitChangeBookAction as unknown as DecisionAction) : null} /> : null}
       load={{ status: 'ok', ...screen }}
     >
       {children}

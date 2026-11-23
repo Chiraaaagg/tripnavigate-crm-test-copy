@@ -82,6 +82,9 @@ test.describe('B1.1 Book now: page states', () => {
     await open(page, 'b11-book-not-visible');
     await expect(page.locator('main')).toContainText('This booking is not available to you. It may not exist, or you may not have access.');
     await open(page, 'b11-book-unavailable');
-    await expect(page.locator('main').getByRole('alert')).toContainText('Nothing was changed.');
+    // Booking reliability B1-3 (W4): the page no longer claims "Nothing was changed"; a save may have gone through.
+    const alert = page.locator('main').getByRole('alert');
+    await expect(alert).toHaveText('The booking did not load. Reload the page. If you had just saved something, check it after reloading. If it keeps happening, tell your admin.');
+    await expect(alert).not.toContainText('Nothing was changed');
   });
 });

@@ -45,6 +45,9 @@ function anyPost(): FormData {
   return fd;
 }
 
+/** Review go-live 1 P1-1: the Book now copies of actions shared with other screens (each in its own result shape). */
+const BOOK_COPIES = await import('@/app/app/deals/[id]/book/book-session-actions');
+
 type Action = (...args: unknown[]) => Promise<unknown>;
 const ACTIONS: Array<[string, Action]> = Object.entries(MODULES).flatMap(([file, mod]) =>
   Object.entries(mod as Record<string, unknown>)
@@ -99,6 +102,52 @@ describe('session ended while Book now is open', () => {
     await expect(action(null, anyPost())).rejects.toThrow('NEXT_REDIRECT');
     expect(rpc).not.toHaveBeenCalled();
     expect(adminFactory).not.toHaveBeenCalled();
+  });
+
+  const COPIES: Array<[string, Action]> = Object.entries(BOOK_COPIES as Record<string, unknown>)
+    .filter(([, v]) => typeof v === 'function')
+    .map(([name, fn]) => [name, fn as Action]);
+
+  it('the Book now copies cover every shared action the Book now pages call', () => {
+    expect(COPIES.map(([n]) => n).sort()).toEqual(
+      [
+        'applyPrefillBookAction',
+        'createPartyBookAction',
+        'dismissPrefillNoticeBookAction',
+        'fillEmptyPrefillBookAction',
+        'markPrefillCheckedBookAction',
+        'pickPartyBookAction',
+        'refreshFromBitrixBookAction',
+        'removeBookingEvidenceBookAction',
+        'removeServiceItemBookAction',
+        'reportPaymentClaimBookAction',
+        'searchHotelsBookAction',
+        'searchPartiesBookAction',
+        'setDealMessagePrefsBookAction',
+        'submitChangeBookAction',
+        'uploadBookingEvidenceBookAction',
+        'withdrawPaymentClaimBookAction',
+      ].sort(),
+    );
+  });
+
+  it.each(COPIES)('Book now copy %s answers the session text in the page and never reaches the shared action', async (_name, action) => {
+    const result = (await action(null, anyPost())) as { ok?: boolean; status?: string; code?: string; message?: string };
+    expect(result.message).toBe(ERROR_TEXT.session);
+    expect(result.ok === false || result.status === 'error').toBe(true);
+    expect(requireStaff).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+    expect(adminFactory).not.toHaveBeenCalled();
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it('a live session hands the Book now copy over to the shared action unchanged', async () => {
+    const live = { userId: 'a0000000-0000-4000-8000-000000000001', supabase: { rpc }, access: { userId: 'a0000000-0000-4000-8000-000000000001', memberships: [], rolePermissions: [], grants: [] } };
+    staffForAction.mockResolvedValue(live);
+    requireStaff.mockResolvedValue(live);
+    rpc.mockResolvedValue({ data: { items: [], hasMore: false }, error: null });
+    await BOOK_COPIES.searchHotelsBookAction('Goa beach');
+    expect(requireStaff).toHaveBeenCalledTimes(1);
   });
 
   it('a live session goes on to the database under the staff member’s own client', async () => {

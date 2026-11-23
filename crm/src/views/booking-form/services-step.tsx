@@ -1,6 +1,7 @@
 'use client';
 
 import { ArrowLeftRight, BedDouble, CarFront, Check, CircleCheck, Compass, Copy, CornerDownRight, FileText, Image as ImageIcon, Pencil, Plane, Plus, ShieldCheck, Trash2, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { isSessionEnded, SignInNewTabLink } from '../b11/session-link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -254,6 +255,7 @@ export function ServicesStep({
   });
   const [removing, setRemoving] = useState(false);
   const [removeProblem, setRemoveProblem] = useState<string | null>(null);
+  const [removeSignedOut, setRemoveSignedOut] = useState(false);
   const confirmRemove = async () => {
     if (!removeTarget || removing) return;
     setRemoving(true);
@@ -266,7 +268,10 @@ export function ServicesStep({
     if (r.ok) {
       setRemoveTarget(null);
       toast('Service removed.');
-    } else setRemoveProblem(refusalReason(r));
+    } else {
+      setRemoveProblem(refusalReason(r));
+      setRemoveSignedOut(isSessionEnded(r));
+    }
   };
 
   const returns = useSectionForm({
@@ -526,6 +531,7 @@ export function ServicesStep({
             {removeProblem}
           </p>
         ) : null}
+        {removeProblem && removeSignedOut ? <SignInNewTabLink className="mx-5" /> : null}
       </ConfirmDialog>
     </div>
   );

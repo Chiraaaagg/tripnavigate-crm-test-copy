@@ -1,6 +1,7 @@
 'use client';
 
 import { CalendarDays, ChevronRight, CircleAlert, FileText, Info, Pencil, Plus, Trash2 } from 'lucide-react';
+import { isSessionEnded, SignInNewTabLink } from '../b11/session-link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -271,6 +272,7 @@ export function OkCard({ view, actions }: { view: BookNowView; actions: BookingF
                 {problem}
               </p>
             ) : null}
+            {problem && isSessionEnded({ message: problem }) ? <SignInNewTabLink /> : null}
           </>
         )}
       </SectionBody>
