@@ -1,0 +1,62 @@
+/*
+ * Stylesheet entry for every page (imported once by the root layout).
+ *
+ * Cascade layers, lowest priority first:
+ *   theme    Tailwind's theme variables plus the design tokens
+ *            (src/components/ui/tokens.css).
+ *   legacy   The existing hand-written stylesheet, src/app/globals.css,
+ *            unchanged. Inside its own layer its rules keep exactly the same
+ *            relative order and specificity, so existing screens render as
+ *            before.
+ *   utilities Tailwind utilities, used only by the new shared components in
+ *            src/components/ui and the component gallery. Being the later
+ *            layer they win over legacy element rules (input, table, h1, a,
+ *            :focus-visible) on new components.
+ *
+ * Tailwind preflight (its CSS reset) is deliberately NOT imported: it would
+ * restyle every existing screen. New components set the properties they need.
+ *
+ * Utility generation is limited to the folders below (source(none) turns off
+ * whole-project scanning). The legacy markup uses class names that are also
+ * Tailwind utilities with different values (mt-1, mt-2, mt-15, mb-0); they must
+ * never be generated (the safety net below). tests/unit/ui-tokens.test.ts
+ * guards this.
+ */
+@layer theme, legacy, utilities;
+
+@import 'tailwindcss/theme.css' layer(theme);
+@import './globals.css' layer(legacy);
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+@import '../components/ui/tokens.css';
+/* Customer documents (quotation and itinerary previews; the PDF render inlines the same file). Scoped under .tn-doc. */
+@import '../modules/documents/render/document.css';
+
+/*
+ * Style sources by folder (UX redesign R0, CQ-3; replaces the 70-line list of
+ * single files): every view and component, the preview pages, the staff app
+ * pages and the root layout. A new screen file is styled without a new line
+ * here. Checked when this changed (17 November 2026): the generated CSS was
+ * byte-for-byte the same as with the old list, because the legacy markup's
+ * class names are not Tailwind utilities except the five blocked below.
+ */
+@source '../views';
+@source '../components';
+@source './preview';
+@source './app';
+@source './layout.tsx';
+
+/* Safety net: legacy helper classes with different meanings are never generated. */
+@source not inline('mt-0 mt-1 mt-2 mt-15 mb-0');
+
+/* The staff frame's top bar (under 1024px; Direction A has no top bar on desktop) is sticky: keep in-page jumps (skip link, repair
+   links, focus moves) clear of it. Only pages that render the frame (its root
+   carries the marker class staff-shell, set in src/views/StaffShell.tsx);
+   sign-in and other public pages have no sticky bar. The legacy stylesheet
+   already sets scroll-padding-bottom for its sticky action bar; that rule stays. */
+@layer utilities {
+  @media (width < 64rem) {
+    html:has(.staff-shell) {
+      scroll-padding-top: 4.5rem;
+    }
+  }
+}
