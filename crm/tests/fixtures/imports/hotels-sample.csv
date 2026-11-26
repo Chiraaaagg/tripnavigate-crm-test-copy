@@ -1,0 +1,10 @@
+Hotel ID,Hotel Name,City,Area,Address,Star Rating,Status,Phone
+TST-H-001,Test Lake View Hotel,Udaipur,Lake Pichola,"1 Test Ghat Road, Udaipur",4,active,+91 98765 00001
+TST-H-002,Test Fort Stay,Jodhpur,Old City,"2 Test Fort Lane, Jodhpur",3,active,
+TST-H-003,"Test ""Desert"" Camp",Jaisalmer,Sam Dunes,,5,active,
+TST-H-004,Test Garden Inn,Jaipur,,"4 Test Garden Road,
+Near Test Gate",9,active,
+TST-H-002,Test Fort Stay Duplicate ID,Jodhpur,,,3,active,
+,Test Lake View Hotel,Udaipur,,,4,active,
+TST-H-007,,Delhi,,,3,active,
+TST-H-008,Test Hill Retreat,Shimla,Mall Road,,2,inactive,
