@@ -39,6 +39,12 @@ import type { NoticeInboxDTO, NoticeItemDTO } from './contracts';
  *       shown (the ended state is announced once).
  *   a probe that succeeds -> the result is shown, the poll restarts and the
  *       channel is opened again (mode 'connecting', fresh 10 s connect timeout)
+ *   another tab read notices successfully (sessionOk(), fed by the cross-tab
+ *       signal below) -> probe at once, or 10 s after the last probe when one
+ *       was that recent. Review 10b finding 1: the person signed in again in
+ *       another tab, and this tab may hold the sound / pop-up lead, so it must
+ *       not wait for its hourly probe. A truly signed-out set of tabs never
+ *       reads successfully, so the signal adds no requests there.
  */
 
 export const NOTICE_DEBOUNCE_MS = 1_000;
@@ -105,6 +111,8 @@ export interface NoticeLiveHandle {
   focus(): void;
   /** After a local mark / done: re-read the first page. */
   refresh(): void;
+  /** Another tab read notices successfully: while ended, probe now (or once the 10 s spacing allows). */
+  sessionOk(): void;
   stop(): void;
 }
 
@@ -162,6 +170,8 @@ export function startNoticeLive(options: NoticeLiveOptions): NoticeLiveHandle {
   let probeTimer: unknown = null;
   let probeCount = 0;
   let lastProbeAt = 0;
+  // sessionOk() while a probe is too recent: one probe as soon as the 10 s spacing allows.
+  let soonTimer: unknown = null;
 
   // The 30 s poll runs only while notices are on (and until the first read says otherwise).
   function setPolling(on: boolean) {
@@ -238,6 +248,20 @@ export function startNoticeLive(options: NoticeLiveOptions): NoticeLiveHandle {
     void runRead('full');
   }
 
+  // A probe now, or one deferred to 10 s after the last probe (never dropped, never two pending).
+  function probeSoon() {
+    if (stopped || state.mode !== 'ended' || soonTimer !== null) return;
+    const wait = Math.max(0, NOTICE_ENDED_FOCUS_MIN_MS - (now() - lastProbeAt));
+    if (wait === 0 && !running) {
+      probe();
+      return;
+    }
+    soonTimer = timers.setTimeout(() => {
+      soonTimer = null;
+      probeSoon();
+    }, wait === 0 ? 1_000 : wait);
+  }
+
   function openChannel() {
     clearTimer(connectTimer);
     connectTimer = timers.setTimeout(() => {
@@ -275,6 +299,8 @@ export function startNoticeLive(options: NoticeLiveOptions): NoticeLiveHandle {
       if (probing) {
         clearTimer(probeTimer);
         probeTimer = null;
+        clearTimer(soonTimer);
+        soonTimer = null;
       }
       setPolling(result === null || result.enabled);
       const mode: Partial<NoticeLiveState> = probing ? { mode: 'connecting' } : {};
@@ -374,6 +400,7 @@ export function startNoticeLive(options: NoticeLiveOptions): NoticeLiveHandle {
   return {
     focus: readNow,
     refresh: readNow,
+    sessionOk: probeSoon,
     stop: () => {
       if (stopped) return;
       stopped = true;
@@ -384,8 +411,109 @@ export function startNoticeLive(options: NoticeLiveOptions): NoticeLiveHandle {
       clearTimer(retry);
       clearTimer(probeTimer);
       probeTimer = null;
+      clearTimer(soonTimer);
+      soonTimer = null;
       unsubscribe?.();
       unsubscribe = null;
+    },
+  };
+}
+
+/*
+ * Cross-tab "notices read ok" signal (review 10b finding 1). Every tab posts it
+ * after a successful read; an ended tab that receives it calls sessionOk().
+ * BroadcastChannel when the browser has it, otherwise a localStorage key and
+ * the `storage` event (which fires in the other tabs only). The message carries
+ * no data: a constant, or the time in the storage fallback. Every browser call
+ * is wrapped, so a missing or blocked API only means no signal.
+ */
+
+export const NOTICE_READ_OK_CHANNEL = 'tn-notices-read-ok';
+export const NOTICE_READ_OK_KEY = 'tn-notices-read-ok-at';
+export const NOTICE_READ_OK_MESSAGE = 'read-ok';
+
+export interface NoticeSignalChannel {
+  postMessage(message: unknown): void;
+  close(): void;
+  onmessage: ((event: { data: unknown }) => void) | null;
+}
+
+export interface NoticeReadOkEnv {
+  createChannel?: ((name: string) => NoticeSignalChannel) | null;
+  storage?: (() => { setItem(key: string, value: string): void } | null) | null;
+  /** Subscribes to the storage event of other tabs (the changed key); returns the unsubscribe. */
+  listenStorage?: ((onKey: (key: string | null) => void) => () => void) | null;
+  now?: () => number;
+}
+
+export interface NoticeReadOkSignal {
+  post(): void;
+  stop(): void;
+}
+
+function browserReadOkEnv(): NoticeReadOkEnv {
+  return {
+    createChannel: typeof BroadcastChannel === 'function' ? (name) => new BroadcastChannel(name) as unknown as NoticeSignalChannel : null,
+    storage: () => {
+      try {
+        return globalThis.localStorage ?? null;
+      } catch {
+        return null;
+      }
+    },
+    listenStorage:
+      typeof globalThis.addEventListener === 'function'
+        ? (onKey) => {
+            const handler = (event: StorageEvent) => onKey(event.key);
+            globalThis.addEventListener('storage', handler);
+            return () => globalThis.removeEventListener('storage', handler);
+          }
+        : null,
+  };
+}
+
+export function startNoticeReadOkSignal(onOk: () => void, env: NoticeReadOkEnv = browserReadOkEnv()): NoticeReadOkSignal {
+  const now = env.now ?? (() => Date.now());
+  let stopped = false;
+  let channel: NoticeSignalChannel | null = null;
+  try {
+    channel = env.createChannel?.(NOTICE_READ_OK_CHANNEL) ?? null;
+  } catch {
+    channel = null;
+  }
+  let unlisten: (() => void) | null = null;
+  if (channel) {
+    channel.onmessage = (event) => {
+      if (!stopped && event.data === NOTICE_READ_OK_MESSAGE) onOk();
+    };
+  } else if (env.listenStorage) {
+    try {
+      unlisten = env.listenStorage((key) => {
+        if (!stopped && key === NOTICE_READ_OK_KEY) onOk();
+      });
+    } catch {
+      unlisten = null;
+    }
+  }
+  return {
+    post: () => {
+      if (stopped) return;
+      try {
+        if (channel) channel.postMessage(NOTICE_READ_OK_MESSAGE);
+        else env.storage?.()?.setItem(NOTICE_READ_OK_KEY, String(now()));
+      } catch {
+        /* no signal this time */
+      }
+    },
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      try {
+        channel?.close();
+      } catch {
+        /* already closed */
+      }
+      unlisten?.();
     },
   };
 }

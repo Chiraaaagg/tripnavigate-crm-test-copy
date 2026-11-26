@@ -27,8 +27,22 @@ import { resolveRealStackEnv } from '../helpers/real-stack';
  * dispatch row the test POSTs exactly the request the kick builds
  * (?task=batch&limit=25&source=event with the worker bearer; the request
  * itself is proved in s4-event-kick.real.test.ts). The tick is
- * POST ?task=sync. The pg_cron job bitrix-sync is paused for the run and
- * restored afterwards.
+ * POST ?task=sync.
+ *
+ * Shared-stack hygiene (CI run 45850197025 found two leaks from an earlier
+ * version of this file):
+ *   - Every worker answer runs the sync-stopped alert check (after()). With
+ *     the sync switched on, it would open a committed incident (append and
+ *     close only, so it cannot be removed) unless the sync looks running. The
+ *     pg_cron job bitrix-sync therefore stays ACTIVE for the run (its ticks go
+ *     to the closed port, harmless), and a synthetic ok reconcile heartbeat is
+ *     written before every worker call. The last case checks that no incident
+ *     was opened.
+ *   - A full run (?task=sync) queues the daily full resync when none was queued
+ *     in 24 hours; finishing it re-reads every stored Deal the mock does not
+ *     list. A superseded guard row stops that for the run; it and any resync
+ *     job created during the run are removed afterwards.
+ * The schedule, kick switch and job state are restored in afterAll.
  *
  * "Processed twice" is checked per row: integration_claim_inbox adds one to
  * attempts on every claim, so a row claimed by two runs has attempts >= 2.
@@ -82,6 +96,7 @@ let manifestId = '';
 let startedAt: Date;
 let saved: { enabled: boolean; kick: boolean; jobActive: boolean | null } | null = null;
 let secretsCreated = false;
+const heartbeats: string[] = [];
 const delivered = new Set<string>();
 
 async function dbQuery<T extends pg.QueryResultRow = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> {
@@ -101,7 +116,17 @@ const send = (dealId: number, event = 'ONCRMDEALADD') =>
     { applicationToken: TOKEN, ...createPostgrestDeps({ supabaseUrl: env!.url, publishableKey: env!.publishableKey, receiverCredential: credential }) },
   );
 
+/** A fresh ok reconcile heartbeat: the alert check after each worker answer sees the sync running. */
+async function keepRunning(): Promise<void> {
+  const [row] = await dbQuery<{ id: string }>(
+    `insert into public.integration_worker_runs (kind, started_at, finished_at, outcome)
+     values ('reconcile', now() - interval '1 second', now(), 'ok') returning id`,
+  );
+  heartbeats.push(row!.id);
+}
+
 const worker = async (query: string) => {
+  await keepRunning();
   const res = await fetch(`${env!.appBaseUrl}/api/integrations/bitrix/worker${query}`, {
     method: 'POST',
     headers: { authorization: `Bearer ${SECRET}` },
@@ -173,8 +198,21 @@ beforeAll(async () => {
   const [schedule] = await dbQuery<{ enabled: boolean; kick: boolean }>('select enabled, kick_enabled as kick from public.integration_sync_schedule');
   const [job] = await dbQuery<{ active: boolean }>(`select active from cron.job where jobname = 'bitrix-sync'`);
   saved = { enabled: schedule!.enabled, kick: schedule!.kick, jobActive: job?.active ?? null };
-  // No real tick during the run: the test plays the tick itself.
-  await dbQuery(`select cron.alter_job(jobid, active := false) from cron.job where jobname = 'bitrix-sync'`);
+  // Active job + fresh heartbeat = "running" for the alert check (see the header).
+  await dbQuery(`select cron.alter_job(jobid, active := true) from cron.job where jobname = 'bitrix-sync'`);
+  await keepRunning();
+  // No daily full resync during the run (see the header).
+  const open = await dbQuery<{ n: number }>(
+    `select count(*)::int as n from public.integration_resync_jobs where portal_member_id = $1 and status in ('queued', 'running')`,
+    [MEMBER],
+  );
+  if (open[0]!.n > 0) throw new Error('refusing to run: a full resync is open on this stack');
+  await dbQuery(
+    `insert into public.integration_resync_jobs (portal_member_id, reason, status, cutoff_at, category_ids, stage_ids)
+     select c.portal_member_id, 'manual', 'superseded', c.cutoff_at, array[c.category_id]::bigint[], c.eligible_stage_ids
+     from public.integration_intake_config c where c.portal_member_id = $1`,
+    [MEMBER],
+  );
 
   // The kick's Vault values: synthetic, pointing at a closed port inside the database container.
   await dbQuery('select vault.create_secret($1, $2)', ['http://127.0.0.1:9/api/integrations/bitrix/worker', 'bitrix_sync_url']);
@@ -225,8 +263,16 @@ afterAll(async () => {
       );
       await client.query(`delete from public.deals where source_system = 'bitrix' and source_portal = $1 and source_deal_id = any($2::bigint[])`, [MEMBER, used]);
       await client.query(`delete from public.integration_inbox where portal_member_id = $1 and source_deal_id = any($2::bigint[])`, [MEMBER, used]);
-      // This run's event and follow-up calls (machine log rows of the disposable stack).
-      await client.query(`delete from public.integration_sync_dispatches where kind <> 'tick' and dispatched_at >= $1`, [startedAt.toISOString()]);
+      // This run's scheduler, event and follow-up calls and synthetic heartbeats (machine log rows of the disposable stack).
+      await client.query(`delete from public.integration_sync_dispatches where dispatched_at >= $1`, [startedAt.toISOString()]);
+      await client.query('delete from public.integration_worker_runs where id = any($1::uuid[])', [heartbeats]);
+      // The resync guard row and any resync job a full run created.
+      await client.query(
+        `delete from public.integration_resync_seen where job_id in (
+           select id from public.integration_resync_jobs where portal_member_id = $1 and created_at >= $2)`,
+        [MEMBER, startedAt.toISOString()],
+      );
+      await client.query(`delete from public.integration_resync_jobs where portal_member_id = $1 and created_at >= $2`, [MEMBER, startedAt.toISOString()]);
       await client.query('commit');
     } catch (error) {
       await client.query('rollback').catch(() => undefined);
@@ -321,4 +367,16 @@ describe.skipIf(!enabled)('S4: no missed and no doubled Bitrix event (event kick
     expect(rows.length).toBeGreaterThanOrEqual(1);
     expect(rows.filter((r) => !FINISHED(r))).toEqual([]);
   }, 300_000);
+
+  it('the run opened no sync-stopped incident and queued no daily resync on the shared stack', async () => {
+    expect(
+      await dbQuery(`select id from public.integration_sync_incidents where portal_member_id = $1 and opened_at >= $2`, [MEMBER, startedAt.toISOString()]),
+    ).toEqual([]);
+    expect(
+      await dbQuery(
+        `select status from public.integration_resync_jobs where portal_member_id = $1 and created_at >= $2 and status <> 'superseded'`,
+        [MEMBER, startedAt.toISOString()],
+      ),
+    ).toEqual([]);
+  });
 });

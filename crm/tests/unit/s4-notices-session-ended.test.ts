@@ -9,11 +9,16 @@ import {
   NOTICE_ENDED_PROBE_MS,
   NOTICE_ENDED_PROBE_STEADY_MS,
   NOTICE_POLL_MS,
+  NOTICE_READ_OK_CHANNEL,
+  NOTICE_READ_OK_KEY,
+  NOTICE_READ_OK_MESSAGE,
   NoticeSessionEnded,
   endedProbeDelay,
   startNoticeLive,
+  startNoticeReadOkSignal,
   type NoticeChannelStatus,
   type NoticeLiveMode,
+  type NoticeSignalChannel,
 } from '@/modules/notices/live';
 
 /**
@@ -336,5 +341,229 @@ describe('S4 notices: the provider maps a session refusal and exposes the ended 
     expect(line).toMatch(/\{state\.sessionEnded \? \(\s*<TriangleAlert [^>]*\/>\s*\) : \(\s*<RefreshCw [^>]*motion-safe:animate-spin[^>]*\/>\s*\)\}/);
     expect(line.slice(line.indexOf('<TriangleAlert'), line.indexOf('/>', line.indexOf('<TriangleAlert')))).not.toContain('animate-spin');
     expect(src).toMatch(/import \{[^}]*\bNOTICE_ERROR_TEXT\b[^}]*\} from '@\/modules\/notices\/contracts';/);
+  });
+});
+
+describe('S4 notices: another tab read notices ok (review 10b finding 1)', () => {
+  it('sessionOk() while ended probes at once when the last probe is 10 s or more ago, and leaves ended mode', async () => {
+    const h = harness({ answer: 'session' });
+    await vi.advanceTimersByTimeAsync(5_000);
+    const t = h.enteredEndedAt()!;
+    // Probes at 5 and 20 minutes fail; the person signs in again in another tab at minute 21.
+    await vi.advanceTimersByTimeAsync(21 * MIN);
+    const before = h.reads.length;
+    h.set('ok');
+    h.live.sessionOk();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.reads.slice(before).map((r) => r.at - t)).toEqual([21 * MIN]);
+    expect(h.last()).toMatchObject({ mode: 'connecting', stale: false, items: 1 });
+    expect(h.channel.opened).toBe(2);
+    h.live.stop();
+  });
+
+  it('sessionOk() within 10 s of the last probe is deferred to the 10 s mark, never dropped, never doubled', async () => {
+    const h = harness({ answer: 'session' });
+    await vi.advanceTimersByTimeAsync(5_000);
+    h.set('ok');
+    const before = h.reads.length;
+    await vi.advanceTimersByTimeAsync(2_000);
+    h.live.sessionOk();
+    h.live.sessionOk();
+    await vi.advanceTimersByTimeAsync(7_999);
+    expect(h.reads.length).toBe(before);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.reads.map((r) => r.at).slice(before)).toEqual([15_000]);
+    expect(h.last()).toMatchObject({ mode: 'connecting', stale: false });
+    // Nothing else pending from the signal: one read in the next minute besides the channel's own.
+    await vi.advanceTimersByTimeAsync(NOTICE_CONNECT_TIMEOUT_MS - 1);
+    expect(h.reads.length).toBe(before + 1);
+    h.live.stop();
+  });
+
+  it('a deferred sessionOk() probe that still fails keeps ended mode; stop() clears it', async () => {
+    const h = harness({ answer: 'session' });
+    await vi.advanceTimersByTimeAsync(5_000);
+    h.live.sessionOk();
+    await vi.advanceTimersByTimeAsync(NOTICE_ENDED_FOCUS_MIN_MS);
+    expect(h.reads).toHaveLength(3);
+    expect(h.endedStates()).toHaveLength(1);
+    expect(h.last().mode).toBe('ended');
+    h.live.sessionOk();
+    h.live.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('sessionOk() does nothing for a tab that is not ended', async () => {
+    const h = harness({ answer: 'ok' });
+    await vi.advanceTimersByTimeAsync(0);
+    const before = h.reads.length;
+    h.live.sessionOk();
+    await vi.advanceTimersByTimeAsync(NOTICE_ENDED_FOCUS_MIN_MS);
+    expect(h.reads.length).toBe(before + 1); // only the connect-timeout catch-up read
+    expect(h.endedStates()).toHaveLength(0);
+    h.live.stop();
+  });
+
+  /** An in-memory BroadcastChannel bus: delivery to the other channels of the same name, on a later task. */
+  function bus() {
+    const open: Array<NoticeSignalChannel & { name: string; closed: boolean }> = [];
+    const posted: unknown[] = [];
+    const create = (name: string) => {
+      const ch = {
+        name,
+        closed: false,
+        onmessage: null as NoticeSignalChannel['onmessage'],
+        postMessage: (message: unknown) => {
+          posted.push(message);
+          for (const other of open) {
+            if (other !== ch && other.name === name && !other.closed) setTimeout(() => other.onmessage?.({ data: message }), 0);
+          }
+        },
+        close: () => {
+          ch.closed = true;
+        },
+      };
+      open.push(ch);
+      return ch;
+    };
+    return { create, open, posted };
+  }
+
+  /** Two tabs sharing one sign-in (cookies) and one signal bus, wired like the provider. */
+  function twoTabs() {
+    const b = bus();
+    let signedIn = false;
+    const tab = () => {
+      const reads: number[] = [];
+      const modes: NoticeLiveMode[] = [];
+      let signal: ReturnType<typeof startNoticeReadOkSignal> | null = null;
+      const live = startNoticeLive({
+        read: async () => {
+          reads.push(Date.now());
+          if (!signedIn) throw new NoticeSessionEnded();
+          signal?.post();
+          return inbox(7);
+        },
+        onState: (s) => {
+          if (modes[modes.length - 1] !== s.mode) modes.push(s.mode);
+        },
+        subscribe: () => () => undefined,
+      });
+      signal = startNoticeReadOkSignal(() => live.sessionOk(), { createChannel: b.create });
+      return { live, reads, modes, signal, mode: () => modes[modes.length - 1] };
+    };
+    const a = tab();
+    const c = tab();
+    return { a, b: c, bus: b, signIn: () => { signedIn = true; } };
+  }
+
+  it('two ended tabs: signing in again in tab B brings background tab A back at once, not at its next hourly probe', async () => {
+    const t = twoTabs();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(t.a.mode()).toBe('ended');
+    expect(t.b.mode()).toBe('ended');
+    await vi.advanceTimersByTimeAsync(21 * MIN - 5_000);
+    const aBefore = t.a.reads.length;
+    // The person signs in again in tab B and looks at it (focus probe); tab A stays in the background.
+    t.signIn();
+    t.b.live.focus();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(t.b.mode()).toBe('connecting');
+    expect(t.bus.posted).toContain(NOTICE_READ_OK_MESSAGE);
+    expect(t.a.reads.length, 'tab A probed on the signal').toBe(aBefore + 1);
+    expect(t.a.reads[aBefore]! - 21 * MIN).toBeLessThanOrEqual(1_000);
+    expect(t.a.mode()).toBe('connecting');
+    // Both poll again.
+    const a1 = t.a.reads.length;
+    await vi.advanceTimersByTimeAsync(NOTICE_POLL_MS);
+    expect(t.a.reads.length).toBeGreaterThan(a1);
+    t.a.live.stop();
+    t.b.live.stop();
+    t.a.signal.stop();
+    t.b.signal.stop();
+  });
+
+  it('two signed-out tabs never signal each other: each reads at most 30 times in 24 hours', async () => {
+    const t = twoTabs();
+    await vi.advanceTimersByTimeAsync(24 * HOUR);
+    expect(t.bus.posted).toEqual([]);
+    expect(t.a.reads.length).toBeLessThanOrEqual(30);
+    expect(t.b.reads.length).toBeLessThanOrEqual(30);
+    t.a.live.stop();
+    t.b.live.stop();
+  });
+});
+
+describe('S4 notices: the read-ok signal adapter', () => {
+  it('BroadcastChannel: posts a constant with no data, reacts only to that message, closes on stop', async () => {
+    const created: string[] = [];
+    const box: { ch: (NoticeSignalChannel & { sent: unknown[]; closed: boolean }) | null } = { ch: null };
+    const onOk = vi.fn<() => void>();
+    const signal = startNoticeReadOkSignal(onOk, {
+      createChannel: (name) => {
+        created.push(name);
+        const made = { sent: [] as unknown[], closed: false, onmessage: null as NoticeSignalChannel['onmessage'],
+          postMessage: (m: unknown) => { made.sent.push(m); }, close: () => { made.closed = true; } };
+        box.ch = made;
+        return made;
+      },
+      storage: () => { throw new Error('storage must not be used with a channel'); },
+    });
+    expect(created).toEqual([NOTICE_READ_OK_CHANNEL]);
+    const ch = box.ch!;
+    signal.post();
+    expect(ch.sent).toEqual(['read-ok']);
+    ch.onmessage!({ data: 'something else' });
+    ch.onmessage!({ data: { kind: 'read-ok' } });
+    expect(onOk).not.toHaveBeenCalled();
+    ch.onmessage!({ data: NOTICE_READ_OK_MESSAGE });
+    expect(onOk).toHaveBeenCalledTimes(1);
+    signal.stop();
+    expect(ch.closed).toBe(true);
+    ch.onmessage!({ data: NOTICE_READ_OK_MESSAGE });
+    signal.post();
+    expect(onOk).toHaveBeenCalledTimes(1);
+    expect(ch.sent).toHaveLength(1);
+  });
+
+  it('without BroadcastChannel (or when creating it throws): a localStorage time and the storage event of other tabs', () => {
+    const writes: Array<[string, string]> = [];
+    const hooks: { listener: ((key: string | null) => void) | null; unlistened: boolean } = { listener: null, unlistened: false };
+    const onOk = vi.fn<() => void>();
+    const signal = startNoticeReadOkSignal(onOk, {
+      createChannel: () => { throw new Error('not supported'); },
+      storage: () => ({ setItem: (k, v) => writes.push([k, v]) }),
+      listenStorage: (fn) => {
+        hooks.listener = fn;
+        return () => { hooks.unlistened = true; };
+      },
+      now: () => 1_234,
+    });
+    signal.post();
+    expect(writes).toEqual([[NOTICE_READ_OK_KEY, '1234']]);
+    const listener = hooks.listener!;
+    listener('tn-notice-sound-at');
+    listener(null);
+    expect(onOk).not.toHaveBeenCalled();
+    listener(NOTICE_READ_OK_KEY);
+    expect(onOk).toHaveBeenCalledTimes(1);
+    signal.stop();
+    expect(hooks.unlistened).toBe(true);
+  });
+
+  it('no channel and blocked storage: post and stop never throw', () => {
+    const signal = startNoticeReadOkSignal(() => undefined, { createChannel: null, storage: () => { throw new Error('blocked'); }, listenStorage: null });
+    expect(() => signal.post()).not.toThrow();
+    expect(() => signal.stop()).not.toThrow();
+  });
+
+  it('the provider posts on every successful read, wires the signal to sessionOk, stops it, and probes on focus and on visible', () => {
+    const src = readFileSync(join(process.cwd(), 'src/views/notices/provider.tsx'), 'utf8');
+    expect(src).toMatch(/if \(r\.ok\) \{\s*\/\/[^\n]*\n\s*readOk\?\.post\(\);\s*return r\.data;\s*\}/);
+    expect(src).toContain('readOk = startNoticeReadOkSignal(() => handle.sessionOk());');
+    expect(src).toContain('readOk?.stop();');
+    expect(src).toContain('const onFocus = () => handle.focus();');
+    expect(src).toMatch(/if \(document\.visibilityState === 'visible'\) handle\.focus\(\);/);
+    expect(src).toContain("document.addEventListener('visibilitychange', onVisible);");
   });
 });

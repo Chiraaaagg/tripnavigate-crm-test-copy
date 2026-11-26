@@ -397,10 +397,14 @@ describe.skipIf(!dbUrl)('S4 event kick, cadence, prune job and reverse scripts (
 
     it('prune_machine_logs removes old pg_cron run history (end time, or start time when it never ended) and keeps recent runs', async () => {
       await rolledBack(async () => {
+        // runid is given explicitly: postgres may insert into the table but has no USAGE on
+        // pg_cron's cron.runid_seq on the Supabase stack (CI run 45850197025).
         const insert = (start: string, end: string | null, message: string) =>
           q(
-            `insert into cron.job_run_details (jobid, job_pid, database, username, command, status, return_message, start_time, end_time)
-             values (0, 0, current_database(), current_user, 'select 1', 'succeeded', $1, now() - $2::interval, now() - $3::interval)`,
+            `insert into cron.job_run_details (jobid, runid, job_pid, database, username, command, status, return_message, start_time, end_time)
+             select 0, coalesce(max(d.runid), 0) + 1000000, 0, current_database(), current_user, 'select 1', 'succeeded', $1,
+                    now() - $2::interval, now() - $3::interval
+             from cron.job_run_details d`,
             [message, start, end],
           );
         await insert('20 days', '20 days', 's4 synthetic old');

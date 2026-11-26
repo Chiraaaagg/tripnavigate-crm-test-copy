@@ -3430,13 +3430,13 @@ isOneToOne: false
                   ]
                 },"integration_sync_dispatches": {
                   Row: {
-                    "answered_at": string | null,"dispatched_at": string,"ok": boolean | null,"reason": string | null,"request_id": number,"status_code": number | null
+                    "answered_at": string | null,"dispatched_at": string,"kind": string,"ok": boolean | null,"reason": string | null,"request_id": number,"status_code": number | null
                   }
                   Insert: {
-                    "answered_at"?: string | null,"dispatched_at"?: string,"ok"?: boolean | null,"reason"?: string | null,"request_id": number,"status_code"?: number | null
+                    "answered_at"?: string | null,"dispatched_at"?: string,"kind"?: string,"ok"?: boolean | null,"reason"?: string | null,"request_id": number,"status_code"?: number | null
                   }
                   Update: {
-                    "answered_at"?: string | null,"dispatched_at"?: string,"ok"?: boolean | null,"reason"?: string | null,"request_id"?: number,"status_code"?: number | null
+                    "answered_at"?: string | null,"dispatched_at"?: string,"kind"?: string,"ok"?: boolean | null,"reason"?: string | null,"request_id"?: number,"status_code"?: number | null
                   }
                   Relationships: [
                     
@@ -3487,13 +3487,13 @@ isOneToOne: false
                   ]
                 },"integration_sync_schedule": {
                   Row: {
-                    "enabled": boolean,"id": boolean,"last_dispatched_at": string | null,"last_request_id": number | null,"updated_at": string
+                    "enabled": boolean,"id": boolean,"interval_seconds": number,"kick_enabled": boolean,"last_dispatched_at": string | null,"last_request_id": number | null,"log_retention_days": number,"updated_at": string
                   }
                   Insert: {
-                    "enabled"?: boolean,"id"?: boolean,"last_dispatched_at"?: string | null,"last_request_id"?: number | null,"updated_at"?: string
+                    "enabled"?: boolean,"id"?: boolean,"interval_seconds"?: number,"kick_enabled"?: boolean,"last_dispatched_at"?: string | null,"last_request_id"?: number | null,"log_retention_days"?: number,"updated_at"?: string
                   }
                   Update: {
-                    "enabled"?: boolean,"id"?: boolean,"last_dispatched_at"?: string | null,"last_request_id"?: number | null,"updated_at"?: string
+                    "enabled"?: boolean,"id"?: boolean,"interval_seconds"?: number,"kick_enabled"?: boolean,"last_dispatched_at"?: string | null,"last_request_id"?: number | null,"log_retention_days"?: number,"updated_at"?: string
                   }
                   Relationships: [
                     
@@ -7755,6 +7755,9 @@ isOneToOne: false
                            },
 "integration_sync_alert_mark_sent":
 { Args: { "p_incident": string,"p_kind": string }; Returns: undefined
+                           },
+"integration_sync_request_followup":
+{ Args: { "p_kind"?: string }; Returns: Json
                            },
 "integration_unlink_bitrix_user":
 { Args: { "p_staff_user_id": string }; Returns: Json

@@ -346,9 +346,12 @@ describe('drainInbox (S4: the drain of a sync run, also the event run on its own
       ['worker', 'event'],
       ['worker', 'event'],
     ]);
-    // No resync step, no update pass: one prefetch list per batch only.
+    // No resync step, no update pass: one prefetch list per batch of two or
+    // more rows only; the last batch holds one row, read with crm.deal.get
+    // (prefetchDeals skips a single-row batch).
     expect(db.calls.some((c) => c.fn === 'integration_resync_next')).toBe(false);
-    expect(calls('crm.deal.list')).toBe(3);
+    expect(calls('crm.deal.list')).toBe(2);
+    expect(calls('crm.deal.get')).toBe(1);
   });
 
   it('a deadline already passed starts no batch; a failed claim stops with claimFailure and never throws', async () => {

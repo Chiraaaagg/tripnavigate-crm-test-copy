@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { isShownUrgent, isUnread, noticeText, type NoticeInboxDTO, type NoticeItemDTO, type NoticeMarkAction } from '@/modules/notices/contracts';
 import { fetchNoticeHistory, fetchNoticeInbox, fetchRealtimeToken } from '@/modules/notices/feed-client';
 import { groupNotices, type GroupedNotices } from '@/modules/notices/group';
-import { NoticeSessionEnded, startNoticeLive, type NoticeLiveHandle } from '@/modules/notices/live';
+import { NoticeSessionEnded, startNoticeLive, startNoticeReadOkSignal, type NoticeLiveHandle, type NoticeReadOkSignal } from '@/modules/notices/live';
 import { announcement, decideSound } from '@/modules/notices/sound-policy';
 import { askPopupPermission, popupAlreadyAsked, popupPermission, popupsSupported, showPopups } from '@/modules/notices/popup-browser';
 import { decidePopup, nextPoppedSeq, type PopupPermission } from '@/modules/notices/popup-policy';
@@ -31,7 +31,11 @@ import type { NoticeHistory, NoticesConfig } from './types';
  * the live state is 'ended': no 30-second poll and no Realtime channel, only
  * slow probes. `sessionEnded` is then true (and `stale` stays true), so the
  * bell's stale line can show "Your session has ended. Sign in again." instead
- * of the "retrying" text; the first successful probe clears both.
+ * of the "retrying" text; the first successful probe clears both. Every
+ * successful read posts a cross-tab "read ok" signal; an ended tab receiving
+ * it probes at once (review 10b finding 1: the person signed in again in
+ * another tab, and the ended tab may be the sound / pop-up leader). A tab
+ * coming back to view (focus or visibilitychange) probes at once too.
  *
  * Accounts phase 2 (contract 8.4, 8.5): urgent notices also show a desktop
  * pop-up from the same leader tab when the CRM tab is not in front. Sound
@@ -194,6 +198,7 @@ function NoticesHost({ config }: { config: NoticesConfig }) {
     if (!hasApi || preview) return;
     startSoundLeader();
     let client: ReturnType<typeof createClient> | null = null;
+    let readOk: NoticeReadOkSignal | null = null;
     const handle = startNoticeLive({
       read: async (afterSeq) => {
         const current = apiRef.current;
@@ -201,7 +206,11 @@ function NoticesHost({ config }: { config: NoticesConfig }) {
         // Track C: reads go through GET /api/notices, never a Server Action, so the
         // poll and catch-up never queue with the page's own actions.
         const r = await (current.inbox ?? fetchNoticeInbox)(afterSeq);
-        if (r.ok) return r.data;
+        if (r.ok) {
+          // Tells ended tabs (signed out, then signed in again here) to probe now.
+          readOk?.post();
+          return r.data;
+        }
         // An ended session: the live state machine stops polling after a second one in a row.
         if (r.code === 'session') throw new NoticeSessionEnded();
         // Any other refusal keeps the last list and retries with back-off.
@@ -229,12 +238,18 @@ function NoticesHost({ config }: { config: NoticesConfig }) {
           .channel(`notices-${rt.userId}`)
           .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_notices', filter: `recipient_user_id=eq.${rt.userId}` }, () => onChange())
           .subscribe((status) => onStatus(status as Parameters<typeof onStatus>[0]));
+        // Removing the last channel closes the socket too (realtime-js 2.117.2:
+        // channel close -> RealtimeClient._remove -> disconnect after
+        // disconnectOnEmptyChannelsAfterMs, default 2 x 25 s heartbeat), so an
+        // ended tab sends no heartbeats and asks for no token. Library code only;
+        // not covered by a test here (review 10b finding 6: check the request logs on day 1).
         return () => {
           void client?.removeChannel(channel);
         };
       },
     });
     live.current = handle;
+    readOk = startNoticeReadOkSignal(() => handle.sessionOk());
     const onFocus = () => handle.focus();
     const onVisible = () => {
       if (document.visibilityState === 'visible') handle.focus();
@@ -244,6 +259,8 @@ function NoticesHost({ config }: { config: NoticesConfig }) {
     return () => {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisible);
+      readOk?.stop();
+      readOk = null;
       handle.stop();
       live.current = null;
       void client?.removeAllChannels();
