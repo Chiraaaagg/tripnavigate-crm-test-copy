@@ -261,7 +261,7 @@ create table public.file_bitrix_moves (
   constraint file_bitrix_moves_copy_fact_check check (crm_copy_present or deleted_at is not null),
   constraint file_bitrix_moves_after_append_check check (state not in ('delete_pending','deleted') or reverified_after_append_at is not null),
   constraint file_bitrix_moves_lease_check check ((lease_token is null) = (locked_until is null)),
-  constraint file_bitrix_moves_lease_mode_check check ((lease_token is null) = (lease_mode is null)),
+  constraint file_bitrix_moves_lease_mode_pair check ((lease_token is null) = (lease_mode is null)),
   constraint file_bitrix_moves_target_check check (state in ('no_target', 'cancelled') or source_deal_id is not null),
   constraint file_bitrix_moves_box_check check (state in ('no_target', 'waiting', 'cancelled') or bitrix_field is not null),
   constraint file_bitrix_moves_due_check check (file_class <> 'accounts' or state <> 'waiting' or due_at is not null)

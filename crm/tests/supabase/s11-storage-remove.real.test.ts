@@ -66,7 +66,7 @@ const objectRow = (name: string) =>
   ownerQuery<{ size: string | null }>(`select metadata ->> 'size' as size from storage.objects where bucket_id = $1 and name = $2`, [BUCKET, name]);
 
 async function upload(path: string, bytes: Uint8Array): Promise<void> {
-  const { error } = await stack!.admin().storage.from(BUCKET).upload(path, new Blob([bytes], { type: 'application/pdf' }), {
+  const { error } = await stack!.admin().storage.from(BUCKET).upload(path, new Blob([new Uint8Array(bytes)], { type: 'application/pdf' }), {
     contentType: 'application/pdf',
     upsert: false,
   });
