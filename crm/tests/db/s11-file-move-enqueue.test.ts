@@ -289,6 +289,8 @@ describe('listing never blocks staff work', () => {
       await one(SVC, SQL.sweep, []);
       expect(await s.moveOf('refund_evidence', file.id)).toBeUndefined();
       await s.settings({ enqueue: true });
+      // The sweep lists only files stored after install; this file was stored a day ago.
+      await owner(`update public.file_move_kick_state set installed_at = now() - interval '2 days' where id`);
       await one(SVC, SQL.sweep, []);
       expect(await s.moveOf('refund_evidence', file.id)).toMatchObject({ state: 'waiting', enqueued_by: 'sweep' });
     });

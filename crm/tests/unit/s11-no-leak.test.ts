@@ -202,7 +202,8 @@ function assertClean(label: string, summary: FileMoveSummary, calls: Recorded[])
   for (const s of SECRETS) expect(text, `${label}: result`).not.toMatch(s);
   for (const id of BITRIX_IDS) expect(text, `${label}: result`).not.toContain(id);
   for (const c of calls) {
-    const all = JSON.stringify(c.args);
+    // Values only: argument names such as p_lease_token are not data.
+    const all = JSON.stringify(Object.values(c.args));
     for (const s of SECRETS) expect(all, `${label}: ${c.fn}`).not.toMatch(s);
     for (const [key, value] of Object.entries(c.args)) {
       if (key === 'p_error_code' && value !== null) expect(String(value), `${label}: ${c.fn} error code`).toMatch(/^[a-z_]{1,60}$/);

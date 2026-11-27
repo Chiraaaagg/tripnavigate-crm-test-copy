@@ -8,7 +8,6 @@ import { EVIDENCE_MAX_BYTES, EVIDENCE_MIME_TYPES } from '@/modules/fulfilment/co
 import { sniffEvidenceMime } from '@/modules/fulfilment/evidence';
 import type { StaffContext } from '@/modules/identity/server/session';
 import type { BitrixFileReader, BoxEntry, DownloadResult, ReadBoxResult } from '@/modules/integration/bitrix/file-store';
-import { openBitrixFileReader } from '@/modules/integration/server/file-store-access';
 import { fileUnavailableHtml } from '@/views/files/file-unavailable-page';
 
 /**
@@ -328,6 +327,9 @@ async function bitrixAnswer(input: DeliverFileInput, file: AuthorizedFile, viewI
 
   let reader: BitrixFileReader | null;
   try {
+    // Loaded only on the Bitrix path, so the nine handlers do not load the
+    // Bitrix integration configuration for files kept in the CRM.
+    const { openBitrixFileReader } = await import('@/modules/integration/server/file-store-access');
     reader = await openBitrixFileReader({ timeoutMs: BITRIX_VIEW_TIMEOUT_MS });
   } catch {
     reader = null;

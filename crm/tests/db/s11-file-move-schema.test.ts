@@ -214,21 +214,28 @@ describe('file_bitrix_moves constraints and guards', () => {
   }
   const violates = (sets: string, id: string, re: RegExp, code = '23514') =>
     expectDbError(db, () => s.setMove(id, sets), { code, message: re });
-  const CHECKED = `bitrix_file_id = 501, verified_sha256 = m.sha256, verified_size_bytes = m.size_bytes,
-    verified_at = now() - interval '40 minutes', delete_after = now() - interval '25 minutes'`;
-  const RECHECKED = `reverified_sha256 = m.sha256, reverified_size_bytes = m.size_bytes, reverified_at = now() - interval '20 minutes',
-    reverified_after_append_at = now() - interval '21 minutes'`;
+  const CHECKED_SETS: Record<string, string> = {
+    bitrix_file_id: '501', verified_sha256: 'm.sha256', verified_size_bytes: 'm.size_bytes',
+    verified_at: "now() - interval '40 minutes'", delete_after: "now() - interval '25 minutes'",
+  };
+  const RECHECKED_SETS: Record<string, string> = {
+    reverified_sha256: 'm.sha256', reverified_size_bytes: 'm.size_bytes', reverified_at: "now() - interval '20 minutes'",
+    reverified_after_append_at: "now() - interval '21 minutes'",
+  };
+  /** One SET list; a later value for the same column replaces the earlier one (no column is assigned twice). */
+  const sets = (...parts: Array<Record<string, string>>) =>
+    Object.entries(Object.assign({}, ...parts) as Record<string, string>).map(([k, v]) => `${k} = ${v}`).join(', ');
 
   it('first check: verified needs a matching observation, a Bitrix id and a hold of at least 15 minutes', async () => {
     await asOwner(db, async () => {
       const { id } = await identityRow(993101);
       await violates(`state = 'verified'`, id, /file_bitrix_moves_first_check/);
-      await violates(`state = 'verified', ${CHECKED}, verified_sha256 = repeat('0', 64)`, id, /file_bitrix_moves_first_check/);
-      await violates(`state = 'verified', ${CHECKED}, verified_size_bytes = m.size_bytes + 1`, id, /file_bitrix_moves_first_check/);
-      await violates(`state = 'verified', ${CHECKED}, bitrix_file_id = null`, id, /file_bitrix_moves_first_check/);
+      await violates(sets({ state: "'verified'" }, CHECKED_SETS, { verified_sha256: "repeat('0', 64)" }), id, /file_bitrix_moves_first_check/);
+      await violates(sets({ state: "'verified'" }, CHECKED_SETS, { verified_size_bytes: "m.size_bytes + 1" }), id, /file_bitrix_moves_first_check/);
+      await violates(sets({ state: "'verified'" }, CHECKED_SETS, { bitrix_file_id: "null" }), id, /file_bitrix_moves_first_check/);
       // A hold of 14 minutes is refused by the constraint itself (15 is hard coded).
-      await violates(`state = 'verified', ${CHECKED}, delete_after = now() - interval '26 minutes'`, id, /file_bitrix_moves_first_check/);
-      await s.setMove(id, `state = 'verified', ${CHECKED}`);
+      await violates(sets({ state: "'verified'" }, CHECKED_SETS, { delete_after: "now() - interval '26 minutes'" }), id, /file_bitrix_moves_first_check/);
+      await s.setMove(id, sets({ state: "'verified'" }, CHECKED_SETS));
       expect((await s.move(id)).state).toBe('verified');
     });
   });
@@ -237,19 +244,19 @@ describe('file_bitrix_moves constraints and guards', () => {
     await asOwner(db, async () => {
       const { id } = await identityRow(993102);
       // One observation only.
-      await violates(`state = 'delete_pending', ${CHECKED}, reverified_after_append_at = now()`, id, /file_bitrix_moves_second_check/);
+      await violates(sets({ state: "'delete_pending'" }, CHECKED_SETS, { reverified_after_append_at: "now()" }), id, /file_bitrix_moves_second_check/);
       // The second observation before delete_after.
-      await violates(`state = 'delete_pending', ${CHECKED}, ${RECHECKED}, reverified_at = now() - interval '26 minutes'`, id,
+      await violates(sets({ state: "'delete_pending'" }, CHECKED_SETS, RECHECKED_SETS, { reverified_at: "now() - interval '26 minutes'" }), id,
         /file_bitrix_moves_second_check/);
       // A different hash at the second observation.
-      await violates(`state = 'delete_pending', ${CHECKED}, ${RECHECKED}, reverified_sha256 = repeat('1', 64)`, id,
+      await violates(sets({ state: "'delete_pending'" }, CHECKED_SETS, RECHECKED_SETS, { reverified_sha256: "repeat('1', 64)" }), id,
         /file_bitrix_moves_second_check/);
       // Pinned in the CRM.
-      await violates(`state = 'delete_pending', ${CHECKED}, ${RECHECKED}, keep_in_crm = true`, id, /file_bitrix_moves_second_check/);
+      await violates(sets({ state: "'delete_pending'" }, CHECKED_SETS, RECHECKED_SETS, { keep_in_crm: "true" }), id, /file_bitrix_moves_second_check/);
       // Not proved later than the last append.
-      await violates(`state = 'delete_pending', ${CHECKED}, ${RECHECKED}, reverified_after_append_at = null`, id,
+      await violates(sets({ state: "'delete_pending'" }, CHECKED_SETS, RECHECKED_SETS, { reverified_after_append_at: "null" }), id,
         /file_bitrix_moves_after_append_check/);
-      await s.setMove(id, `state = 'delete_pending', ${CHECKED}, ${RECHECKED}`);
+      await s.setMove(id, sets({ state: "'delete_pending'" }, CHECKED_SETS, RECHECKED_SETS));
       expect((await s.move(id)).state).toBe('delete_pending');
     });
   });
@@ -257,7 +264,7 @@ describe('file_bitrix_moves constraints and guards', () => {
   it('deleted needs deleted_at and no CRM copy; the CRM copy fact changes only under the confirm functions\' flag', async () => {
     await asOwner(db, async () => {
       const { id } = await identityRow(993103);
-      await s.setMove(id, `state = 'delete_pending', ${CHECKED}, ${RECHECKED}`);
+      await s.setMove(id, sets({ state: "'delete_pending'" }, CHECKED_SETS, RECHECKED_SETS));
       await violates(`state = 'deleted', deleted_at = now()`, id, /file_bitrix_moves_deleted_check/);
       // Direct change of crm_copy_present is refused by the guard (42501).
       await violates(`crm_copy_present = false, deleted_at = now()`, id, /crm_copy_present is written only by/, '42501');
@@ -296,7 +303,8 @@ describe('file_bitrix_moves constraints and guards', () => {
       const { deal, id } = await identityRow(993105);
       expect((await s.move(id)).bitrix_field).toBe(ID_BOX);
       await violates(`bitrix_field = '${ACC_BOX}'`, id, /bitrix_field must be the identity box/);
-      await violates(`bitrix_field = 'not a key'`, id, /file_bitrix_moves_bitrix_field_check/);
+      // The box trigger runs before the column check and refuses with its own words.
+      await violates(`bitrix_field = 'not a key'`, id, /file_bitrix_moves_bitrix_field_check|bitrix_field must be/);
       // Class B: no box configured yet.
       const refund = await s.refundFile(deal, { storedDaysAgo: 1 });
       const acc = await s.moveIdOf('refund_evidence', refund.id);
