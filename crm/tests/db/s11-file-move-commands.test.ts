@@ -900,7 +900,7 @@ describe('Super Admin commands', () => {
   it('alerts count orphaned moves: rows whose CRM deal row no longer exists (no foreign key)', async () => {
     await asOwner(db, async () => {
       const d = await dealWithRows(993379, 2);
-      const count = async () => (await one<{ counts: Record<string, number> }>(SUPER, SQL.alerts, [])).counts.orphaned;
+      const count = async () => (await one<{ counts: Record<string, number> }>(SUPER, SQL.alerts, [])).counts.orphaned ?? -1;
       const before = await count();
       // Owner SQL inside the rolled-back transaction: one row points at a deal id with no deals row.
       await s.setMove(d.rows[0]!.id, 'deal_id = gen_random_uuid()');
