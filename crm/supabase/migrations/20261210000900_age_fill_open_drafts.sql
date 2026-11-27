@@ -2,8 +2,9 @@
 -- one-time fill of the age of children and infants on OPEN DRAFTS.
 --
 -- LIVE DATA WRITE. Applied only with the owner's own APPROVE for this step,
--- separately from 20261210000100 and 20261210000200 (it is numbered last so
--- the two schema migrations can be applied and this one held).
+-- separately from the schema migrations 20261210000100, 20261210000200 and
+-- 20261210000300 (it is numbered last so those can be applied and this one
+-- held).
 --
 -- What it writes: deal_travellers.age_years, only where all of these hold:
 -- the traveller is a child or infant, has no stored age, has a saved date of

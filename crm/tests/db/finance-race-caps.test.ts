@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { withDestination } from './finance-support';
+import { policyInForceFromTransactionStart, withDestination } from './finance-support';
 import {
   type Actor,
   FIXTURE_DEALS as D,
@@ -137,12 +137,15 @@ const cheque = (branchId: string, micr: string, number: string, extra: Fields = 
 
 /** Policy manager sets caps effective now (same transaction timestamp). */
 async function setPolicy(fields: Fields): Promise<{ id: string; rowVersion: number }> {
-  return one(ADMIN, 'select public.finance_policy_update($1, $2::jsonb, null, $3, $4) as r', [
+  const result = await one<{ id: string; rowVersion: number }>(ADMIN, 'select public.finance_policy_update($1, $2::jsonb, null, $3, $4) as r', [
     await hcEntity(),
     JSON.stringify(fields),
     'Synthetic policy change for verification tests',
     rid(),
   ]);
+  // G19: in force for the receipts this same transaction records next.
+  await policyInForceFromTransactionStart(db, result.id);
+  return result;
 }
 
 let shaSeq = 0;

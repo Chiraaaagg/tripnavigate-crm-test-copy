@@ -89,6 +89,26 @@ export async function withDestination(db: TestDb, dealId: string, fields: Fields
 }
 export const rid = () => crypto.randomUUID();
 
+/**
+ * G19 (20261210000300): a policy version is effective from the time
+ * finance_policy_update held the policy head lock, which inside one
+ * transaction is after that transaction's now(). Receipts read the policy as
+ * of their transaction start, so in a scenario that changes the policy and
+ * then records receipts in the SAME rolled-back transaction (only tests do
+ * this), the new version is moved back to the transaction start, as if it
+ * had been committed just before. Owner only; the append-only guard is
+ * suspended for this one statement and the change is rolled back with the
+ * scenario.
+ */
+export async function policyInForceFromTransactionStart(db: TestDb, versionId: string): Promise<void> {
+  await db.query('alter table public.finance_policy_versions disable trigger finance_policy_versions_append_only');
+  try {
+    await db.query('update public.finance_policy_versions set effective_at = now() where id = $1 and effective_at >= now()', [versionId]);
+  } finally {
+    await db.query('alter table public.finance_policy_versions enable trigger finance_policy_versions_append_only');
+  }
+}
+
 export function financeHelpers(getDb: () => TestDb) {
   const db = () => getDb();
 

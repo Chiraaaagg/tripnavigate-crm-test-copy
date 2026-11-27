@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { UNRESOLVED_CASH_KINDS, type UnresolvedCashKind } from '@/modules/finance/contracts';
 import { AccountsQueueItemSchema, AccountsQueuePageSchema, CashOverviewSchema } from '@/modules/finance/dto';
 import { type TestDb, asOwner, createTestDb } from '../helpers/db';
-import { ACC, ACC2, DEAL, DEAL2, DEAL3, SUPER, daysAgo, financeHelpers, rid, today } from './finance-support';
+import { ACC, ACC2, DEAL, DEAL2, DEAL3, SUPER, daysAgo, financeHelpers, policyInForceFromTransactionStart, rid, today } from './finance-support';
 
 /**
  * Phase 5B Milestone A (phase-5b-milestone-a.md sections 2 and 3; audit
@@ -126,7 +126,7 @@ describe('reconciliation obligations never expire (audit finding 6)', () => {
       await h.addSecondAccounts();
       await h.verifiedCash(DEAL, { receivedOn: daysAgo(2) });
       // From now on reconciliation is not required; earlier dates keep their obligation.
-      await h.one(SUPER, POLICY, [await h.entityId(), JSON.stringify({ reconciliationRequired: false }), null, 'Synthetic: pause daily counts', rid()]);
+      await policyInForceFromTransactionStart(db, (await h.one<{ id: string }>(SUPER, POLICY, [await h.entityId(), JSON.stringify({ reconciliationRequired: false }), null, 'Synthetic: pause daily counts', rid()])).id); // G19
       await shiftToday(5);
       const jdh = await branchView('JDH');
       expect(datesOf(jdh.unresolved, 'reconciliation_missing')).toEqual([daysAgo(2), daysAgo(1)]);
@@ -184,7 +184,7 @@ describe('late reconciliation of an outstanding obligation (lead decision, secti
       await h.addSecondAccounts();
       const jdh = await h.branchId('JDH');
       await h.verifiedCash(DEAL, { receivedOn: daysAgo(2) });
-      await h.one(SUPER, POLICY, [await h.entityId(), JSON.stringify({ reconciliationRequired: false }), null, 'Synthetic: pause daily counts', rid()]);
+      await policyInForceFromTransactionStart(db, (await h.one<{ id: string }>(SUPER, POLICY, [await h.entityId(), JSON.stringify({ reconciliationRequired: false }), null, 'Synthetic: pause daily counts', rid()])).id); // G19
       await shiftToday(120);
       // today() (real) is now 120 days old, and not required by the policy in force at its end.
       await h.refused(ACC, REC, [jdh, today(), '1000000', null, rid()], '22023', 'invalid_input');
@@ -261,7 +261,7 @@ describe('a date whose every row is stale stays clearable (contract section 11)'
       await h.addSecondAccounts();
       const branch = await h.branchId('JDH');
       // Reconciliation not required from now on: today's date never becomes an obligation.
-      await h.one(SUPER, POLICY, [await h.entityId(), JSON.stringify({ reconciliationRequired: false }), null, 'Synthetic: pause daily counts', rid()]);
+      await policyInForceFromTransactionStart(db, (await h.one<{ id: string }>(SUPER, POLICY, [await h.entityId(), JSON.stringify({ reconciliationRequired: false }), null, 'Synthetic: pause daily counts', rid()])).id); // G19
       await h.verifiedCash(DEAL, { receivedOn: today() });
       const rec = await h.one<{ id: string }>(ACC, REC, [branch, today(), '1000000', null, rid()]);
       await h.one(ACC2, VERIFY_REC, [rec.id, rid()]);

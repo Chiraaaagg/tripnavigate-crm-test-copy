@@ -7,7 +7,7 @@ import {
   FinancePolicyPageSchema,
 } from '@/modules/finance/dto';
 import { type TestDb, asOwner, createTestDb } from '../helpers/db';
-import { ACC, ACC2, ANON, DEAL, DEAL2, PURCHASE, SALES, SUPER, daysAgo, financeHelpers, rid, sha, today } from './finance-support';
+import { ACC, ACC2, ANON, DEAL, DEAL2, PURCHASE, SALES, SUPER, daysAgo, financeHelpers, policyInForceFromTransactionStart, rid, sha, today } from './finance-support';
 import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
@@ -346,6 +346,7 @@ describe('finance policy', () => {
       await h.refused(SUPER, POLICY, [entity, '{}', null, 'short', rid()], '22023', 'invalid_input');
       const v2 = await h.one<{ rowVersion: number; status: string }>(SUPER, POLICY, [entity, JSON.stringify({ cashPayerDayCapPaise: '2000000' }), null, 'Synthetic lower payer cap', rid()]);
       expect(v2).toMatchObject({ outcome: 'created', rowVersion: 2, status: 'effective' });
+      await policyInForceFromTransactionStart(db, (v2 as unknown as { id: string }).id); // G19: same transaction
       const future = new Date(Date.now() + 7 * 86_400_000).toISOString();
       const v3 = await h.one<{ rowVersion: number; status: string }>(SUPER, POLICY, [entity, JSON.stringify({ cashDepositDays: 2 }), future, 'Synthetic scheduled change', rid()]);
       expect(v3).toMatchObject({ rowVersion: 3, status: 'scheduled' });

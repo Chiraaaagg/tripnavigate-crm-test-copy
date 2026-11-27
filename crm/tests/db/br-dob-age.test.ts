@@ -7,7 +7,7 @@ import { IDENTITY_SQL, b11Helpers, rid } from './b11-support';
 
 /**
  * Booking reliability fix batch 2, B2-1 (migrations 20261210000100 and
- * 20261210000290; build contract section 6 and addendum 1 Q4): the age of a
+ * 20261210000900; build contract section 6 and addendum 1 Q4): the age of a
  * child or infant comes from the saved date of birth on the trip start of the
  * open draft; a typed age counts only without one; readiness accepts a date
  * of birth; a confirmed version's snapshot never changes; the one-time fill
@@ -29,7 +29,7 @@ const { one, owner } = h;
 
 const MIGRATIONS = join(import.meta.dirname, '..', '..', 'supabase', 'migrations');
 const AGE_MIGRATION = '20261210000100_age_from_date_of_birth.sql';
-const FILL_MIGRATION = '20261210000290_age_fill_open_drafts.sql';
+const FILL_MIGRATION = '20261210000900_age_fill_open_drafts.sql';
 const OPEN_REVISION = 'select public.booking_open_revision($1) as r';
 const REVIEW_RETURN = 'select public.accounts_review_return($1, $2, $3) as r';
 
@@ -189,7 +189,7 @@ describe('age at travel from the date of birth', () => {
   });
 });
 
-describe('the one-time fill of open drafts (20261210000290)', () => {
+describe('the one-time fill of open drafts (20261210000900)', () => {
   const fillSql = () => {
     const text = readFileSync(join(MIGRATIONS, FILL_MIGRATION), 'utf8');
     const start = text.indexOf('do $$');

@@ -55,7 +55,7 @@
 -- No new table, column, read, grant, switch or refusal token. The date of
 -- birth reaches no one new: only the number is stored.
 -- Data: none here (the one-time fill of open drafts is the separate migration
--- 20261210000290, a live data write named in the approval request).
+-- 20261210000900, a live data write named in the approval request).
 -- Rollback (forward-only): a NEW migration dropping the four triggers and
 -- restoring the previous bodies (20261128000110:888, 20261205000640:50,
 -- 20261203000100:173), then dropping the new functions. Stored ages stay
