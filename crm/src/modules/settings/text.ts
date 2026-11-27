@@ -294,6 +294,8 @@ export const FILE_MOVE_TEXT = {
   emergencyReason: 'Emergency stop by Super Admin',
   emergencyUse: 'Use the reason “Emergency stop by Super Admin”',
   emergencyHint: 'To stop at once, use the ready-made reason with one click, or write your own.',
+  // Owner, 28 November 2026: an emergency Off may be done at once and reported afterwards; On needs APPROVE.
+  approvalOff: 'Switching Off is always allowed at once. Tell the owner afterwards. Switching On needs the owner’s APPROVE first.',
   // The values
   holdTitle: 'Hold before deleting',
   holdDetail: 'How long the CRM waits after the first matching check before it checks again and deletes its copy.',

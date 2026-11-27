@@ -392,6 +392,8 @@ export interface FileMoveSwitchRowModel {
    * same 10 to 500 character rule. null when turning it on (a free reason).
    */
   readyReason: string | null;
+  /** The approval line of the review dialog: Off may be done at once (owner, 28 Nov 2026); On needs APPROVE. */
+  approvalText: string;
 }
 
 export interface FileMoveValueRowModel {
@@ -460,7 +462,8 @@ function switchRow(key: FileMoveSwitch, s: FileMoveSettings): FileMoveSwitchRowM
   // Deleting is the dangerous direction for its switch; for the checks, switching off is (as on every Settings switch).
   const tone = key === 'delete_after_hold' ? (target === 'on' ? 'danger' : 'primary') : target === 'off' ? 'danger' : 'primary';
   const readyReason = target === 'off' ? FILE_MOVE_TEXT.emergencyReason : null;
-  return { key, title, detail, state, target, confirmLabel, effect, tone, blockedText, readyReason };
+  const approvalText = target === 'off' ? FILE_MOVE_TEXT.approvalOff : FILE_MOVE_TEXT.approval;
+  return { key, title, detail, state, target, confirmLabel, effect, tone, blockedText, readyReason, approvalText };
 }
 
 /** The "Files kept in Bitrix" section, or null when nothing is shown (not the Super Admin). */

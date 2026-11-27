@@ -153,7 +153,7 @@ function SwitchRowOf({ row, action, preview }: { row: FileMoveSwitchRowModel; ac
         reasonRule: 'required',
         fields: () => (
           <>
-            <p className="m-0 text-sm text-quiet">{FILE_MOVE_TEXT.approval}</p>
+            <p className="m-0 text-sm text-quiet">{row.approvalText}</p>
             {row.readyReason ? <ReadyReasonButton reason={row.readyReason} /> : null}
           </>
         ),

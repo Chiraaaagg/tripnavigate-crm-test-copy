@@ -190,6 +190,26 @@ describe('section model', () => {
     expect(FILE_MOVE_TEXT.emergencyUse).toContain(FILE_MOVE_TEXT.emergencyReason);
   });
 
+  it('owner, 28 Nov 2026: the Off dialog says Off is allowed at once; the On dialog still asks for APPROVE', () => {
+    const on = fileMoveSectionModel({
+      kind: 'ready',
+      settings: settings({ checkIdProofCopies: true, moveAccountsFiles: true, deleteAfterHold: true, deleteEverOn: true, pilotBitrixDealId: '4501' }),
+      alerts: alerts(),
+    });
+    if (on?.kind !== 'ready') throw new Error('expected ready');
+    for (const row of on.switches) {
+      expect(row.target).toBe('off');
+      expect(row.approvalText).toBe('Switching Off is always allowed at once. Tell the owner afterwards. Switching On needs the owner’s APPROVE first.');
+    }
+    const off = fileMoveSectionModel({ kind: 'ready', settings: settings({ pilotBitrixDealId: '4501' }), alerts: alerts() });
+    if (off?.kind !== 'ready') throw new Error('expected ready');
+    for (const row of off.switches) {
+      expect(row.target).toBe('on');
+      expect(row.approvalText).toBe(FILE_MOVE_TEXT.approval);
+      expect(row.approvalText).toContain('APPROVE first');
+    }
+  });
+
   it('says when the listing of new uploads is stopped', () => {
     const m = fileMoveSectionModel({ kind: 'ready', settings: settings({ enqueueEnabled: false }), alerts: alerts() });
     expect(m?.kind === 'ready' && m.notices).toEqual([FILE_MOVE_TEXT.listingOff]);
