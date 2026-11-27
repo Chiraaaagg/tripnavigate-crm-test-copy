@@ -2,7 +2,7 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
 
 export type Database = {
-  
+
   "public": {
           Tables: {
             "access_grants": {
@@ -152,7 +152,7 @@ isOneToOne: false
                     "code"?: string,"enum_id"?: string,"source_object"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"bitrix_destination_scopes": {
                   Row: {
@@ -252,7 +252,7 @@ isOneToOne: false
                     "code"?: string,"created_at"?: string,"entity_id"?: string,"id"?: string,"kind"?: string | null,"missing_since"?: string | null,"name"?: string,"read_at"?: string,"sort"?: number,"source_portal"?: string,"updated_at"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"bitrix_name_refresh_state": {
                   Row: {
@@ -265,7 +265,7 @@ isOneToOne: false
                     "last_attempt_at"?: string | null,"last_success_at"?: string | null,"source_portal"?: string,"updated_at"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"bitrix_party_snapshots": {
                   Row: {
@@ -451,7 +451,7 @@ isOneToOne: false
                     "changes_enabled"?: boolean,"id"?: boolean,"service_changes_enabled"?: boolean,"updated_at"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"booking_evidence": {
                   Row: {
@@ -489,7 +489,7 @@ isOneToOne: false
                     "evidence_max_bytes"?: number,"id"?: boolean,"real_booking_enabled"?: boolean,"updated_at"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"booking_version_commercials": {
                   Row: {
@@ -1233,7 +1233,7 @@ isOneToOne: false
                     "error_code"?: string,"failed_at"?: string,"id"?: never,"message_type"?: string | null
                   }
                   Relationships: [
-                    
+
                   ]
                 },"customer_message_events": {
                   Row: {
@@ -2258,7 +2258,127 @@ isOneToOne: false
                     "environment"?: string,"id"?: boolean,"updated_at"?: string
                   }
                   Relationships: [
-                    
+
+                  ]
+                },"file_bitrix_moves": {
+                  Row: {
+                    "attempts": number,"bitrix_field": string | null,"bitrix_file_id": number | null,"bucket_id": string,"created_at": string,"crm_copy_present": boolean,"deal_id": string | null,"dec43_job_id": string | null,"delete_after": string | null,"deleted_at": string | null,"due_at": string | null,"enqueued_by": string,"file_class": string,"id": string,"keep_in_crm": boolean,"kind_code": string,"last_error_code": string | null,"lease_mode": string | null,"lease_token": string | null,"legal_entity_id": string,"locked_until": string | null,"max_attempts": number,"mime": string,"next_attempt_at": string,"object_path": string,"presence_checked_at": string | null,"prior_file_ids": (number)[] | null,"read_back_attempts": number,"relocate_due": boolean,"relocate_source_deal_id": number | null,"restore_checked_at": string | null,"reverified_after_append_at": string | null,"reverified_at": string | null,"reverified_sha256": string | null,"reverified_size_bytes": number | null,"sha256": string,"size_bytes": number,"source_deal_id": number | null,"source_id": string,"source_portal": string | null,"source_table": string,"state": string,"stored_at": string,"traveller_id": string | null,"updated_at": string,"verified_at": string | null,"verified_sha256": string | null,"verified_size_bytes": number | null
+                  }
+                  Insert: {
+                    "attempts"?: number,"bitrix_field"?: string | null,"bitrix_file_id"?: number | null,"bucket_id": string,"created_at"?: string,"crm_copy_present"?: boolean,"deal_id"?: string | null,"dec43_job_id"?: string | null,"delete_after"?: string | null,"deleted_at"?: string | null,"due_at"?: string | null,"enqueued_by"?: string,"file_class": string,"id"?: string,"keep_in_crm"?: boolean,"kind_code": string,"last_error_code"?: string | null,"lease_mode"?: string | null,"lease_token"?: string | null,"legal_entity_id": string,"locked_until"?: string | null,"max_attempts"?: number,"mime": string,"next_attempt_at"?: string,"object_path": string,"presence_checked_at"?: string | null,"prior_file_ids"?: (number)[] | null,"read_back_attempts"?: number,"relocate_due"?: boolean,"relocate_source_deal_id"?: number | null,"restore_checked_at"?: string | null,"reverified_after_append_at"?: string | null,"reverified_at"?: string | null,"reverified_sha256"?: string | null,"reverified_size_bytes"?: number | null,"sha256": string,"size_bytes": number,"source_deal_id"?: number | null,"source_id": string,"source_portal"?: string | null,"source_table": string,"state": string,"stored_at": string,"traveller_id"?: string | null,"updated_at"?: string,"verified_at"?: string | null,"verified_sha256"?: string | null,"verified_size_bytes"?: number | null
+                  }
+                  Update: {
+                    "attempts"?: number,"bitrix_field"?: string | null,"bitrix_file_id"?: number | null,"bucket_id"?: string,"created_at"?: string,"crm_copy_present"?: boolean,"deal_id"?: string | null,"dec43_job_id"?: string | null,"delete_after"?: string | null,"deleted_at"?: string | null,"due_at"?: string | null,"enqueued_by"?: string,"file_class"?: string,"id"?: string,"keep_in_crm"?: boolean,"kind_code"?: string,"last_error_code"?: string | null,"lease_mode"?: string | null,"lease_token"?: string | null,"legal_entity_id"?: string,"locked_until"?: string | null,"max_attempts"?: number,"mime"?: string,"next_attempt_at"?: string,"object_path"?: string,"presence_checked_at"?: string | null,"prior_file_ids"?: (number)[] | null,"read_back_attempts"?: number,"relocate_due"?: boolean,"relocate_source_deal_id"?: number | null,"restore_checked_at"?: string | null,"reverified_after_append_at"?: string | null,"reverified_at"?: string | null,"reverified_sha256"?: string | null,"reverified_size_bytes"?: number | null,"sha256"?: string,"size_bytes"?: number,"source_deal_id"?: number | null,"source_id"?: string,"source_portal"?: string | null,"source_table"?: string,"state"?: string,"stored_at"?: string,"traveller_id"?: string | null,"updated_at"?: string,"verified_at"?: string | null,"verified_sha256"?: string | null,"verified_size_bytes"?: number | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "file_bitrix_moves_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"file_bitrix_views": {
+                  Row: {
+                    "actor_user_id": string,"finished_at": string | null,"id": string,"legal_entity_id": string,"move_id": string,"outcome": string | null,"resolved_at": string | null,"started_at": string
+                  }
+                  Insert: {
+                    "actor_user_id": string,"finished_at"?: string | null,"id"?: string,"legal_entity_id": string,"move_id": string,"outcome"?: string | null,"resolved_at"?: string | null,"started_at"?: string
+                  }
+                  Update: {
+                    "actor_user_id"?: string,"finished_at"?: string | null,"id"?: string,"legal_entity_id"?: string,"move_id"?: string,"outcome"?: string | null,"resolved_at"?: string | null,"started_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "file_bitrix_views_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "file_bitrix_views_move_id_fkey"
+      columns: ["move_id"]
+isOneToOne: false
+      referencedRelation: "file_bitrix_moves"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"file_move_box_state": {
+                  Row: {
+                    "bitrix_field": string,"last_append_at": string | null,"last_append_started_at": string | null,"source_deal_id": number
+                  }
+                  Insert: {
+                    "bitrix_field": string,"last_append_at"?: string | null,"last_append_started_at"?: string | null,"source_deal_id": number
+                  }
+                  Update: {
+                    "bitrix_field"?: string,"last_append_at"?: string | null,"last_append_started_at"?: string | null,"source_deal_id"?: number
+                  }
+                  Relationships: [
+
+                  ]
+                },"file_move_kick_state": {
+                  Row: {
+                    "id": boolean,"installed_at": string,"last_kick_at": string | null
+                  }
+                  Insert: {
+                    "id"?: boolean,"installed_at"?: string,"last_kick_at"?: string | null
+                  }
+                  Update: {
+                    "id"?: boolean,"installed_at"?: string,"last_kick_at"?: string | null
+                  }
+                  Relationships: [
+
+                  ]
+                },"file_move_settings": {
+                  Row: {
+                    "accounts_bitrix_field": string | null,"accounts_hold_days": number,"check_id_proof_copies": boolean,"created_at": string,"delete_after_hold": boolean,"delete_ever_on": boolean,"delete_hold_minutes": number,"enqueue_enabled": boolean,"id": string,"legal_entity_id": string,"move_accounts_files": boolean,"pilot_source_deal_id": number | null,"updated_at": string,"updated_by": string | null
+                  }
+                  Insert: {
+                    "accounts_bitrix_field"?: string | null,"accounts_hold_days"?: number,"check_id_proof_copies"?: boolean,"created_at"?: string,"delete_after_hold"?: boolean,"delete_ever_on"?: boolean,"delete_hold_minutes"?: number,"enqueue_enabled"?: boolean,"id"?: string,"legal_entity_id": string,"move_accounts_files"?: boolean,"pilot_source_deal_id"?: number | null,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Update: {
+                    "accounts_bitrix_field"?: string | null,"accounts_hold_days"?: number,"check_id_proof_copies"?: boolean,"created_at"?: string,"delete_after_hold"?: boolean,"delete_ever_on"?: boolean,"delete_hold_minutes"?: number,"enqueue_enabled"?: boolean,"id"?: string,"legal_entity_id"?: string,"move_accounts_files"?: boolean,"pilot_source_deal_id"?: number | null,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "file_move_settings_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: true
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "file_move_settings_updated_by_fkey"
+      columns: ["updated_by"]
+isOneToOne: false
+      referencedRelation: "staff_profiles"
+      referencedColumns: ["user_id"]
+    }
+                  ]
+                },"file_move_stops": {
+                  Row: {
+                    "acknowledge_reason": string | null,"acknowledged_at": string | null,"acknowledged_by": string | null,"bitrix_field": string | null,"id": string,"legal_entity_id": string,"move_id": string | null,"opened_at": string,"reason_code": string,"source_deal_id": number | null
+                  }
+                  Insert: {
+                    "acknowledge_reason"?: string | null,"acknowledged_at"?: string | null,"acknowledged_by"?: string | null,"bitrix_field"?: string | null,"id"?: string,"legal_entity_id": string,"move_id"?: string | null,"opened_at"?: string,"reason_code": string,"source_deal_id"?: number | null
+                  }
+                  Update: {
+                    "acknowledge_reason"?: string | null,"acknowledged_at"?: string | null,"acknowledged_by"?: string | null,"bitrix_field"?: string | null,"id"?: string,"legal_entity_id"?: string,"move_id"?: string | null,"opened_at"?: string,"reason_code"?: string,"source_deal_id"?: number | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "file_move_stops_legal_entity_id_fkey"
+      columns: ["legal_entity_id"]
+isOneToOne: false
+      referencedRelation: "legal_entities"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "file_move_stops_move_id_fkey"
+      columns: ["move_id"]
+isOneToOne: false
+      referencedRelation: "file_bitrix_moves"
+      referencedColumns: ["id"]
+    }
                   ]
                 },"finance_command_results": {
                   Row: {
@@ -3382,7 +3502,7 @@ isOneToOne: false
                     "active"?: boolean,"created_at"?: string,"credential_sha256"?: string,"id"?: string,"note"?: string | null,"revoked_at"?: string | null,"slot"?: number
                   }
                   Relationships: [
-                    
+
                   ]
                 },"integration_resync_jobs": {
                   Row: {
@@ -3439,7 +3559,7 @@ isOneToOne: false
                     "answered_at"?: string | null,"dispatched_at"?: string,"kind"?: string,"ok"?: boolean | null,"reason"?: string | null,"request_id"?: number,"status_code"?: number | null
                   }
                   Relationships: [
-                    
+
                   ]
                 },"integration_sync_incidents": {
                   Row: {
@@ -3496,7 +3616,7 @@ isOneToOne: false
                     "enabled"?: boolean,"id"?: boolean,"interval_seconds"?: number,"kick_enabled"?: boolean,"last_dispatched_at"?: string | null,"last_request_id"?: number | null,"log_retention_days"?: number,"updated_at"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"integration_worker_runs": {
                   Row: {
@@ -3509,7 +3629,7 @@ isOneToOne: false
                     "claimed"?: number,"created"?: number,"dead_lettered"?: number,"enqueued"?: number,"failed"?: number,"finished_at"?: string,"id"?: string,"ignored"?: number,"kind"?: string,"needs_review"?: number,"outcome"?: string,"recorded_at"?: string,"run_trigger"?: string | null,"started_at"?: string,"updated"?: number
                   }
                   Relationships: [
-                    
+
                   ]
                 },"itinerary_difference_runs": {
                   Row: {
@@ -3758,7 +3878,7 @@ isOneToOne: false
                     "code"?: string,"created_at"?: string,"id"?: string,"is_synthetic"?: boolean,"legal_name"?: string,"status"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"memberships": {
                   Row: {
@@ -3883,7 +4003,7 @@ isOneToOne: false
                     "code"?: string,"description"?: string,"is_grantable"?: boolean
                   }
                   Relationships: [
-                    
+
                   ]
                 },"prefill_field_history": {
                   Row: {
@@ -3934,7 +4054,7 @@ isOneToOne: false
                     "id"?: boolean,"started_at"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"prefill_marks": {
                   Row: {
@@ -3997,7 +4117,7 @@ isOneToOne: false
                     "id"?: boolean,"live_supplier_confirmation_enabled"?: boolean,"rate_contracts_enabled"?: boolean,"supplier_email_sending_enabled"?: boolean,"updated_at"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"purchase_cancellation_charges": {
                   Row: {
@@ -4360,7 +4480,7 @@ isOneToOne: false
                     "id"?: boolean,"last_kick_at"?: string | null,"last_request_id"?: number | null
                   }
                   Relationships: [
-                    
+
                   ]
                 },"quotation_conversion_items": {
                   Row: {
@@ -4943,7 +5063,7 @@ isOneToOne: false
                     "active"?: boolean,"code"?: string,"created_at"?: string,"label"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"referral_draft_counters": {
                   Row: {
@@ -5111,7 +5231,7 @@ isOneToOne: false
                     "code"?: string,"description"?: string,"name"?: string,"policy_status"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"security_policy": {
                   Row: {
@@ -5124,7 +5244,7 @@ isOneToOne: false
                     "id"?: boolean,"policy_status"?: string,"session_max_age_seconds"?: number,"updated_at"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"service_item_cost_estimates": {
                   Row: {
@@ -5447,7 +5567,7 @@ isOneToOne: false
                     "activated_at"?: string | null,"created_at"?: string,"deactivated_at"?: string | null,"deactivation_reason"?: string | null,"display_name"?: string,"status"?: string,"user_id"?: string,"work_email"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"staff_push_devices": {
                   Row: {
@@ -6410,7 +6530,7 @@ isOneToOne: false
                     "created_at"?: string,"hour_key"?: string,"id"?: string,"kind"?: string,"oldest_minutes"?: number
                   }
                   Relationships: [
-                    
+
                   ]
                 },"timer_runs": {
                   Row: {
@@ -6423,7 +6543,7 @@ isOneToOne: false
                     "error_code"?: string | null,"finished_at"?: string | null,"id"?: never,"results"?: NonNullable<Json>,"started_at"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"timer_settings": {
                   Row: {
@@ -6455,7 +6575,7 @@ isOneToOne: false
                     "created_at"?: string,"enabled"?: boolean,"every_minutes"?: number,"function_name"?: string,"last_error_code"?: string | null,"last_result"?: Json | null,"last_run_at"?: string | null,"name"?: string
                   }
                   Relationships: [
-                    
+
                   ]
                 },"traveller_id_proofs": {
                   Row: {
@@ -6817,7 +6937,7 @@ isOneToOne: false
                     "id"?: boolean,"intake_prompt_enabled"?: boolean,"prefill_auto_fill"?: boolean,"referral_auto_close_resumed_at"?: string | null,"referral_drafts"?: boolean,"service_items_enabled"?: boolean,"updated_at"?: string,"visa_passport_tasks_enabled"?: boolean
                   }
                   Relationships: [
-                    
+
                   ]
                 },"write_off_counters": {
                   Row: {
@@ -7476,6 +7596,75 @@ isOneToOne: false
                            },
 "expense_record_return":
 { Args: { "p_entry_id": string,"p_expected_row_version": number,"p_reason": string,"p_request_id": string }; Returns: Json
+                           },
+"file_move_accept_lost":
+{ Args: { "p_id": string,"p_reason": string }; Returns: Json
+                           },
+"file_move_acknowledge_stop":
+{ Args: { "p_reason": string,"p_stop_id": string }; Returns: Json
+                           },
+"file_move_alerts":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"file_move_claim":
+{ Args: { "p_lease_seconds": number,"p_limit": number }; Returns: Json
+                           },
+"file_move_complete":
+{ Args: { "p_bitrix_file_id": number,"p_error_code": string,"p_id": string,"p_lease_token": string,"p_outcome": string }; Returns: Json
+                           },
+"file_move_confirm_deleted":
+{ Args: { "p_id": string,"p_lease_token": string }; Returns: Json
+                           },
+"file_move_confirm_restored":
+{ Args: { "p_id": string,"p_lease_token": string }; Returns: Json
+                           },
+"file_move_mark_sending":
+{ Args: { "p_id": string,"p_lease_token": string,"p_prior_file_ids": (number)[] }; Returns: Json
+                           },
+"file_move_presence_result":
+{ Args: { "p_bitrix_field": string,"p_lease_token": string,"p_present_ids": (number)[],"p_source_deal_id": number }; Returns: Json
+                           },
+"file_move_record_observation":
+{ Args: { "p_bitrix_file_id": number,"p_id": string,"p_lease_token": string,"p_observed_sha256": string,"p_observed_size": number,"p_read_started_at": string }; Returns: Json
+                           },
+"file_move_relocate":
+{ Args: { "p_id": string,"p_new_source_deal_id": number }; Returns: Json
+                           },
+"file_move_relocated":
+{ Args: { "p_id": string,"p_lease_token": string,"p_new_file_id": number,"p_observed_sha256": string,"p_observed_size": number }; Returns: Json
+                           },
+"file_move_retry":
+{ Args: { "p_id": string }; Returns: Json
+                           },
+"file_move_set_accounts_box":
+{ Args: { "p_item_key": string,"p_reason": string }; Returns: Json
+                           },
+"file_move_set_hold":
+{ Args: { "p_minutes": number,"p_reason": string }; Returns: Json
+                           },
+"file_move_set_pilot":
+{ Args: { "p_reason": string,"p_source_deal_id": number }; Returns: Json
+                           },
+"file_move_set_switch":
+{ Args: { "p_on": boolean,"p_reason": string,"p_switch": string }; Returns: Json
+                           },
+"file_move_settings_get":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"file_move_stop":
+{ Args: { "p_id": string,"p_lease_token": string,"p_reason_code": string }; Returns: Json
+                           },
+"file_move_sweep":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"file_view_begin":
+{ Args: { "p_source_id": string,"p_source_table": string }; Returns: Json
+                           },
+"file_view_finish":
+{ Args: { "p_outcome": string,"p_view_id": string }; Returns: Json
+                           },
+"file_view_resolve":
+{ Args: { "p_view_id": string }; Returns: Json
                            },
 "finance_enabled_entities":
 { Args: Record<PropertyKey, never>; Returns: Json
@@ -8600,7 +8789,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-            
+
           }
         }
-} as const
+} as cons
