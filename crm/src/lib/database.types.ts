@@ -2,7 +2,7 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
 
 export type Database = {
-
+  
   "public": {
           Tables: {
             "access_grants": {
@@ -152,7 +152,7 @@ isOneToOne: false
                     "code"?: string,"enum_id"?: string,"source_object"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"bitrix_destination_scopes": {
                   Row: {
@@ -252,7 +252,7 @@ isOneToOne: false
                     "code"?: string,"created_at"?: string,"entity_id"?: string,"id"?: string,"kind"?: string | null,"missing_since"?: string | null,"name"?: string,"read_at"?: string,"sort"?: number,"source_portal"?: string,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"bitrix_name_refresh_state": {
                   Row: {
@@ -265,7 +265,7 @@ isOneToOne: false
                     "last_attempt_at"?: string | null,"last_success_at"?: string | null,"source_portal"?: string,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"bitrix_party_snapshots": {
                   Row: {
@@ -451,7 +451,7 @@ isOneToOne: false
                     "changes_enabled"?: boolean,"id"?: boolean,"service_changes_enabled"?: boolean,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"booking_evidence": {
                   Row: {
@@ -489,7 +489,7 @@ isOneToOne: false
                     "evidence_max_bytes"?: number,"id"?: boolean,"real_booking_enabled"?: boolean,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"booking_version_commercials": {
                   Row: {
@@ -1233,7 +1233,7 @@ isOneToOne: false
                     "error_code"?: string,"failed_at"?: string,"id"?: never,"message_type"?: string | null
                   }
                   Relationships: [
-
+                    
                   ]
                 },"customer_message_events": {
                   Row: {
@@ -2258,7 +2258,7 @@ isOneToOne: false
                     "environment"?: string,"id"?: boolean,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"file_bitrix_moves": {
                   Row: {
@@ -2315,7 +2315,7 @@ isOneToOne: false
                     "bitrix_field"?: string,"last_append_at"?: string | null,"last_append_started_at"?: string | null,"source_deal_id"?: number
                   }
                   Relationships: [
-
+                    
                   ]
                 },"file_move_kick_state": {
                   Row: {
@@ -2328,7 +2328,7 @@ isOneToOne: false
                     "id"?: boolean,"installed_at"?: string,"last_kick_at"?: string | null
                   }
                   Relationships: [
-
+                    
                   ]
                 },"file_move_settings": {
                   Row: {
@@ -3502,7 +3502,7 @@ isOneToOne: false
                     "active"?: boolean,"created_at"?: string,"credential_sha256"?: string,"id"?: string,"note"?: string | null,"revoked_at"?: string | null,"slot"?: number
                   }
                   Relationships: [
-
+                    
                   ]
                 },"integration_resync_jobs": {
                   Row: {
@@ -3559,7 +3559,7 @@ isOneToOne: false
                     "answered_at"?: string | null,"dispatched_at"?: string,"kind"?: string,"ok"?: boolean | null,"reason"?: string | null,"request_id"?: number,"status_code"?: number | null
                   }
                   Relationships: [
-
+                    
                   ]
                 },"integration_sync_incidents": {
                   Row: {
@@ -3616,7 +3616,7 @@ isOneToOne: false
                     "enabled"?: boolean,"id"?: boolean,"interval_seconds"?: number,"kick_enabled"?: boolean,"last_dispatched_at"?: string | null,"last_request_id"?: number | null,"log_retention_days"?: number,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"integration_worker_runs": {
                   Row: {
@@ -3629,7 +3629,7 @@ isOneToOne: false
                     "claimed"?: number,"created"?: number,"dead_lettered"?: number,"enqueued"?: number,"failed"?: number,"finished_at"?: string,"id"?: string,"ignored"?: number,"kind"?: string,"needs_review"?: number,"outcome"?: string,"recorded_at"?: string,"run_trigger"?: string | null,"started_at"?: string,"updated"?: number
                   }
                   Relationships: [
-
+                    
                   ]
                 },"itinerary_difference_runs": {
                   Row: {
@@ -3878,7 +3878,7 @@ isOneToOne: false
                     "code"?: string,"created_at"?: string,"id"?: string,"is_synthetic"?: boolean,"legal_name"?: string,"status"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"memberships": {
                   Row: {
@@ -4003,7 +4003,7 @@ isOneToOne: false
                     "code"?: string,"description"?: string,"is_grantable"?: boolean
                   }
                   Relationships: [
-
+                    
                   ]
                 },"prefill_field_history": {
                   Row: {
@@ -4054,7 +4054,7 @@ isOneToOne: false
                     "id"?: boolean,"started_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"prefill_marks": {
                   Row: {
@@ -4117,7 +4117,7 @@ isOneToOne: false
                     "id"?: boolean,"live_supplier_confirmation_enabled"?: boolean,"rate_contracts_enabled"?: boolean,"supplier_email_sending_enabled"?: boolean,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"purchase_cancellation_charges": {
                   Row: {
@@ -4480,7 +4480,7 @@ isOneToOne: false
                     "id"?: boolean,"last_kick_at"?: string | null,"last_request_id"?: number | null
                   }
                   Relationships: [
-
+                    
                   ]
                 },"quotation_conversion_items": {
                   Row: {
@@ -5063,7 +5063,7 @@ isOneToOne: false
                     "active"?: boolean,"code"?: string,"created_at"?: string,"label"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"referral_draft_counters": {
                   Row: {
@@ -5231,7 +5231,7 @@ isOneToOne: false
                     "code"?: string,"description"?: string,"name"?: string,"policy_status"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"security_policy": {
                   Row: {
@@ -5244,7 +5244,7 @@ isOneToOne: false
                     "id"?: boolean,"policy_status"?: string,"session_max_age_seconds"?: number,"updated_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"service_item_cost_estimates": {
                   Row: {
@@ -5567,7 +5567,7 @@ isOneToOne: false
                     "activated_at"?: string | null,"created_at"?: string,"deactivated_at"?: string | null,"deactivation_reason"?: string | null,"display_name"?: string,"status"?: string,"user_id"?: string,"work_email"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"staff_push_devices": {
                   Row: {
@@ -6530,7 +6530,7 @@ isOneToOne: false
                     "created_at"?: string,"hour_key"?: string,"id"?: string,"kind"?: string,"oldest_minutes"?: number
                   }
                   Relationships: [
-
+                    
                   ]
                 },"timer_runs": {
                   Row: {
@@ -6543,7 +6543,7 @@ isOneToOne: false
                     "error_code"?: string | null,"finished_at"?: string | null,"id"?: never,"results"?: NonNullable<Json>,"started_at"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"timer_settings": {
                   Row: {
@@ -6575,7 +6575,7 @@ isOneToOne: false
                     "created_at"?: string,"enabled"?: boolean,"every_minutes"?: number,"function_name"?: string,"last_error_code"?: string | null,"last_result"?: Json | null,"last_run_at"?: string | null,"name"?: string
                   }
                   Relationships: [
-
+                    
                   ]
                 },"traveller_id_proofs": {
                   Row: {
@@ -6937,7 +6937,7 @@ isOneToOne: false
                     "id"?: boolean,"intake_prompt_enabled"?: boolean,"prefill_auto_fill"?: boolean,"referral_auto_close_resumed_at"?: string | null,"referral_drafts"?: boolean,"service_items_enabled"?: boolean,"updated_at"?: string,"visa_passport_tasks_enabled"?: boolean
                   }
                   Relationships: [
-
+                    
                   ]
                 },"write_off_counters": {
                   Row: {
@@ -8789,7 +8789,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-
+            
           }
         }
-} as cons
+} as const
