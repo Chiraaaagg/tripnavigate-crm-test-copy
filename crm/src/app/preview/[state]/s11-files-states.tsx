@@ -47,7 +47,7 @@ const settings = (over: Partial<FileMoveSettings> = {}): FileMoveSettings => ({
   ...over,
 });
 
-const NO_ALERTS: FileMoveAlerts = { stops: [], items: [], counts: { noTarget: 0, missedEnqueue: 0, waitingAccounts: 0, soleCopies: 0 } };
+const NO_ALERTS: FileMoveAlerts = { stops: [], items: [], counts: { noTarget: 0, missedEnqueue: 0, waitingAccounts: 0, soleCopies: 0, orphaned: 0 } };
 
 const MOVE_LOST = 'a0011001-0000-4000-8000-000000011001';
 const ALERTS: FileMoveAlerts = {
@@ -61,7 +61,7 @@ const ALERTS: FileMoveAlerts = {
     { moveId: 'a0011003-0000-4000-8000-000000011003', kind: 'needs_manual_check', fileClass: 'accounts', sourceTable: 'supplier_money_evidence', state: 'needs_manual_check', lastErrorCode: 'bitrix_unavailable', bitrixDealId: '90003', updatedAt: '2026-11-26T11:00:00Z' },
     { moveId: 'a0011004-0000-4000-8000-000000011004', kind: 'deletion_waiting', fileClass: 'id_proof', sourceTable: 'traveller_id_proofs', state: 'verified', lastErrorCode: null, bitrixDealId: '90004', updatedAt: '2026-11-27T06:00:00Z' },
   ],
-  counts: { noTarget: 4, missedEnqueue: 1, waitingAccounts: 12, soleCopies: 7 },
+  counts: { noTarget: 4, missedEnqueue: 1, waitingAccounts: 12, soleCopies: 7, orphaned: 0 },
 };
 
 const settingsActions = {
@@ -121,6 +121,8 @@ const states: Record<string, () => ReactNode> = {
     switchesTab(ready({ checkIdProofCopies: true, pilotBitrixDealId: '90001' }), { control: 'delete_after_hold', open: true, reason: REASON }),
   's11-files-review-clear-pilot': () => switchesTab(ready(PILOT_ON), { control: 'pilot_clear', open: true, reason: REASON }),
   's11-files-review-hold': () => switchesTab(ready(PILOT_ON), { control: 'hold', open: true, reason: REASON }),
+  // Turning deleting off: the dialog offers the ready-made emergency reason (one click fills the box).
+  's11-files-review-delete-off': () => switchesTab(ready(PILOT_ON), { control: 'delete_after_hold', open: true }),
   // Refusals keep the dialog open with the typed reason and value.
   's11-files-refused-box': () =>
     switchesTab(ready(PILOT_ON), {

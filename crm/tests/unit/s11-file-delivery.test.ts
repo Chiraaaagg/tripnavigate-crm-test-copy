@@ -15,7 +15,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  *   own authorize command.
  * - A file kept in Bitrix: the outcome is written before the body, and a
  *   failed write serves nothing; mismatch, size mismatch, missing id, deal
- *   not found, no reader and a Bitrix timeout are never served.
+ *   not found, no reader and a Bitrix timeout are never served. No link, a
+ *   link to another host and a redirect finish as `unreadable_in_bitrix`
+ *   (an alert, not a mismatch: review 14a P3-3).
+ * - The 15-second budget aborts the signal given to both Bitrix requests
+ *   (review 14a P3-8).
+ * - The CRM's own view limit is a 429 "wait a minute" page (review 14a P3-4).
+ * - A path with traversal or another odd shape is refused by all eight
+ *   handlers, in either location, and never signed (review 14a P3-10).
  * - No Bitrix deal id, file id, box key, link or host in any answer; no-store
  *   on every answer; nothing logged.
  *
@@ -47,7 +54,7 @@ vi.mock('@/views/files/file-unavailable-page', () => ({
   fileUnavailableHtml: (kind: string) => `<!doctype html><html><head><title>File</title></head><body><p>PAGE:${kind}</p></body></html>`,
 }));
 
-const { attachmentDisposition, BITRIX_VIEW_TIMEOUT_MS } = await import('@/modules/documents/server/file-delivery');
+const { attachmentDisposition, BITRIX_VIEW_TIMEOUT_MS, isPlainObjectPath } = await import('@/modules/documents/server/file-delivery');
 const { idProofDownloadResponse } = await import('@/modules/fulfilment/server/id-proof-download');
 const { evidenceDownloadResponse } = await import('@/modules/fulfilment/server/evidence-download');
 const { departmentEvidenceDownloadResponse } = await import('@/modules/fulfilment/server/department-evidence');
@@ -117,7 +124,13 @@ const HANDLERS: Handler[] = [
   { name: 'customer document', call: () => partyFileDownloadResponse(PARTY, FILE), table: 'customer_party_documents', bucket: 'customer-party-documents', legacyFn: 'customer_party_document_authorize_download', legacyArgs: { p_file_id: FILE }, objectPath: `${ENTITY}/${PARTY}/${FILE}`, fileName: 'gst certificate.pdf', downloadName: 'customer-document.pdf', unavailableText: PLAIN_503, notFoundText: 'Not found' },
 ];
 const ID_PROOF = HANDLERS[0]!;
+const BOOKING = HANDLERS[1]!;
+const DEPARTMENT = HANDLERS[2]!;
 const FINANCE = HANDLERS[4]!;
+const REFUNDS = HANDLERS[5]!;
+const PARTY_FILES = HANDLERS[7]!;
+/** Finance and refunds answer an unexpected database answer with their 503 page; the others with their 404. */
+const ACCOUNTS_PAGES = new Set([FINANCE, REFUNDS]);
 
 type Reply = { data?: unknown; error?: { code: string; message: string } | null; throws?: boolean };
 /** The user's own session client: one reply (or a queue) per function name; anything else is a test failure. */
@@ -247,7 +260,7 @@ describe('refusals: answered exactly as before, nothing resolved, read or signed
   });
 
   it('finance and refunds keep telling a refusal (404) from a temporary failure (503)', async () => {
-    for (const h of [FINANCE, HANDLERS[5]!]) {
+    for (const h of [FINANCE, REFUNDS]) {
       userReplies({ file_view_begin: { error: { code: 'PGRST301', message: 'JWT expired' } } });
       expect((await h.call()).status).toBe(404);
       userReplies({ file_view_begin: { error: { code: 'XX000', message: 'boom' } } });
@@ -263,7 +276,7 @@ describe('refusals: answered exactly as before, nothing resolved, read or signed
   });
 
   it('the other handlers answer 404 for any failure, as before (network error, unexpected answer)', async () => {
-    for (const h of HANDLERS.filter((x) => x !== FINANCE && x !== HANDLERS[5])) {
+    for (const h of HANDLERS.filter((x) => !ACCOUNTS_PAGES.has(x))) {
       userReplies({ file_view_begin: { throws: true } });
       expect((await h.call()).status).toBe(404);
       userReplies({ file_view_begin: { data: { location: 'crm' } } });
@@ -272,7 +285,7 @@ describe('refusals: answered exactly as before, nothing resolved, read or signed
     expect(createSignedUrl).not.toHaveBeenCalled();
   });
 
-  it.each([ID_PROOF, HANDLERS[7]!])('$name: a path for another file is a 404 in either location (before any Bitrix step)', async (h) => {
+  it.each([ID_PROOF, PARTY_FILES])('$name: a path for another file is a 404 in either location (before any Bitrix step)', async (h) => {
     const otherPath = h.objectPath.replace(FILE, OTHER_FILE);
     userReplies({ file_view_begin: crmBegin(h, { objectPath: otherPath }) });
     expect((await h.call()).status).toBe(404);
@@ -281,6 +294,74 @@ describe('refusals: answered exactly as before, nothing resolved, read or signed
     expect(createSignedUrl).not.toHaveBeenCalled();
     expect(adminRpc).not.toHaveBeenCalled();
     expect(openBitrixFileReader).not.toHaveBeenCalled();
+  });
+
+  // Review 14a P3-10: traversal and other odd shapes, over all eight handlers.
+  const ODD_PATHS = [
+    '../other/file',
+    `${ENTITY}/../${FILE}`,
+    `./${ENTITY}/${FILE}`,
+    `/${ENTITY}/${VERSION}/${FILE}`,
+    `${ENTITY}//${FILE}`,
+    `${ENTITY}/${VERSION}/${FILE}/`,
+    `${ENTITY}\\..\\${FILE}`,
+    `${ENTITY}/%2e%2e/${FILE}`,
+    `${ENTITY}/${VERSION}/${FILE}\u0000`,
+  ];
+
+  async function expectRefusedUnsigned(h: Handler, res: Response) {
+    expect(res.status).toBe(ACCOUNTS_PAGES.has(h) ? 503 : 404);
+    expect(res.headers.get('location')).toBeNull();
+    expect(res.headers.get('cache-control')).toBe('private, no-store, max-age=0');
+    expect(await res.text()).toContain(ACCOUNTS_PAGES.has(h) ? PAGE_503 : h.notFoundText);
+  }
+
+  it.each(HANDLERS)('$name: a traversal path is refused in either location and never signed or read', async (h) => {
+    for (const objectPath of ODD_PATHS) {
+      userReplies({ file_view_begin: crmBegin(h, { objectPath }) });
+      await expectRefusedUnsigned(h, await h.call());
+      userReplies({ file_view_begin: bitrixBegin(h, { objectPath }), file_view_finish: finishEcho });
+      await expectRefusedUnsigned(h, await h.call());
+    }
+    expect(createSignedUrl).not.toHaveBeenCalled();
+    expect(adminRpc).not.toHaveBeenCalled();
+    expect(openBitrixFileReader).not.toHaveBeenCalled();
+    expect(readBox).not.toHaveBeenCalled();
+    expect(finishCalls()).toEqual([]);
+  });
+
+  it.each(HANDLERS)('$name: a traversal path from the older authorize command is refused too', async (h) => {
+    userReplies({
+      file_view_begin: { error: { code: 'PGRST202', message: 'Could not find the function' } },
+      [h.legacyFn]: { data: { objectPath: '../other/file', fileName: h.fileName, mime: 'application/pdf' } },
+    });
+    const res = await h.call();
+    expect(res.status).not.toBe(302);
+    expect(res.headers.get('location')).toBeNull();
+    expect(createSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { name: ID_PROOF.name, h: ID_PROOF, objectPath: PATH3 },
+    { name: BOOKING.name, h: BOOKING, objectPath: PATH3 },
+    { name: DEPARTMENT.name, h: DEPARTMENT, objectPath: PATH4 },
+    { name: HANDLERS[3]!.name, h: HANDLERS[3]!, objectPath: PATH4 },
+  ])('$name: a plain path of the wrong number of ids is a 404 in either location', async ({ h, objectPath }) => {
+    userReplies({ file_view_begin: crmBegin(h, { objectPath }) });
+    expect((await h.call()).status).toBe(404);
+    userReplies({ file_view_begin: bitrixBegin(h, { objectPath }) });
+    expect((await h.call()).status).toBe(404);
+    expect(createSignedUrl).not.toHaveBeenCalled();
+    expect(adminRpc).not.toHaveBeenCalled();
+  });
+
+  it('isPlainObjectPath: every path shape the CRM writes passes; traversal and odd shapes do not', () => {
+    for (const ok of [PATH4, PATH3, `${ENTITY}/refund/${DEAL}/${FILE}`, `${ENTITY}/rate-contracts/${DEAL}/${FILE}`, `${ENTITY}/${DEAL}/${FILE}.pdf`]) {
+      expect(isPlainObjectPath(ok)).toBe(true);
+    }
+    for (const bad of [...ODD_PATHS, '', '..', '.', `${ENTITY}/.hidden`, 'a/b/c/d/e/f/g/h/i', 'x'.repeat(1025)]) {
+      expect(isPlainObjectPath(bad)).toBe(false);
+    }
   });
 
   it('a malformed id never reaches the database', async () => {
@@ -346,8 +427,10 @@ describe('file kept in Bitrix', () => {
     expect(adminRpc).toHaveBeenCalledTimes(1);
     expect(adminRpc).toHaveBeenCalledWith('file_view_resolve', { p_view_id: VIEW });
     expect(rpc.mock.invocationCallOrder[0]!).toBeLessThan(adminRpc.mock.invocationCallOrder[0]!);
-    expect(readBox).toHaveBeenCalledWith(BITRIX_DEAL_ID, BITRIX_BOX);
-    expect(downloadEntry).toHaveBeenCalledWith(ENTRY, PDF.byteLength);
+    // Both Bitrix requests get the one abort signal of the 15-second budget.
+    expect(readBox).toHaveBeenCalledWith(BITRIX_DEAL_ID, BITRIX_BOX, { signal: expect.any(AbortSignal) });
+    expect(downloadEntry).toHaveBeenCalledWith(ENTRY, PDF.byteLength, { signal: expect.any(AbortSignal) });
+    expect(downloadEntry.mock.calls[0]![2].signal).toBe(readBox.mock.calls[0]![2].signal);
     expect(openBitrixFileReader).toHaveBeenCalledWith({ timeoutMs: BITRIX_VIEW_TIMEOUT_MS });
     expect(finishCalls()).toEqual(['served']);
     const finishOrder = rpc.mock.invocationCallOrder[rpc.mock.calls.findIndex((c) => c[0] === 'file_view_finish')]!;
@@ -386,8 +469,11 @@ describe('file kept in Bitrix', () => {
       adminRpc.mockResolvedValue({ data: resolved({ sha256: sha(png) }), error: null });
     }, 'mismatch', 'needs_attention'],
     ['file too large for the record', () => downloadEntry.mockResolvedValue({ kind: 'unreadable', code: 'too_large' }), 'mismatch', 'needs_attention'],
-    ['link to another host', () => downloadEntry.mockResolvedValue({ kind: 'unreadable', code: 'other_host' }), 'mismatch', 'needs_attention'],
     ['not a file', () => downloadEntry.mockResolvedValue({ kind: 'unreadable', code: 'not_a_file' }), 'mismatch', 'needs_attention'],
+    // Bitrix gave no usable link: never served, an alert only (not a mismatch).
+    ['no download link', () => downloadEntry.mockResolvedValue({ kind: 'unreadable', code: 'no_link' }), 'unreadable_in_bitrix', 'needs_attention'],
+    ['link to another host', () => downloadEntry.mockResolvedValue({ kind: 'unreadable', code: 'other_host' }), 'unreadable_in_bitrix', 'needs_attention'],
+    ['redirect', () => downloadEntry.mockResolvedValue({ kind: 'unreadable', code: 'redirect' }), 'unreadable_in_bitrix', 'needs_attention'],
     ['file id not in the box', () => readBox.mockResolvedValue({ kind: 'ok', entries: [{ id: 1234500, raw: null }] }), 'not_found_in_bitrix', 'needs_attention'],
     ['deal not found', () => readBox.mockResolvedValue({ kind: 'deal_not_found' }), 'deal_not_found', 'needs_attention'],
     ['reader not configured', () => openBitrixFileReader.mockResolvedValue(null), 'bitrix_unavailable', 'bitrix_unavailable'],
@@ -419,20 +505,29 @@ describe('file kept in Bitrix', () => {
     expect(await expectSafe(res)).toContain('PAGE:needs_attention');
   });
 
-  it('Bitrix not answering: one attempt, given up after 15 seconds, never served', async () => {
+  it('Bitrix not answering: one attempt, given up after 15 seconds, the box read cancelled, never served', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     let readStarted!: () => void;
     const started = new Promise<void>((resolve) => {
       readStarted = resolve;
     });
-    readBox.mockImplementation(() => {
+    let signal: AbortSignal | undefined;
+    // A reader that never answers on its own, even when cancelled.
+    readBox.mockImplementation((_deal: string, _box: string, opts?: { signal?: AbortSignal }) => {
+      signal = opts?.signal;
       readStarted();
       return new Promise(() => undefined);
     });
     userReplies({ file_view_begin: bitrixBegin(ID_PROOF), file_view_finish: finishEcho });
     const pending = idProofDownloadResponse(FILE);
     await started;
-    await vi.advanceTimersByTimeAsync(BITRIX_VIEW_TIMEOUT_MS);
+    expect(signal).toBeInstanceOf(AbortSignal);
+    await vi.advanceTimersByTimeAsync(BITRIX_VIEW_TIMEOUT_MS - 1);
+    // Not cancelled before the budget is spent.
+    expect(signal!.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    // Cancelled when it is: the request is not left running.
+    expect(signal!.aborted).toBe(true);
     const res = await pending;
     expect(res.status).toBe(503);
     expect(await expectSafe(res)).toContain('PAGE:bitrix_unavailable');
@@ -441,13 +536,77 @@ describe('file kept in Bitrix', () => {
     expect(finishCalls()).toEqual(['bitrix_unavailable']);
   });
 
-  it('the view limit (PT429) answers the "try again" page, with nothing resolved or read', async () => {
+  it('a slow download shares the same budget: cancelled when the 15 seconds since the box read began are spent', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    let readStarted!: () => void;
+    const reading = new Promise<void>((resolve) => {
+      readStarted = resolve;
+    });
+    let downloadStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      downloadStarted = resolve;
+    });
+    let signal: AbortSignal | undefined;
+    readBox.mockImplementation(async () => {
+      // The box read itself takes 10 seconds.
+      const wait = new Promise((resolve) => setTimeout(resolve, 10_000));
+      readStarted();
+      await wait;
+      return { kind: 'ok', entries: [ENTRY] };
+    });
+    downloadEntry.mockImplementation((_entry: unknown, _max: number, opts?: { signal?: AbortSignal }) => {
+      signal = opts?.signal;
+      downloadStarted();
+      return new Promise(() => undefined);
+    });
+    userReplies({ file_view_begin: bitrixBegin(ID_PROOF), file_view_finish: finishEcho });
+    const pending = idProofDownloadResponse(FILE);
+    await reading;
+    await vi.advanceTimersByTimeAsync(10_000);
+    await started;
+    expect(signal!.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(BITRIX_VIEW_TIMEOUT_MS - 10_000);
+    expect(signal!.aborted).toBe(true);
+    const res = await pending;
+    expect(res.status).toBe(503);
+    expect(await expectSafe(res)).toContain('PAGE:bitrix_unavailable');
+    expect(finishCalls()).toEqual(['bitrix_unavailable']);
+  });
+
+  it('a reader that stops when cancelled still ends as "Bitrix is not answering", never as served', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    let readStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      readStarted = resolve;
+    });
+    readBox.mockImplementation(
+      (_deal: string, _box: string, opts?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          opts?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+          readStarted();
+        }),
+    );
+    userReplies({ file_view_begin: bitrixBegin(ID_PROOF), file_view_finish: finishEcho });
+    const pending = idProofDownloadResponse(FILE);
+    await started;
+    await vi.advanceTimersByTimeAsync(BITRIX_VIEW_TIMEOUT_MS);
+    const res = await pending;
+    expect(res.status).toBe(503);
+    expect(await expectSafe(res)).toContain('PAGE:bitrix_unavailable');
+    expect(finishCalls()).toEqual(['bitrix_unavailable']);
+  });
+
+  it('the CRM\'s own view limit (PT429) is a 429 "wait a minute" page with Retry-After, with nothing resolved or read', async () => {
     userReplies({ file_view_begin: { error: { code: 'PT429', message: 'view_limit' } } });
     for (const h of [ID_PROOF, FINANCE]) {
       const res = await h.call();
-      expect(res.status).toBe(503);
+      expect(res.status).toBe(429);
       expect(res.headers.get('retry-after')).toBe('60');
-      expect(await expectSafe(res)).toContain('PAGE:bitrix_unavailable');
+      expect(res.headers.get('content-type')).toBe('text/html; charset=utf-8');
+      const body = await expectSafe(res);
+      expect(body).toContain('PAGE:view_limit');
+      // Not the "Bitrix is not answering" page: the limit is the CRM's own.
+      expect(body).not.toContain('PAGE:bitrix_unavailable');
     }
     expect(adminRpc).not.toHaveBeenCalled();
     expect(openBitrixFileReader).not.toHaveBeenCalled();

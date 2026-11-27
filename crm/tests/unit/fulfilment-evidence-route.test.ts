@@ -76,6 +76,19 @@ describe('GET /app/bookings/evidence/[id]', () => {
     expect(adminFactory).not.toHaveBeenCalled();
   });
 
+  it('404 for a traversal path on a file kept in Bitrix too: nothing resolved, read or signed', async () => {
+    rpc.mockResolvedValue({
+      data: { objectPath: '../other/file', fileName: 'a.pdf', mime: 'application/pdf', location: 'bitrix', viewId: '0b000000-0000-4000-8000-0000000000ab' },
+      error: null,
+    });
+    const res = await call(EVIDENCE);
+    expect(res.status).toBe(404);
+    expect(res.headers.get('location')).toBeNull();
+    // The privileged client (resolve and signing) is never created.
+    expect(adminFactory).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
   it('never redirects to a host other than the Supabase project', async () => {
     createSignedUrl.mockResolvedValue({ data: { signedUrl: 'https://evil.example/steal' }, error: null });
     const res = await call(EVIDENCE);

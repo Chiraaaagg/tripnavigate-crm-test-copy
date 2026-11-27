@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Actor, FIXTURE_USERS as U, type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { CONFLICT_STATE } from '../helpers/sqlstates';
-import { ACC_BOX, ACCOUNTS, ID_BOX, type Job, OWNER, REASON, SQL, SUPER, SVC, s11Helpers } from './s11-support';
+import { ACC_BOX, ACCOUNTS, ID_BOX, type Job, OWNER, READ_AT_LEASE, REASON, SQL, SUPER, SVC, s11Helpers } from './s11-support';
 
 /**
  * S11 "files to Bitrix", worker commands (20261212000120), Super Admin
@@ -35,7 +35,6 @@ afterAll(async () => {
 const s = s11Helpers(() => db);
 const { one, owner } = s;
 const SUPER_AAL1: Actor = { userId: U.adminJodhpur, aal: 'aal1' };
-const NOW_MINUS_1M = "now() - interval '1 minute'";
 
 /** A Bitrix Deal with `n` stored traveller proofs (no Storage rows unless objects) and their move rows. */
 async function dealWithRows(sourceDealId: number, n: number, opts: { objects?: boolean } = {}) {
@@ -195,7 +194,7 @@ describe('observations: the database compares', () => {
     });
   });
 
-  it('second check: too early, read started before the hold or not after the last append -> retry; otherwise delete_pending', async () => {
+  it('second check: too early, a read start missing, before the lease or in the future -> retry; at the lease start -> delete_pending, recording leased_at', async () => {
     await asOwner(db, async () => {
       await s.settings({ check: true, del: true });
       const d = await dealWithRows(993324, 2);
@@ -204,7 +203,7 @@ describe('observations: the database compares', () => {
       await s.setMove(early.id, `state = 'verified', bitrix_file_id = 861, verified_sha256 = m.sha256, verified_size_bytes = m.size_bytes,
         verified_at = now(), delete_after = now() + interval '15 minutes'`);
       const t1 = await s.lease(early.id, 'reverify');
-      expect(await s.observe({ moveId: early.id, leaseToken: t1 }, 861, early.sha, 2048, 'now()')).toEqual({ result: 'retry' });
+      expect(await s.observe({ moveId: early.id, leaseToken: t1 }, 861, early.sha, 2048, READ_AT_LEASE)).toEqual({ result: 'retry' });
       expect(await s.move(early.id)).toMatchObject({ state: 'verified', lease_token: null });
 
       const row = d.rows[1]!;
@@ -212,7 +211,10 @@ describe('observations: the database compares', () => {
       await s.appendSettledAgo(993324, ID_BOX, 10);
       const [job] = (await s.claimAll()).filter((j) => j.moveId === row.id);
       expect(job).toMatchObject({ mode: 'reverify' });
-      // Read started before delete_after (now - 5 minutes).
+      // The claim stamps the lease start by the database clock and returns it.
+      expect(await s.leaseTimes(row.id)).toMatchObject({ leased_now: true });
+      expect(Number.isFinite(Date.parse(job!.leasedAt!))).toBe(true);
+      // Read start before the lease (and before delete_after, now - 5 minutes).
       expect(await s.observe(job!, 862, row.sha, 2048, "now() - interval '6 minutes'")).toEqual({ result: 'retry' });
       await s.due(row.id);
       const [again] = (await s.claimAll()).filter((j) => j.moveId === row.id);
@@ -221,24 +223,93 @@ describe('observations: the database compares', () => {
       await s.due(row.id);
       const [third] = (await s.claimAll()).filter((j) => j.moveId === row.id);
       expect(await s.observe(third!, 862, row.sha, 2048, "now() + interval '1 second'")).toEqual({ result: 'retry' });
-      // Not after the last append.
-      await s.appendSettledAgo(993324, ID_BOX, 2);
+      // Read start one millisecond before the lease (after the hold and the last append).
       await s.due(row.id);
       const [fourth] = (await s.claimAll()).filter((j) => j.moveId === row.id);
-      expect(await s.observe(fourth!, 862, row.sha, 2048, "now() - interval '3 minutes'")).toEqual({ result: 'retry' });
-      // Read started after the hold and after the last append: delete_pending, with the read start recorded.
+      expect(await s.observe(fourth!, 862, row.sha, 2048, "now() - interval '1 millisecond'")).toEqual({ result: 'retry' });
+      expect((await s.move(row.id)).state).toBe('verified');
+      // Read started at the lease start, after the hold and after the last append: delete_pending.
       await s.due(row.id);
       const [fifth] = (await s.claimAll()).filter((j) => j.moveId === row.id);
-      expect(await s.observe(fifth!, 862, row.sha, 2048, NOW_MINUS_1M)).toEqual({ result: 'delete_pending' });
+      expect(await s.observe(fifth!, 862, row.sha, 2048, READ_AT_LEASE)).toEqual({ result: 'delete_pending' });
       const [after] = await owner<{ ok: boolean }>(
-        `select reverified_after_append_at = now() - interval '1 minute' and reverified_at = now() as ok from public.file_bitrix_moves where id = $1`, [row.id]);
+        `select reverified_after_append_at = now() and reverified_at = now() as ok from public.file_bitrix_moves where id = $1`, [row.id]);
       expect(after!.ok).toBe(true);
       expect(await s.audits('files.move_reverified', row.id)).toHaveLength(1);
       // A mismatch at the second check quarantines.
       const d2 = await dealWithRows(993325, 1);
       await s.verifiedPastHold(d2.rows[0]!.id, 863);
       const [j2] = (await s.claimAll()).filter((j) => j.moveId === d2.rows[0]!.id);
-      expect(await s.observe(j2!, 863, 'e'.repeat(64), 2048, NOW_MINUS_1M)).toEqual({ result: 'quarantined' });
+      expect(await s.observe(j2!, 863, 'e'.repeat(64), 2048, READ_AT_LEASE)).toEqual({ result: 'quarantined' });
+    });
+  });
+
+  it('second check by the database clock: a lease that started before the last append is refused even when the app clock says the read came later', async () => {
+    await asOwner(db, async () => {
+      await s.settings({ check: true, del: true });
+      const d = await dealWithRows(993327, 1);
+      const row = d.rows[0]!;
+      await s.verifiedPastHold(row.id, 865);
+      await s.appendSettledAgo(993327, ID_BOX, 10);
+      const [job] = (await s.claimAll()).filter((j) => j.moveId === row.id);
+      expect(job).toMatchObject({ mode: 'reverify' });
+      // The lease began 2 minutes ago (after the hold ended 5 minutes ago); an
+      // append to the box settled 1 minute ago, after the lease started. The
+      // worker, its clock running ahead, reports a read start after that append.
+      await s.setMove(row.id, `leased_at = now() - interval '2 minutes'`);
+      await s.appendSettledAgo(993327, ID_BOX, 1);
+      expect(await s.observe(job!, 865, row.sha, 2048, "now() - interval '30 seconds'")).toEqual({ result: 'retry' });
+      expect(await s.move(row.id)).toMatchObject({ state: 'verified', lease_token: null, crm_copy_present: true });
+      // An append at the very instant of the lease is not "before" it either.
+      await s.due(row.id);
+      const [again] = (await s.claimAll()).filter((j) => j.moveId === row.id);
+      await s.appendSettledAgo(993327, ID_BOX, 0);
+      expect(await s.observe(again!, 865, row.sha, 2048, READ_AT_LEASE)).toEqual({ result: 'retry' });
+      expect((await s.move(row.id)).state).toBe('verified');
+    });
+  });
+
+  it('second check: a lease that started before delete_after is refused, whatever read start is given', async () => {
+    await asOwner(db, async () => {
+      await s.settings({ check: true, del: true });
+      const d = await dealWithRows(993328, 1);
+      const row = d.rows[0]!;
+      await s.verifiedPastHold(row.id, 866);
+      await s.appendSettledAgo(993328, ID_BOX, 10);
+      const [job] = (await s.claimAll()).filter((j) => j.moveId === row.id);
+      expect(job).toMatchObject({ mode: 'reverify' });
+      // delete_after is now - 5 minutes; the lease is set to 1 second before it.
+      await s.setMove(row.id, `leased_at = delete_after - interval '1 second'`);
+      expect(await s.observe(job!, 866, row.sha, 2048, READ_AT_LEASE)).toEqual({ result: 'retry' });
+      await s.due(row.id);
+      const [again] = (await s.claimAll()).filter((j) => j.moveId === row.id);
+      await s.setMove(row.id, `leased_at = delete_after - interval '1 second'`);
+      expect(await s.observe(again!, 866, row.sha, 2048, "now() - interval '5 minutes'")).toEqual({ result: 'retry' });
+      // No lease start at all (a lease written without one) is refused too.
+      await s.due(row.id);
+      const [third] = (await s.claimAll()).filter((j) => j.moveId === row.id);
+      await s.setMove(row.id, 'leased_at = null');
+      expect(await s.observe(third!, 866, row.sha, 2048, READ_AT_LEASE)).toEqual({ result: 'retry' });
+      expect((await s.move(row.id)).state).toBe('verified');
+    });
+  });
+
+  it('second check: reverified_after_append_at records the lease start, not the worker read start', async () => {
+    await asOwner(db, async () => {
+      await s.settings({ check: true, del: true });
+      const d = await dealWithRows(993329, 1);
+      const row = d.rows[0]!;
+      await s.verifiedPastHold(row.id, 867);
+      await s.appendSettledAgo(993329, ID_BOX, 10);
+      const [job] = (await s.claimAll()).filter((j) => j.moveId === row.id);
+      // The lease began 30 seconds ago (after the hold and the last append); the read 10 seconds ago.
+      await s.setMove(row.id, `leased_at = now() - interval '30 seconds'`);
+      expect(await s.observe(job!, 867, row.sha, 2048, "now() - interval '10 seconds'")).toEqual({ result: 'delete_pending' });
+      const [t] = await owner<{ is_lease: boolean; lease_30s: boolean }>(
+        `select reverified_after_append_at = leased_at as is_lease, reverified_after_append_at = now() - interval '30 seconds' as lease_30s
+         from public.file_bitrix_moves where id = $1`, [row.id]);
+      expect(t).toEqual({ is_lease: true, lease_30s: true });
+      expect(await s.move(row.id)).toMatchObject({ state: 'delete_pending', lease_token: null });
     });
   });
 
@@ -369,7 +440,7 @@ describe('removed deals, deal_not_found, lease expiry', () => {
       // A second check under way when the deal is removed answers retry.
       const t = await s.lease(d.rows[1]!.id, 'reverify');
       await s.appendSettledAgo(993341, ID_BOX, 10);
-      expect(await s.observe({ moveId: d.rows[1]!.id, leaseToken: t }, 882, d.rows[1]!.sha, 2048, NOW_MINUS_1M)).toEqual({ result: 'retry' });
+      expect(await s.observe({ moveId: d.rows[1]!.id, leaseToken: t }, 882, d.rows[1]!.sha, 2048, READ_AT_LEASE)).toEqual({ result: 'retry' });
       await s.restoreDeal(d.deal);
       await s.due(d.rows[1]!.id);
       const jobs = await s.claimAll();
@@ -451,16 +522,21 @@ describe('the two writers of crm_copy_present', () => {
       // No switch needed: restore always runs.
       const [job] = await s.claim(1);
       expect(job).toMatchObject({ moveId: row.id, mode: 'restore', bitrixFileId: '911' });
-      await s.refusedWith(SVC, SQL.confirmRestored, [row.id, job!.leaseToken], '55000', 'wrong_state', 'not_checked');
+      await s.refusedWith(SVC, SQL.confirmRestored, [row.id, job!.leaseToken, row.sha, 2048], '55000', 'wrong_state', 'not_checked');
       expect(await s.observe(job!, 911, row.sha, 2048, null)).toEqual({ result: 'restore_checked' });
+      // The read-back is checked for form.
+      await s.refusedWith(SVC, SQL.confirmRestored, [row.id, job!.leaseToken, 'NOT-A-HASH', 2048], '22023', 'invalid_input', 'storedSha256');
+      await s.refusedWith(SVC, SQL.confirmRestored, [row.id, job!.leaseToken, row.sha, -1], '22023', 'invalid_input', 'storedSize');
       // Nothing uploaded yet.
-      expect(await one(SVC, SQL.confirmRestored, [row.id, job!.leaseToken])).toEqual({ result: 'missing' });
-      expect(await s.move(row.id)).toMatchObject({ state: 'restore_pending', crm_copy_present: false, read_back_attempts: 1, lease_token: null });
+      expect(await s.confirmRestored(job!, row.sha)).toEqual({ result: 'missing' });
+      expect(await s.move(row.id)).toMatchObject({ state: 'restore_pending', crm_copy_present: false, read_back_attempts: 1, lease_token: null,
+        last_error_code: 'restore_missing' });
+      expect(await s.leaseTimes(row.id)).toMatchObject({ checked_set: false });
       await s.due(row.id);
       const [again] = await s.claim(1);
       await s.observe(again!, 911, row.sha, 2048, null);
       await s.putObject('traveller-id-proofs', row.objectPath);
-      expect(await one(SVC, SQL.confirmRestored, [row.id, again!.leaseToken])).toEqual({ result: 'restored' });
+      expect(await s.confirmRestored(again!, row.sha)).toEqual({ result: 'restored' });
       expect(await s.move(row.id)).toMatchObject({ state: 'copied', crm_copy_present: true, read_back_attempts: 0, lease_token: null });
       expect(await s.audits('files.move_restored', row.id)).toHaveLength(1);
 
@@ -470,8 +546,8 @@ describe('the two writers of crm_copy_present', () => {
       await s.putObject('traveller-id-proofs', sized.objectPath, 1000);
       const [sj] = (await s.claimAll()).filter((j) => j.moveId === sized.id);
       await s.observe(sj!, 913, sized.sha, 2048, null);
-      expect(await one(SVC, SQL.confirmRestored, [sized.id, sj!.leaseToken])).toEqual({ result: 'missing' });
-      expect(await s.move(sized.id)).toMatchObject({ state: 'restore_pending', crm_copy_present: false });
+      expect(await s.confirmRestored(sj!, sized.sha)).toEqual({ result: 'missing' });
+      expect(await s.move(sized.id)).toMatchObject({ state: 'restore_pending', crm_copy_present: false, last_error_code: 'restore_missing' });
 
       // A copy-back that differs five times ends lost_in_bitrix with an alert.
       const other = d.rows[1]!;
@@ -485,6 +561,66 @@ describe('the two writers of crm_copy_present', () => {
       expect(result).toBe('quarantined');
       expect(await s.move(other.id)).toMatchObject({ state: 'lost_in_bitrix', crm_copy_present: false });
       expect((await s.stops()).map((x) => x.reason_code)).toContain('copy_mismatch');
+    });
+  });
+
+  it('confirm_restored compares the read-back: a wrong stored hash or size is missing / restore_mismatch, never restored', async () => {
+    await asOwner(db, async () => {
+      const d = await dealWithRows(993357, 2, { objects: false });
+      const [a, b] = [d.rows[0]!, d.rows[1]!];
+      await s.soleCopy(a.id, 951, 'restore_pending');
+      await s.soleCopy(b.id, 952, 'restore_pending');
+      // Both objects are back at their paths with the stored size.
+      await s.putObject('traveller-id-proofs', a.objectPath);
+      await s.putObject('traveller-id-proofs', b.objectPath);
+      const jobs = await s.claimAll();
+      const ja = s.jobFor(jobs, a.id)!;
+      const jb = s.jobFor(jobs, b.id)!;
+      expect([ja.mode, jb.mode]).toEqual(['restore', 'restore']);
+      expect(await s.observe(ja, 951, a.sha, 2048, null)).toEqual({ result: 'restore_checked' });
+      expect(await s.observe(jb, 952, b.sha, 2048, null)).toEqual({ result: 'restore_checked' });
+      // Same size, other content (what an "exists" upload may have found).
+      expect(await s.confirmRestored(ja, 'c'.repeat(64))).toEqual({ result: 'missing' });
+      expect(await s.move(a.id)).toMatchObject({ state: 'restore_pending', crm_copy_present: false, last_error_code: 'restore_mismatch',
+        read_back_attempts: 1, lease_token: null });
+      expect(await s.leaseTimes(a.id)).toMatchObject({ checked_set: false });
+      // Right hash, other size.
+      expect(await s.confirmRestored(jb, b.sha, 2047)).toEqual({ result: 'missing' });
+      expect(await s.move(b.id)).toMatchObject({ state: 'restore_pending', crm_copy_present: false, last_error_code: 'restore_mismatch' });
+      expect(await s.audits('files.move_restored', a.id)).toHaveLength(0);
+      expect(await s.audits('files.move_restored', b.id)).toHaveLength(0);
+    });
+  });
+
+  it('confirm_restored needs a copy-back check made in THIS lease; the claim and complete clear an old one', async () => {
+    await asOwner(db, async () => {
+      const d = await dealWithRows(993358, 1, { objects: false });
+      const row = d.rows[0]!;
+      await s.soleCopy(row.id, 961, 'restore_pending');
+      await s.putObject('traveller-id-proofs', row.objectPath);
+      // A check left on the row before the claim: the claim clears it.
+      await s.setMove(row.id, 'restore_checked_at = now()');
+      const [job] = await s.claim(1);
+      expect(job).toMatchObject({ moveId: row.id, mode: 'restore' });
+      expect(await s.leaseTimes(row.id)).toMatchObject({ leased_now: true, checked_set: false });
+      await s.refusedWith(SVC, SQL.confirmRestored, [row.id, job!.leaseToken, row.sha, 2048], '55000', 'wrong_state', 'not_checked');
+      // A check older than this lease (from an earlier lease) is refused.
+      await s.setMove(row.id, `restore_checked_at = now() - interval '1 minute'`);
+      await s.refusedWith(SVC, SQL.confirmRestored, [row.id, job!.leaseToken, row.sha, 2048], '55000', 'wrong_state', 'not_checked');
+      expect((await s.move(row.id)).state).toBe('restore_pending');
+      // A check in this lease, then the lease ends with retry: the check goes with it.
+      expect(await s.observe(job!, 961, row.sha, 2048, null)).toEqual({ result: 'restore_checked' });
+      expect(await s.leaseTimes(row.id)).toMatchObject({ checked_set: true });
+      expect(await s.complete(job!, 'retry', 'storage_upload_failed')).toMatchObject({ state: 'restore_pending' });
+      expect(await s.leaseTimes(row.id)).toMatchObject({ checked_set: false });
+      expect(await s.move(row.id)).toMatchObject({ lease_token: null, last_error_code: 'storage_upload_failed' });
+      // The next lease must check the bytes again before it can confirm.
+      await s.due(row.id);
+      const [again] = await s.claim(1);
+      await s.refusedWith(SVC, SQL.confirmRestored, [row.id, again!.leaseToken, row.sha, 2048], '55000', 'wrong_state', 'not_checked');
+      await s.observe(again!, 961, row.sha, 2048, null);
+      expect(await s.confirmRestored(again!, row.sha)).toEqual({ result: 'restored' });
+      expect(await s.move(row.id)).toMatchObject({ state: 'copied', crm_copy_present: true });
     });
   });
 
@@ -506,7 +642,7 @@ describe('the two writers of crm_copy_present', () => {
       expect(s.jobFor(jobs, d.rows[1]!.id)).toBeUndefined();
       await s.observe(r, 921, d.rows[0]!.sha, 2048, null);
       await s.putObject('traveller-id-proofs', d.rows[0]!.objectPath);
-      expect(await one(SVC, SQL.confirmRestored, [r.moveId, r.leaseToken])).toEqual({ result: 'restored' });
+      expect(await s.confirmRestored(r, d.rows[0]!.sha)).toEqual({ result: 'restored' });
       expect(await s.move(d.rows[0]!.id)).toMatchObject({ state: 'verified', keep_in_crm: true, crm_copy_present: true });
       await s.due(d.rows[0]!.id);
       expect((await s.claimAll()).filter((j) => j.moveId === d.rows[0]!.id || j.moveId === d.rows[1]!.id)).toEqual([]);
@@ -547,9 +683,67 @@ describe('the two writers of crm_copy_present', () => {
       await s.observe(res, 942, d.rows[1]!.sha, 2048, null);
       await owner('alter table storage.objects rename to objects_hidden_s11');
       await s.refusedWith(SVC, SQL.confirmDeleted, [del.moveId, del.leaseToken], '55000', 'wrong_state', 'storage_unavailable');
-      await s.refusedWith(SVC, SQL.confirmRestored, [res.moveId, res.leaseToken], '55000', 'wrong_state', 'storage_unavailable');
+      await s.refusedWith(SVC, SQL.confirmRestored, [res.moveId, res.leaseToken, d.rows[1]!.sha, 2048], '55000', 'wrong_state', 'storage_unavailable');
       await owner('alter table storage.objects_hidden_s11 rename to objects');
       expect((await s.move(d.rows[0]!.id)).state).toBe('delete_pending');
+    });
+  });
+});
+
+describe('lease_ok: asked right before the Storage remove', () => {
+  it('ok only for this delete lease on a delete_pending row, with enough lease left and deletion still allowed', async () => {
+    await asOwner(db, async () => {
+      await s.settings({ check: true, del: true });
+      const d = await dealWithRows(993359, 1, { objects: true });
+      const row = d.rows[0]!;
+      await s.deletePending(row.id, 971);
+      const [job] = (await s.claimAll()).filter((j) => j.moveId === row.id);
+      expect(job).toMatchObject({ mode: 'delete' });
+      expect(await s.leaseOk(job!, 60)).toEqual({ ok: true });
+      expect(await s.leaseOk(job!, 0)).toEqual({ ok: true });
+      // Asking changes nothing: the lease is still held.
+      expect(await s.move(row.id)).toMatchObject({ state: 'delete_pending', lease_token: job!.leaseToken, lease_mode: 'delete' });
+      // Another token, or an unknown row.
+      expect(await s.leaseOk({ moveId: row.id, leaseToken: '00000000-0000-4000-8000-000000000000' }, 60)).toEqual({ ok: false });
+      expect(await s.leaseOk({ moveId: '00000000-0000-4000-8000-000000000001', leaseToken: job!.leaseToken }, 60)).toEqual({ ok: false });
+      // More lease time asked than is left (180 s lease), and a short lease.
+      expect(await s.leaseOk(job!, 600)).toEqual({ ok: false });
+      await s.setMove(row.id, `locked_until = now() + interval '30 seconds'`);
+      expect(await s.leaseOk(job!, 60)).toEqual({ ok: false });
+      expect(await s.leaseOk(job!, 30)).toEqual({ ok: true });
+      await s.expireLease(row.id);
+      expect(await s.leaseOk(job!, 0)).toEqual({ ok: false });
+      await s.setMove(row.id, `locked_until = now() + interval '180 seconds'`);
+      expect(await s.leaseOk(job!, 60)).toEqual({ ok: true });
+      // The delete switch turned off meanwhile.
+      await s.settings({ check: true, del: false, everOn: true });
+      expect(await s.leaseOk(job!, 60)).toEqual({ ok: false });
+      // The identity switch off, or a pilot on another deal: deletion is not allowed for this row.
+      await s.settings({ check: false, del: true });
+      expect(await s.leaseOk(job!, 60)).toEqual({ ok: false });
+      await s.settings({ check: true, del: true, pilot: 993360 });
+      expect(await s.leaseOk(job!, 60)).toEqual({ ok: false });
+      await s.settings({ check: true, del: true });
+      expect(await s.leaseOk(job!, 60)).toEqual({ ok: true });
+    });
+  });
+
+  it('not ok for another lease mode or another state; minSeconds is checked', async () => {
+    await asOwner(db, async () => {
+      await s.settings({ check: true, del: true });
+      const d = await dealWithRows(993392, 2);
+      const [a, b] = [d.rows[0]!, d.rows[1]!];
+      await s.deletePending(a.id, 981);
+      const confirmLease = await s.lease(a.id, 'confirm_delete');
+      expect(await s.leaseOk({ moveId: a.id, leaseToken: confirmLease }, 60)).toEqual({ ok: false });
+      await s.verifiedPastHold(b.id, 982);
+      const wrongState = await s.lease(b.id, 'delete');
+      expect(await s.leaseOk({ moveId: b.id, leaseToken: wrongState }, 60)).toEqual({ ok: false });
+      const deleteLease = await s.lease(a.id, 'delete');
+      expect(await s.leaseOk({ moveId: a.id, leaseToken: deleteLease }, 60)).toEqual({ ok: true });
+      for (const bad of [-1, 901, null]) {
+        await s.refusedWith(SVC, SQL.leaseOk, [a.id, deleteLease, bad], '22023', 'invalid_input', 'minSeconds');
+      }
     });
   });
 });
@@ -625,7 +819,55 @@ describe('Super Admin commands', () => {
       expect((await one<{ madeDue: number }>(SVC, SQL.sweep, [])).madeDue).toBe(1);
       await s.refusedWith(SUPER, SQL.setBox, ['ufCrm_AnotherBox', REASON], '55000', 'wrong_state', 'box_in_use');
       const audit = (await s.audits('files.move_switch_changed')).find((a) => a.details.setting === 'accounts_bitrix_field');
-      expect(audit!.details).toMatchObject({ before: null, after: ACC_BOX });
+      expect(audit!.details).toEqual({ setting: 'accounts_bitrix_field', changed: true, wasSet: false, isSet: true });
+    });
+  });
+
+  it('no audit row of the box or pilot commands holds the Accounts box key or the pilot deal id; counters show each change', async () => {
+    await asOwner(db, async () => {
+      const OTHER_BOX = 'ufCrm_S11SynOtherBox';
+      await s.bitrixDeal(993378);
+      const [top] = await owner<{ n: string }>('select coalesce(max(id), 0)::text as n from public.audit_events');
+      // One rolled-back box change: the settings audit shows the counter, not the key.
+      const once = await s.attempt(SUPER, SQL.setBox, [ACC_BOX, REASON]);
+      expect(once.ok).toBe(true);
+      const settingUpdate = once.audits.find((a) => a.action === 'settings.file_move_changed'
+        && (a.details as { operation: string }).operation === 'update');
+      expect((settingUpdate!.details as { changes: unknown }).changes).toEqual({ accounts_box_changes: { from: 0, to: 1 } });
+      expect(JSON.stringify(once.audits)).not.toContain(ACC_BOX);
+      const pilotOnce = await s.attempt(SUPER, SQL.setPilot, [993378, REASON]);
+      expect(pilotOnce.ok).toBe(true);
+      const pilotUpdate = pilotOnce.audits.find((a) => a.action === 'settings.file_move_changed'
+        && (a.details as { operation: string }).operation === 'update');
+      expect((pilotUpdate!.details as { changes: unknown }).changes).toEqual({ pilot_changes: { from: 0, to: 1 } });
+      expect(JSON.stringify(pilotOnce.audits)).not.toContain('993378');
+
+      // Kept changes: set, change, clear the box; set and clear the pilot; a repeat is no change.
+      await one(SUPER, SQL.setBox, [ACC_BOX, REASON]);
+      expect(await one(SUPER, SQL.setBox, [ACC_BOX, REASON])).toMatchObject({ changed: false });
+      await one(SUPER, SQL.setBox, [OTHER_BOX, REASON]);
+      await one(SUPER, SQL.setBox, [null, REASON]);
+      await one(SUPER, SQL.setPilot, [993378, REASON]);
+      await one(SUPER, SQL.setPilot, [null, REASON]);
+      const [counters] = await owner<{ box: number; pilot: number }>(
+        `select s.accounts_box_changes as box, s.pilot_changes as pilot
+         from public.file_move_settings s join public.legal_entities e on e.id = s.legal_entity_id where e.code = 'HOLIDAY_CHACHA'`);
+      expect(counters).toEqual({ box: 3, pilot: 2 });
+      const written = await owner<{ action: string; reason: string | null; details: Record<string, unknown> }>(
+        `select action, reason, details from public.audit_events
+         where id > $1::bigint and action in ('settings.file_move_changed', 'files.move_switch_changed') order by id`, [top!.n]);
+      expect(written.filter((a) => a.action === 'files.move_switch_changed')).toHaveLength(5);
+      expect(written.filter((a) => a.action === 'settings.file_move_changed').length).toBeGreaterThanOrEqual(5);
+      for (const a of written) {
+        const text = JSON.stringify(a);
+        for (const secret of [ACC_BOX, OTHER_BOX, '993378']) expect(text, a.action).not.toContain(secret);
+      }
+      const boxAudits = written.filter((a) => a.action === 'files.move_switch_changed' && a.details.setting === 'accounts_bitrix_field');
+      expect(boxAudits.map((a) => a.details)).toEqual([
+        { setting: 'accounts_bitrix_field', changed: true, wasSet: false, isSet: true },
+        { setting: 'accounts_bitrix_field', changed: true, wasSet: true, isSet: true },
+        { setting: 'accounts_bitrix_field', changed: true, wasSet: true, isSet: false },
+      ]);
     });
   });
 
@@ -650,8 +892,26 @@ describe('Super Admin commands', () => {
       for (const item of alerts.items) {
         expect(Object.keys(item).sort()).toEqual(['bitrixDealId', 'fileClass', 'kind', 'lastErrorCode', 'moveId', 'sourceTable', 'state', 'updatedAt']);
       }
-      expect(Object.keys(alerts.counts).sort()).toEqual(['missedEnqueue', 'noTarget', 'soleCopies', 'waitingAccounts']);
+      expect(Object.keys(alerts.counts).sort()).toEqual(['missedEnqueue', 'noTarget', 'orphaned', 'soleCopies', 'waitingAccounts']);
       expect(JSON.stringify(alerts)).not.toMatch(/objectPath|\.jpg|image\/jpeg|https?:/);
+    });
+  });
+
+  it('alerts count orphaned moves: rows whose CRM deal row no longer exists (no foreign key)', async () => {
+    await asOwner(db, async () => {
+      const d = await dealWithRows(993379, 2);
+      const count = async () => (await one<{ counts: Record<string, number> }>(SUPER, SQL.alerts, [])).counts.orphaned;
+      const before = await count();
+      // Owner SQL inside the rolled-back transaction: one row points at a deal id with no deals row.
+      await s.setMove(d.rows[0]!.id, 'deal_id = gen_random_uuid()');
+      expect(await count()).toBe(before + 1);
+      // A row without a deal id is not counted as orphaned.
+      await s.setMove(d.rows[1]!.id, 'deal_id = null');
+      expect(await count()).toBe(before + 1);
+      const [missing] = await owner<{ n: number }>(
+        `select count(*)::int as n from public.file_bitrix_moves m where m.id = $1 and not exists (select 1 from public.deals x where x.id = m.deal_id)`,
+        [d.rows[0]!.id]);
+      expect(missing!.n).toBe(1);
     });
   });
 

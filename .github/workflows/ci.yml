@@ -326,7 +326,7 @@ jobs:
           node --input-type=module -e '
             import { readFileSync } from "node:fs";
             const reports = {
-              "vitest-supabase": ["intake", "intake-routes", "intake-receiver", "finance-concurrency", "b1-journey", "b11-won-only", "booking-form", "booking", "booking-flow"],
+              "vitest-supabase": ["intake", "intake-routes", "intake-receiver", "finance-concurrency", "b1-journey", "b11-won-only", "booking-form", "booking", "booking-flow", "s11-storage-remove"],
             };
             // Speed suites must run, but a missed budget is only a warning (owner, 17 November 2026).
             const informational = {

@@ -1,6 +1,6 @@
 import 'server-only';
 import { z } from 'zod';
-import { deliverFile } from '@/modules/documents/server/file-delivery';
+import { deliverFile, objectPathIsIds } from '@/modules/documents/server/file-delivery';
 import { asRpcClient } from '@/modules/fulfilment/commands';
 import { requireStaff } from '@/modules/identity/server/session';
 import { eTicketAuthorizeDownload } from '../commands';
@@ -44,6 +44,8 @@ export async function eTicketDownloadResponse(rawId: string): Promise<Response> 
     bucket: FLIGHT_E_TICKET_BUCKET,
     signedUrlSeconds: FLIGHT_E_TICKET_SIGNED_URL_SECONDS,
     legacyAuthorize: () => eTicketAuthorizeDownload(asRpcClient(staff.supabase), id.data),
+    // <entity>/<task>/<evidence id>, the department evidence path shape.
+    accept: (file) => objectPathIsIds(file.objectPath, 3),
     downloadName: (file) => file.fileName,
     crmUnavailable: unavailable,
   });

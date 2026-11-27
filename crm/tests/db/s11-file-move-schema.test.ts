@@ -39,7 +39,8 @@ const { one, owner, refused } = s;
 const TABLES = ['file_bitrix_moves', 'file_move_settings', 'file_move_kick_state', 'file_move_stops', 'file_bitrix_views', 'file_move_box_state'];
 const WORKER_FUNCTIONS = [
   'file_move_claim', 'file_move_mark_sending', 'file_move_record_observation', 'file_move_complete', 'file_move_confirm_deleted',
-  'file_move_confirm_restored', 'file_move_stop', 'file_move_presence_result', 'file_move_relocated', 'file_move_sweep', 'file_view_resolve',
+  'file_move_confirm_restored', 'file_move_lease_ok', 'file_move_stop', 'file_move_presence_result', 'file_move_relocated', 'file_move_sweep',
+  'file_view_resolve',
 ];
 const STAFF_FUNCTIONS = [
   'file_view_begin', 'file_view_finish', 'file_move_settings_get', 'file_move_set_switch', 'file_move_set_hold', 'file_move_set_accounts_box',
@@ -51,7 +52,7 @@ const AUTHZ_HELPERS = [
   'file_move_copy_back_before_append', 'file_move_may_check', 'file_move_may_delete', 'file_move_dec43_gate', 'file_move_source',
   'file_move_kind', 'file_move_missing_sources', 'file_move_enqueue_source', 'file_move_cancel_row', 'file_move_open_stop',
   'file_move_delete_off', 'file_move_quarantine', 'kick_file_move', 'file_move_safety_tick', 'file_move_backfill',
-  'file_move_request_restore', 'provision_file_move_sweep_job', 'file_move_pilot_make_due',
+  'file_move_request_restore', 'provision_file_move_sweep_job', 'file_move_pilot_make_due', 'file_move_settings_count_changes',
 ];
 
 describe('S11 migration source', () => {
@@ -151,6 +152,8 @@ describe('S11 privileges', () => {
          order by 1`,
       );
       expect(rows.map((r) => r.name).sort()).toEqual([...WORKER_FUNCTIONS, ...STAFF_FUNCTIONS].sort());
+      expect(rows.filter((r) => r.svc).map((r) => r.name).sort()).toEqual([...WORKER_FUNCTIONS].sort());
+      expect(WORKER_FUNCTIONS).toHaveLength(12);
       for (const r of rows) {
         const worker = WORKER_FUNCTIONS.includes(r.name);
         expect({ name: r.name, anon: r.anon, auth: r.auth, svc: r.svc }).toEqual({ name: r.name, anon: false, auth: !worker, svc: worker });
@@ -350,6 +353,41 @@ describe('file_bitrix_moves constraints and guards', () => {
       await expectDbError(db, () => owner(`update public.file_bitrix_views set outcome = 'mismatch' where id = $1`, [view!.id]), { code: '23514' });
     });
   });
+
+  it('the view outcome and the stop reason accept the "unreadable" values and nothing unknown', async () => {
+    await asOwner(db, async () => {
+      const { id } = await identityRow(993107);
+      const entity = await s.entityId();
+      const [stop] = await owner<{ reason_code: string }>(
+        `insert into public.file_move_stops (legal_entity_id, move_id, source_deal_id, reason_code) values ($1, $2, 993107, 'view_unreadable')
+         returning reason_code`,
+        [entity, id],
+      );
+      expect(stop!.reason_code).toBe('view_unreadable');
+      await expectDbError(db, () => owner(
+        `insert into public.file_move_stops (legal_entity_id, move_id, source_deal_id, reason_code) values ($1, $2, 993107, 'view_odd')`,
+        [entity, id]), { code: '23514' });
+      const [view] = await owner<{ id: string }>(
+        `insert into public.file_bitrix_views (legal_entity_id, actor_user_id, move_id, resolved_at, outcome, finished_at)
+         values ($1, $2, $3, now(), 'unreadable_in_bitrix', now()) returning id`,
+        [entity, '00000000-0000-4000-8000-0000000000ab', id],
+      );
+      expect(view!.id).toBeTruthy();
+      await expectDbError(db, () => owner(
+        `insert into public.file_bitrix_views (legal_entity_id, actor_user_id, move_id, resolved_at, outcome, finished_at)
+         values ($1, $2, $3, now(), 'unreadable', now())`,
+        [entity, '00000000-0000-4000-8000-0000000000ac', id]), { code: '23514' });
+    });
+  });
+
+  it('a move row carries leased_at, empty until a lease is handed out', async () => {
+    await asOwner(db, async () => {
+      const { id } = await identityRow(993108);
+      const [row] = await owner<{ leased: string | null; type: string }>(
+        `select m.leased_at::text as leased, pg_typeof(m.leased_at)::text as type from public.file_bitrix_moves m where m.id = $1`, [id]);
+      expect(row).toEqual({ leased: null, type: 'timestamp with time zone' });
+    });
+  });
 });
 
 describe('S11 settings: switches Off, hold floor, 90-day floor', () => {
@@ -371,16 +409,45 @@ describe('S11 settings: switches Off, hold floor, 90-day floor', () => {
       const [row] = await owner<Record<string, unknown>>(
         `insert into public.file_move_settings (legal_entity_id) values ($1)
          returning check_id_proof_copies, move_accounts_files, delete_after_hold, delete_ever_on, delete_hold_minutes, accounts_hold_days,
-           enqueue_enabled, accounts_bitrix_field, pilot_source_deal_id`,
+           enqueue_enabled, accounts_bitrix_field, pilot_source_deal_id, accounts_box_changes, pilot_changes`,
         [entity],
       );
       expect(row).toEqual({
         check_id_proof_copies: false, move_accounts_files: false, delete_after_hold: false, delete_ever_on: false, delete_hold_minutes: 15,
         accounts_hold_days: 90, enqueue_enabled: true, accounts_bitrix_field: null, pilot_source_deal_id: null,
+        accounts_box_changes: 0, pilot_changes: 0,
       });
       // The settings row is audited by its trigger.
       const [audit] = await owner<{ n: number }>(`select count(*)::int as n from public.audit_events where action = 'settings.file_move_changed'`);
       expect(audit!.n).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it('the settings audit records change counters, never the Accounts box key or the pilot deal id (owner SQL too)', async () => {
+    await asOwner(db, async () => {
+      const entity = await s.entityId();
+      const [top] = await owner<{ n: string }>('select coalesce(max(id), 0)::text as n from public.audit_events');
+      await owner('insert into public.file_move_settings (legal_entity_id) values ($1)', [entity]);
+      await owner('update public.file_move_settings set accounts_bitrix_field = $2 where legal_entity_id = $1', [entity, ACC_BOX]);
+      await owner('update public.file_move_settings set pilot_source_deal_id = 993109 where legal_entity_id = $1', [entity]);
+      await owner('update public.file_move_settings set accounts_bitrix_field = null, pilot_source_deal_id = null where legal_entity_id = $1', [entity]);
+      // A direct write to a counter is ignored: the trigger keeps it in step with the real changes.
+      await owner('update public.file_move_settings set accounts_box_changes = 0, pilot_changes = 40 where legal_entity_id = $1', [entity]);
+      const [counters] = await owner<{ box: number; pilot: number }>(
+        'select accounts_box_changes as box, pilot_changes as pilot from public.file_move_settings where legal_entity_id = $1', [entity]);
+      expect(counters).toEqual({ box: 2, pilot: 2 });
+      const audits = await owner<{ details: { operation: string; changes: Record<string, unknown> } }>(
+        `select details from public.audit_events where id > $1::bigint and action = 'settings.file_move_changed' order by id`, [top!.n]);
+      expect(audits.map((a) => a.details.changes)).toEqual([
+        expect.objectContaining({ accounts_box_changes: { from: null, to: 0 }, pilot_changes: { from: null, to: 0 } }),
+        { accounts_box_changes: { from: 0, to: 1 } },
+        { pilot_changes: { from: 0, to: 1 } },
+        { accounts_box_changes: { from: 1, to: 2 }, pilot_changes: { from: 1, to: 2 } },
+      ]);
+      const text = JSON.stringify(audits);
+      expect(text).not.toContain(ACC_BOX);
+      expect(text).not.toContain('993109');
+      expect(text).not.toMatch(/accounts_bitrix_field|pilot_source_deal_id/);
     });
   });
 

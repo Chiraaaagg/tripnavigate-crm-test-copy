@@ -1,8 +1,9 @@
 'use client';
 
 import { CircleCheck, ShieldAlert } from 'lucide-react';
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useState, type MouseEvent, type ReactNode } from 'react';
 import { StatusBadge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmChange, type ConfirmResult } from '@/components/ui/confirm-change';
 import { Field, fieldDescribedBy } from '@/components/ui/field';
@@ -38,7 +39,10 @@ import { ActionSwitchRow, changeLabel, confirmActionOf, type ActionRowPreview } 
  *    named for the action. A refusal keeps the dialog open with the typed
  *    reason and value; a save closes it and the result is announced beside
  *    the button. Clearing the pilot has its own dialog that says plainly it
- *    is the company-wide start.
+ *    is the company-wide start. Turning a switch off also offers a ready-made
+ *    reason, "Emergency stop by Super Admin", with one click (review 14a open
+ *    question 6): it fills the same reason box, which is still sent and still
+ *    checked (10 to 500 characters); turning a switch on keeps a free reason.
  *  - FileMoveAlertsCard (Clean-up tab): automatic stops with "Acknowledge",
  *    and files that need a person with "Try again" and, for a file lost in
  *    Bitrix, "Look in another deal" and "Accept this file is lost".
@@ -92,6 +96,42 @@ function useChangeAction(action: FileMoveAction, initial?: ConfirmResult | null)
 // Settings (Switches tab)
 // ---------------------------------------------------------------------------
 
+/**
+ * Turning a switch off: one click puts the ready-made reason in the dialog's
+ * reason box, so an emergency stop is never slowed down by typing. It only
+ * fills the box (the person can still change the words); the reason is posted
+ * and checked like any typed one. After the click, focus moves to the reason
+ * box, so a screen reader reads its label and the new text, and the next Tab
+ * reaches the confirm button. A plain button inside the dialog's form
+ * (type="button": it never submits by itself).
+ */
+function ReadyReasonButton({ reason }: { reason: string }) {
+  const hintId = useId();
+  const fill = (event: MouseEvent<HTMLButtonElement>) => {
+    const box = event.currentTarget.form?.elements.namedItem(FILE_MOVE_FIELD.reason);
+    if (!(box instanceof HTMLTextAreaElement)) return;
+    // The reason box is a React-controlled field (ConfirmChange keeps its text
+    // in state). Set it the way typing does, so the dialog's own state and its
+    // 10-to-500-character check see the new text.
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    if (!setValue) return;
+    setValue.call(box, reason);
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    box.focus();
+    box.setSelectionRange(reason.length, reason.length);
+  };
+  return (
+    <div className="flex flex-col items-start gap-1.5" data-slot="file-move-ready-reason">
+      <p id={hintId} className="m-0 text-sm text-quiet">
+        {FILE_MOVE_TEXT.emergencyHint}
+      </p>
+      <Button type="button" variant="secondary" size="sm" className="h-auto min-h-8 whitespace-normal py-1 text-left" onClick={fill} aria-describedby={hintId}>
+        {FILE_MOVE_TEXT.emergencyUse}
+      </Button>
+    </div>
+  );
+}
+
 function SwitchRowOf({ row, action, preview }: { row: FileMoveSwitchRowModel; action: FileMoveAction; preview?: ActionRowPreview }) {
   return (
     <ActionSwitchRow
@@ -111,7 +151,12 @@ function SwitchRowOf({ row, action, preview }: { row: FileMoveSwitchRowModel; ac
         hiddenFields: { [FILE_MOVE_FIELD.switch]: row.key, [FILE_MOVE_FIELD.state]: row.target, [FILE_MOVE_FIELD.confirm]: 'yes' },
         // STANDING-RULES: writing to Bitrix and deleting the CRM's copy keep a required reason.
         reasonRule: 'required',
-        fields: () => <p className="m-0 text-sm text-quiet">{FILE_MOVE_TEXT.approval}</p>,
+        fields: () => (
+          <>
+            <p className="m-0 text-sm text-quiet">{FILE_MOVE_TEXT.approval}</p>
+            {row.readyReason ? <ReadyReasonButton reason={row.readyReason} /> : null}
+          </>
+        ),
       }}
       preview={preview}
     />

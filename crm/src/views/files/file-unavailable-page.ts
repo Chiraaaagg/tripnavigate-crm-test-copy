@@ -1,11 +1,13 @@
 /*
- * S11 "files to Bitrix" (file 14 section 2.5): the two small pages a person
- * sees when a file kept in Bitrix cannot be shown. The delivery code (slice 3,
- * documents/server/file-delivery.ts) sends one of them with status 503.
+ * S11 "files to Bitrix" (file 14 section 2.5): the small pages a person sees
+ * when a file kept in Bitrix cannot be shown. The delivery code (slice 3,
+ * documents/server/file-delivery.ts) sends "Bitrix is not answering" and
+ * "needs attention" with status 503, and "wait a minute" (the CRM's own limit
+ * of files opened per person per minute, review 14a P3-4) with status 429.
  *
  * A complete HTML document: no script, no outside file, inline CSS only, so it
  * works whatever the page's security headers allow (without the style it is
- * still a plain, readable page). The two sentences are the approved wording,
+ * still a plain, readable page). The sentences are the approved wording,
  * word for word. Nothing else is printed: no file name, deal, Bitrix id, link
  * or error code, so the page never says more than the person may know.
  *
@@ -16,9 +18,9 @@
  * narrow phone. There is no motion, so reduced motion needs nothing.
  */
 
-export type FileUnavailableKind = 'bitrix_unavailable' | 'needs_attention';
+export type FileUnavailableKind = 'bitrix_unavailable' | 'needs_attention' | 'view_limit';
 
-/** The approved sentences (file 14 section 2.5), word for word. */
+/** The approved sentences (file 14 section 2.5; view_limit: review 14a open question 2), word for word. */
 export const FILE_UNAVAILABLE_TEXT: Record<FileUnavailableKind, { heading: string; text: string }> = {
   bitrix_unavailable: {
     heading: 'Bitrix is not answering right now',
@@ -27,6 +29,10 @@ export const FILE_UNAVAILABLE_TEXT: Record<FileUnavailableKind, { heading: strin
   needs_attention: {
     heading: 'This file needs attention',
     text: 'This file needs attention. Please tell your administrator.',
+  },
+  view_limit: {
+    heading: 'Please wait a minute',
+    text: 'You opened many files in the last minute. Please wait a minute and try again.',
   },
 };
 
@@ -54,11 +60,13 @@ export const FILE_UNAVAILABLE_CSS = [
   '.back{margin:0}',
 ].join('');
 
-/** One of the two pages as a complete HTML document (UTF-8). */
-export function fileUnavailableHtml(kind: 'bitrix_unavailable' | 'needs_attention'): string {
+/** One of the pages as a complete HTML document (UTF-8). */
+export function fileUnavailableHtml(kind: FileUnavailableKind): string {
   // Fail closed: anything unexpected gets the "needs attention" page, never a blank one.
-  const words = FILE_UNAVAILABLE_TEXT[kind] ?? FILE_UNAVAILABLE_TEXT.needs_attention;
-  const tag = kind === 'bitrix_unavailable' ? 'Try again later' : 'Needs attention';
+  const known = Object.hasOwn(FILE_UNAVAILABLE_TEXT, kind) ? kind : 'needs_attention';
+  const words = FILE_UNAVAILABLE_TEXT[known];
+  // The tag says in words whether waiting helps (the meaning never rests on its colour).
+  const tag = known === 'needs_attention' ? 'Needs attention' : 'Try again later';
   return (
     '<!doctype html>' +
     '<html lang="en">' +

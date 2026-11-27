@@ -83,11 +83,21 @@ export class FileStoreError extends Error {
   }
 }
 
+/**
+ * Review 14a P3-8: a caller with its own deadline (the view path) passes an
+ * AbortSignal; aborting it cancels the Bitrix request itself, so no read or
+ * download keeps running (and spending the shared Bitrix budget) after the
+ * caller has answered.
+ */
+export interface BitrixFileRequestOptions {
+  signal?: AbortSignal;
+}
+
 export interface BitrixFileReader {
   /** The box of one Deal through crm.item.get. Throws FileStoreError. */
-  readBox(bitrixDealId: string, box: string): Promise<ReadBoxResult>;
+  readBox(bitrixDealId: string, box: string, opts?: BitrixFileRequestOptions): Promise<ReadBoxResult>;
   /** The bytes of one entry, hashed. Never throws. */
-  downloadEntry(entry: BoxEntry, maxBytes: number): Promise<DownloadResult>;
+  downloadEntry(entry: BoxEntry, maxBytes: number, opts?: BitrixFileRequestOptions): Promise<DownloadResult>;
 }
 
 export interface BitrixFileReaderOptions {
@@ -123,15 +133,20 @@ export function createBitrixFileReader(options: BitrixFileReaderOptions): Bitrix
   const fetchImpl = options.fetchImpl ?? fetch;
   const downloadTimeoutMs = options.downloadTimeoutMs ?? FILE_DOWNLOAD_TIMEOUT_MS;
   const origin = new URL(options.target.baseUrl).origin;
-  const client = createBitrixClient({
-    target: options.target,
-    fetchImpl,
-    timeoutMs: options.readTimeoutMs ?? FILE_READ_TIMEOUT_MS,
-    maxRateLimitRetries: options.maxRateLimitRetries ?? 0,
-    ...(options.sleep ? { sleep: options.sleep } : {}),
-  });
+  const clientFor = (signal?: AbortSignal) =>
+    createBitrixClient({
+      target: options.target,
+      // The caller's signal joins the client's own time limit on every request.
+      fetchImpl: signal
+        ? (input, init) => fetchImpl(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal })
+        : fetchImpl,
+      timeoutMs: options.readTimeoutMs ?? FILE_READ_TIMEOUT_MS,
+      maxRateLimitRetries: options.maxRateLimitRetries ?? 0,
+      ...(options.sleep ? { sleep: options.sleep } : {}),
+    });
+  const client = clientFor();
 
-  async function readBox(bitrixDealId: string, box: string): Promise<ReadBoxResult> {
+  async function readBox(bitrixDealId: string, box: string, opts: BitrixFileRequestOptions = {}): Promise<ReadBoxResult> {
     if (!DEAL_ID.test(bitrixDealId) || !Number.isSafeInteger(Number(bitrixDealId)) || !BOX_KEY_PATTERN.test(box)) {
       throw new FileStoreError('unavailable', 'invalid_input');
     }
@@ -140,8 +155,11 @@ export function createBitrixFileReader(options: BitrixFileReaderOptions): Bitrix
       // The client's generic call (crm.item.get is allowlisted for Deals only).
       // getDealItemField is not used because its key check accepts digits
       // only, and the Accounts box key may contain letters.
-      ({ result } = await client.call('crm.item.get', { entityTypeId: DEAL_ENTITY_TYPE_ID, id: Number(bitrixDealId), useOriginalUfNames: 'N' }));
+      if (opts.signal?.aborted) throw new FileStoreError('unavailable', 'bitrix_timeout');
+      ({ result } = await (opts.signal ? clientFor(opts.signal) : client).call('crm.item.get', { entityTypeId: DEAL_ENTITY_TYPE_ID, id: Number(bitrixDealId), useOriginalUfNames: 'N' }));
     } catch (error) {
+      // The caller's deadline ended the request: a timeout, as for the download.
+      if (opts.signal?.aborted) throw new FileStoreError('unavailable', 'bitrix_timeout');
       // crm.item.get documents a missing item as HTTP 400 NOT_FOUND.
       if (error instanceof BitrixClientError && (error.httpStatus === 400 || error.httpStatus === 404) && error.providerCode === 'NOT_FOUND') {
         return { kind: 'deal_not_found' };
@@ -160,7 +178,7 @@ export function createBitrixFileReader(options: BitrixFileReaderOptions): Bitrix
     return { kind: 'ok', entries: fieldFileEntries({ [box]: record[box] }, box) };
   }
 
-  async function downloadEntry(entry: BoxEntry, maxBytes: number): Promise<DownloadResult> {
+  async function downloadEntry(entry: BoxEntry, maxBytes: number, opts: BitrixFileRequestOptions = {}): Promise<DownloadResult> {
     const link = entry.raw?.urlMachine;
     if (typeof link !== 'string' || link.length === 0 || link.length > MAX_LINK_LENGTH) return { kind: 'unreadable', code: 'no_link' };
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) return { kind: 'unreadable', code: 'too_large' };
@@ -173,6 +191,10 @@ export function createBitrixFileReader(options: BitrixFileReaderOptions): Bitrix
     if (url.origin !== origin) return { kind: 'unreadable', code: 'other_host' };
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), downloadTimeoutMs);
+    // The caller's deadline cancels the download too (review 14a P3-8).
+    const onCallerAbort = () => controller.abort();
+    if (opts.signal?.aborted) controller.abort();
+    else opts.signal?.addEventListener('abort', onCallerAbort, { once: true });
     try {
       let res: Response | null = null;
       for (let hop = 0; ; hop += 1) {
@@ -222,6 +244,7 @@ export function createBitrixFileReader(options: BitrixFileReaderOptions): Bitrix
       return { kind: 'unreadable', code: controller.signal.aborted ? 'timeout' : 'http_error' };
     } finally {
       clearTimeout(timer);
+      opts.signal?.removeEventListener('abort', onCallerAbort);
     }
   }
 

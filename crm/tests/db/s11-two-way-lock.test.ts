@@ -3,7 +3,7 @@ import { basename } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type TestDb, asOwner, createTestDb, migrationFiles } from '../helpers/db';
 import { CONFLICT_STATE } from '../helpers/sqlstates';
-import { ID_BOX, REASON, REVERT_FILE, SQL, SUPER, SVC, bodyOf, migrationText, s11Helpers } from './s11-support';
+import { ID_BOX, READ_AT_LEASE, REASON, REVERT_FILE, SQL, SUPER, SVC, bodyOf, migrationText, s11Helpers } from './s11-support';
 
 /**
  * S11 "files to Bitrix", migration 20261212000140 and the two-way rules
@@ -22,7 +22,7 @@ import { ID_BOX, REASON, REVERT_FILE, SQL, SUPER, SVC, bodyOf, migrationText, s1
  *     rows become restore_pending and are handed out first;
  *   - B1: no second check or deletion while an append is in flight; the second
  *     check refuses delete_pending when an append started after the claim or
- *     its read did not start after the last append;
+ *     its lease (leased_at, database clock) did not start after the last append;
  *   - I2: a copy-back that cannot succeed ends lost_in_bitrix, the blocked
  *     upload shows in the alerts, file_move_accept_lost releases the deal
  *     (audit files.move_lost_accepted).
@@ -42,7 +42,6 @@ afterAll(async () => {
 
 const s = s11Helpers(() => db);
 const { one, owner } = s;
-const NOW_MINUS_1M = "now() - interval '1 minute'";
 
 /** Removes every line from "-- S11 begin" to "-- S11 end", inclusive. */
 function withoutS11(text: string): string {
@@ -230,7 +229,7 @@ describe('D6: never rewrite a box that holds a sole copy', () => {
       // Copied back and confirmed: the append goes ahead.
       expect(await s.observe(next[0]!, 1111, sole.sha, 2048, null)).toEqual({ result: 'restore_checked' });
       await s.putObject('traveller-id-proofs', sole.objectPath);
-      expect(await one(SVC, SQL.confirmRestored, [sole.id, next[0]!.leaseToken])).toEqual({ result: 'restored' });
+      expect(await s.confirmRestored(next[0]!, sole.sha)).toEqual({ result: 'restored' });
       expect(s.jobFor(await s.claimAll(), upload)).toMatchObject({ mode: 'copy' });
     });
   });
@@ -338,19 +337,19 @@ describe('B1: no second check or deletion while an append is in flight', () => {
       const [copy] = await s.claim(5);
       expect(copy).toMatchObject({ moveId: y.id, mode: 'copy' });
       await one(SVC, SQL.mark, [y.id, copy!.leaseToken, [1161]]);
-      expect(await s.observe(check!, 1161, x.sha, 2048, NOW_MINUS_1M)).toEqual({ result: 'retry' });
+      expect(await s.observe(check!, 1161, x.sha, 2048, READ_AT_LEASE)).toEqual({ result: 'retry' });
       expect(await s.move(x.id)).toMatchObject({ state: 'verified', crm_copy_present: true });
-      // Y's write settled, but X's read started before it: still no deletion.
+      // Y's write settled, but X's lease started before it settled (database clock): still no deletion.
       await s.complete(copy!, 'copied', null, 1162);
       await s.due(x.id);
       const [again] = (await s.claimAll()).filter((j) => j.moveId === x.id);
       expect(again).toMatchObject({ mode: 'reverify' });
-      expect(await s.observe(again!, 1161, x.sha, 2048, NOW_MINUS_1M)).toEqual({ result: 'retry' });
+      expect(await s.observe(again!, 1161, x.sha, 2048, READ_AT_LEASE)).toEqual({ result: 'retry' });
       expect((await s.move(x.id)).state).toBe('verified');
     });
   });
 
-  it('second check refuses delete_pending while a DEC-43 job of the deal is leased, and when its read did not start after that append', async () => {
+  it('second check refuses delete_pending while a DEC-43 job of the deal is leased, and when its lease did not start after that append', async () => {
     await asOwner(db, async () => {
       await s.settings({ check: true, del: true });
       const sc = await scene(993424, [1, 2], [2]);
@@ -361,17 +360,17 @@ describe('B1: no second check or deletion while an append is in flight', () => {
       expect(check).toMatchObject({ moveId: x.id, mode: 'reverify' });
       const [job] = await s.dec43Claim();
       expect(job).toBeDefined();
-      expect(await s.observe(check!, 1171, x.sha, 2048, NOW_MINUS_1M)).toEqual({ result: 'retry' });
+      expect(await s.observe(check!, 1171, x.sha, 2048, READ_AT_LEASE)).toEqual({ result: 'retry' });
       await one(SVC, SQL.dec43Mark, [job!.jobId, job!.leaseToken, [1171]]);
       await one(SVC, SQL.dec43Complete, [job!.jobId, job!.leaseToken, 'sent', null, 1172]);
       await s.due(x.id);
       const [again] = (await s.claimAll()).filter((j) => j.moveId === x.id);
-      expect(await s.observe(again!, 1171, x.sha, 2048, NOW_MINUS_1M)).toEqual({ result: 'retry' });
+      expect(await s.observe(again!, 1171, x.sha, 2048, READ_AT_LEASE)).toEqual({ result: 'retry' });
       // Once the append is in the past and the read started after it: delete_pending.
       await s.appendSettledAgo(993424, ID_BOX, 2);
       await s.due(x.id);
       const [third] = (await s.claimAll()).filter((j) => j.moveId === x.id);
-      expect(await s.observe(third!, 1171, x.sha, 2048, NOW_MINUS_1M)).toEqual({ result: 'delete_pending' });
+      expect(await s.observe(third!, 1171, x.sha, 2048, READ_AT_LEASE)).toEqual({ result: 'delete_pending' });
     });
   });
 

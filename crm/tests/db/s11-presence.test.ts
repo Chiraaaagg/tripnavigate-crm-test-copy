@@ -47,6 +47,9 @@ describe('presence check', () => {
       const job = await presenceJob(993501);
       expect(job).toMatchObject({ moveId: null, mode: 'presence', bitrixField: ID_BOX, expectedFileIds: ['1201', '1202', '1203', '1204'] });
       for (const row of rows) expect((await s.move(row.id)).lease_mode).toBe('presence');
+      // The presence lease is stamped by the database clock too, on every row and in the job.
+      expect(Number.isFinite(Date.parse(job!.leasedAt!))).toBe(true);
+      for (const row of rows) expect(await s.leaseTimes(row.id)).toMatchObject({ leased_now: true });
 
       await s.refusedWith(SVC, SQL.presence, [993501, ID_BOX, '00000000-0000-4000-8000-000000000000', [1201]], CONFLICT_STATE, 'task_conflict');
       await s.refusedWith(SVC, SQL.presence, [993501, ID_BOX, job!.leaseToken, [0]], '22023', 'invalid_input', 'presentIds');

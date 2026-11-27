@@ -23,6 +23,7 @@ import {
   confirmFileMoveDeleted,
   confirmFileMoveRestored,
   FileMoveCommandError,
+  fileMoveLeaseOk,
   markFileMoveSending,
   recordFileMoveObservation,
   recordFilePresence,
@@ -111,7 +112,10 @@ export interface FileMoveDeps {
   recordObservation(job: RowLease, observation: { bitrixFileId: number; sha256: string; sizeBytes: number; readStartedAt: string }): Promise<ObservationResult>;
   complete(job: RowLease, outcome: FileMoveOutcome, errorCode: string | null, bitrixFileId: number | null): Promise<void>;
   confirmDeleted(job: RowLease): Promise<'deleted' | 'still_present' | 'back_to_verified'>;
-  confirmRestored(job: RowLease): Promise<'restored' | 'missing'>;
+  /** The hash and size the worker read back from Storage after the upload; the database compares. */
+  confirmRestored(job: RowLease, stored: { sha256: string; sizeBytes: number }): Promise<'restored' | 'missing'>;
+  /** True while this delete lease is held with at least `minSeconds` left (asked right before the remove). */
+  leaseOk(job: RowLease, minSeconds: number): Promise<boolean>;
   stop(job: RowLease, reason: FileMoveStopReason): Promise<void>;
   /** null = Bitrix does not know the deal (the database opens the alert). */
   presence(job: FilePresenceJob, presentFileIds: number[] | null): Promise<void>;
@@ -165,7 +169,22 @@ async function findOwnFile(reader: BitrixFileReader, job: FileMoveRowJob, entrie
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
-async function handleRow(d: FileMoveDeps, job: FileMoveRowJob): Promise<Step> {
+/** Lease time that must be left for a Storage remove to start (review 14a P3-7). */
+export const DELETE_MIN_LEASE_SECONDS = 60;
+
+/**
+ * Review 14a P2-1: the read start the worker reports, in database time. It is
+ * the lease start the database returned (leasedAt) plus the time measured
+ * here since the claim answered, plus 1 ms for the microseconds Date.parse
+ * drops. So it is never before the lease, whatever this server's clock says.
+ * The database decides by its own leased_at; this figure is only an extra check.
+ */
+function readStartedAtFor(d: FileMoveDeps, job: FileMoveRowJob, claimedAt: number): string {
+  if (!job.leasedAt) return iso(d.now());
+  return iso(Date.parse(job.leasedAt) + 1 + Math.max(0, d.now() - claimedAt));
+}
+
+async function handleRow(d: FileMoveDeps, job: FileMoveRowJob, claimedAt: number = d.now()): Promise<Step> {
   const done = async (outcome: FileMoveOutcome, code: string | null, fileId: number | null = null, end?: FileMoveEnd): Promise<Step> => {
     await d.complete(job, outcome, code, fileId);
     return { label: outcome, ...(end ? { end } : {}), ...(code && end ? { code } : {}) };
@@ -283,9 +302,10 @@ async function handleRow(d: FileMoveDeps, job: FileMoveRowJob): Promise<Step> {
     case 'verify':
     case 'reverify':
     case 'restore': {
-      // Noted before the read: a second check counts only if its read started
-      // after the last append to this box (the database compares).
-      const readStartedAt = iso(d.now());
+      // Noted before the read (database time, see readStartedAtFor). The
+      // database itself requires the lease to have started after the hold
+      // and after the last append to this box.
+      const readStartedAt = readStartedAtFor(d, job, claimedAt);
       if (job.bitrixFileId === null) return done('failed', 'no_bitrix_file_id');
       const first = await readTheBox();
       if ('error' in first) return readFailed(first.error);
@@ -304,12 +324,31 @@ async function handleRow(d: FileMoveDeps, job: FileMoveRowJob): Promise<Step> {
       if (read.sha256 !== job.sha256 || read.sizeBytes !== job.sizeBytes) return done('failed', 'restore_hash_differs', null, 'stopped');
       const upload = await d.uploadCrm(job.bucket, job.objectPath, read.bytes, job.mime);
       if (upload === 'error') return done('retry', 'storage_upload_failed');
-      return { label: `restore_${await d.confirmRestored(job)}` };
+      // Review 14a P3-6: whether just uploaded or already there ("exists"),
+      // the object is read back from Storage and its hash and size go to the
+      // database, which compares them before it counts the file as restored.
+      let stored: Uint8Array;
+      try {
+        stored = await d.downloadCrm(job.bucket, job.objectPath);
+      } catch {
+        return done('retry', 'storage_read_back_failed');
+      }
+      return { label: `restore_${await d.confirmRestored(job, { sha256: sha256Hex(stored), sizeBytes: stored.byteLength })}` };
     }
 
     case 'delete': {
       // The database already holds two matching observations (constraint);
       // Storage is asked to remove the object, then the database looks itself.
+      // Review 14a P3-7: first the database confirms this lease is still held
+      // with time left and deletion is still allowed; otherwise nothing is removed.
+      if (!(await d.leaseOk(job, DELETE_MIN_LEASE_SECONDS))) {
+        try {
+          await d.complete(job, 'released', null, null);
+        } catch {
+          // The lease is already gone: nothing to release.
+        }
+        return { label: 'delete_lease_not_held' };
+      }
       const removed = await d.removeCrm(job.bucket, job.objectPath);
       // A refusal (bucket or path outside the allowlist) is retried like an
       // error: delete_pending is never left half-done, and the row shows in
@@ -383,9 +422,10 @@ export async function processFileMoveBatch(d: FileMoveDeps): Promise<FileMoveSum
       break;
     }
     if (!job) break;
+    const claimedAt = d.now();
     summary.claimed += 1;
     try {
-      const step = job.mode === 'presence' ? await handlePresence(d, job) : await handleRow(d, job);
+      const step = job.mode === 'presence' ? await handlePresence(d, job) : await handleRow(d, job, claimedAt);
       summary.done[step.label] = (summary.done[step.label] ?? 0) + 1;
       if (step.end) {
         summary.endedBy = step.end;
@@ -480,7 +520,8 @@ export async function runFileMoveBatch(options: FileMoveRunOptions): Promise<Fil
       await completeFileMove(rpc, job, outcome, code, fileId);
     },
     confirmDeleted: (job) => confirmFileMoveDeleted(rpc, job),
-    confirmRestored: (job) => confirmFileMoveRestored(rpc, job),
+    confirmRestored: (job, stored) => confirmFileMoveRestored(rpc, job, stored),
+    leaseOk: (job, minSeconds) => fileMoveLeaseOk(rpc, job, minSeconds),
     stop: async (job, reason) => {
       await stopFileMove(rpc, job, reason);
     },

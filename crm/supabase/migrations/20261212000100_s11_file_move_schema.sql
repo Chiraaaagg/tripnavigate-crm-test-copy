@@ -31,6 +31,10 @@
 --                              merged in Bitrix; set by file_move_relocate)
 --       restore_checked_at     the copy-back download matched; the bytes may
 --                              now be uploaded and confirmed
+--       leased_at              database time the current lease was handed
+--                              out (review 14a P2-1: the second check counts
+--                              only for a lease that started after the hold
+--                              and after the last append, by the database clock)
 --       enqueued_by            trigger | sweep | backfill (missed-enqueue count)
 --     There are deliberately no foreign keys to deals or to the DEC-43 job
 --     table (deal_id and dec43_job_id are plain ids): existing test clean-ups
@@ -122,6 +126,10 @@ create table public.file_move_settings (
   pilot_source_deal_id bigint check (pilot_source_deal_id > 0),
   -- True once the delete switch has been on; the first time needs a pilot.
   delete_ever_on boolean not null default false,
+  -- Review 14a P3-5: the audit records THAT the Accounts box or the pilot
+  -- deal changed (these counters), never the Bitrix key or deal id itself.
+  accounts_box_changes integer not null default 0 check (accounts_box_changes >= 0),
+  pilot_changes integer not null default 0 check (pilot_changes >= 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   updated_by uuid references public.staff_profiles (user_id),
@@ -134,8 +142,29 @@ create trigger file_move_settings_audit
   after insert or update or delete on public.file_move_settings
   for each row execute function authz.audit_settings_change(
     'settings.file_move_changed', 'check_id_proof_copies', 'move_accounts_files', 'delete_after_hold',
-    'delete_hold_minutes', 'accounts_hold_days', 'accounts_bitrix_field', 'enqueue_enabled',
-    'pilot_source_deal_id', 'delete_ever_on');
+    'delete_hold_minutes', 'accounts_hold_days', 'accounts_box_changes', 'enqueue_enabled',
+    'pilot_changes', 'delete_ever_on');
+-- Counts every change of the Accounts box key and of the pilot deal, so the
+-- settings audit above shows the change without the Bitrix value.
+create function authz.file_move_settings_count_changes() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if new.accounts_bitrix_field is distinct from old.accounts_bitrix_field then
+    new.accounts_box_changes := old.accounts_box_changes + 1;
+  else
+    new.accounts_box_changes := old.accounts_box_changes;
+  end if;
+  if new.pilot_source_deal_id is distinct from old.pilot_source_deal_id then
+    new.pilot_changes := old.pilot_changes + 1;
+  else
+    new.pilot_changes := old.pilot_changes;
+  end if;
+  return new;
+end;
+$$;
+revoke all on function authz.file_move_settings_count_changes() from public, anon, authenticated, service_role;
+create trigger file_move_settings_count_changes before update on public.file_move_settings
+  for each row execute function authz.file_move_settings_count_changes();
 create trigger file_move_settings_touch before update on public.file_move_settings
   for each row execute function authz.touch_settings_updated_at();
 create trigger file_move_settings_no_truncate before truncate on public.file_move_settings
@@ -164,6 +193,8 @@ begin
     v.enqueue_enabled := true;
     v.pilot_source_deal_id := null;
     v.delete_ever_on := false;
+    v.accounts_box_changes := 0;
+    v.pilot_changes := 0;
   end if;
   return v;
 end;
@@ -248,6 +279,7 @@ create table public.file_bitrix_moves (
   relocate_due boolean not null default false,
   relocate_source_deal_id bigint check (relocate_source_deal_id > 0),
   restore_checked_at timestamptz,
+  leased_at timestamptz,
   enqueued_by text not null default 'trigger' check (enqueued_by in ('trigger', 'sweep', 'backfill')),
   last_error_code text check (last_error_code ~ '^[a-z_]{1,60}$'),
   created_at timestamptz not null default now(),
@@ -354,7 +386,7 @@ create table public.file_move_stops (
   source_deal_id bigint check (source_deal_id > 0),
   bitrix_field text check (bitrix_field ~ '^ufCrm_[0-9A-Za-z_]{1,40}$'),
   reason_code text not null check (reason_code in ('prior_files_lost', 'copy_mismatch', 'missing_in_bitrix', 'deal_not_found',
-    'deal_removed_with_files')),
+    'deal_removed_with_files', 'view_unreadable')),
   opened_at timestamptz not null default now(),
   acknowledged_at timestamptz,
   acknowledged_by uuid,
@@ -405,7 +437,8 @@ create table public.file_bitrix_views (
   started_at timestamptz not null default now(),
   -- Set once by file_view_resolve (server, within 60 seconds of the start).
   resolved_at timestamptz,
-  outcome text check (outcome in ('served', 'bitrix_unavailable', 'mismatch', 'not_found_in_bitrix', 'deal_not_found')),
+  outcome text check (outcome in ('served', 'bitrix_unavailable', 'mismatch', 'not_found_in_bitrix', 'deal_not_found',
+    'unreadable_in_bitrix')),
   finished_at timestamptz,
   check ((outcome is null) = (finished_at is null))
 );

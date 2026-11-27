@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   checkDealNumber,
+  checkReason,
   checkItemKey,
   checkMinutes,
   errorCodeOf,
@@ -27,7 +28,9 @@ import { FILE_UNAVAILABLE_TEXT, fileUnavailableHtml } from '@/views/files/file-u
  * connection › "Files kept in Bitrix". The pure rows and alert models, the
  * form checks (the review's confirm=yes is required on the server), the
  * refusal words (pilot_required, open_stops), the actions against a mocked
- * database, and the two "file not available" pages. Synthetic data only.
+ * database, the ready-made reason for turning a switch off (review 14a open
+ * question 6), and the "file not available" pages (including the 429 view
+ * limit page, review 14a P3-4). Synthetic data only.
  */
 
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), revalidatePath: vi.fn(), ended: false }));
@@ -64,7 +67,7 @@ const settings = (over: Partial<FileMoveSettings> = {}): FileMoveSettings => ({
 const alerts = (over: Partial<FileMoveAlerts> = {}): FileMoveAlerts => ({
   stops: [],
   items: [],
-  counts: { noTarget: 0, missedEnqueue: 0, waitingAccounts: 0, soleCopies: 0 },
+  counts: { noTarget: 0, missedEnqueue: 0, waitingAccounts: 0, soleCopies: 0, orphaned: 0 },
   ...over,
 });
 
@@ -162,6 +165,31 @@ describe('section model', () => {
     expect(withBox.box).toMatchObject({ valueText: 'ufCrm_1790000000', empty: false, inputValue: 'ufCrm_1790000000' });
   });
 
+  it('turning a switch off offers the ready-made reason; turning it on keeps a free reason', () => {
+    const m = fileMoveSectionModel({
+      kind: 'ready',
+      settings: settings({ checkIdProofCopies: true, moveAccountsFiles: true, deleteAfterHold: true, deleteEverOn: true, pilotBitrixDealId: '4501' }),
+      alerts: alerts(),
+    });
+    if (m?.kind !== 'ready') throw new Error('expected ready');
+    expect(m.switches.map((r) => [r.key, r.target, r.readyReason])).toEqual([
+      ['check_id_proof_copies', 'off', 'Emergency stop by Super Admin'],
+      ['move_accounts_files', 'off', 'Emergency stop by Super Admin'],
+      ['delete_after_hold', 'off', 'Emergency stop by Super Admin'],
+    ]);
+    const off = fileMoveSectionModel({ kind: 'ready', settings: settings({ pilotBitrixDealId: '4501' }), alerts: alerts() });
+    if (off?.kind !== 'ready') throw new Error('expected ready');
+    expect(off.switches.map((r) => [r.target, r.readyReason])).toEqual([
+      ['on', null],
+      ['on', null],
+      ['on', null],
+    ]);
+    // The ready-made reason passes the same 10 to 500 character rule as a typed one.
+    expect(FILE_MOVE_TEXT.emergencyReason).toBe('Emergency stop by Super Admin');
+    expect(checkReason(FILE_MOVE_TEXT.emergencyReason)).toBe(FILE_MOVE_TEXT.emergencyReason);
+    expect(FILE_MOVE_TEXT.emergencyUse).toContain(FILE_MOVE_TEXT.emergencyReason);
+  });
+
   it('says when the listing of new uploads is stopped', () => {
     const m = fileMoveSectionModel({ kind: 'ready', settings: settings({ enqueueEnabled: false }), alerts: alerts() });
     expect(m?.kind === 'ready' && m.notices).toEqual([FILE_MOVE_TEXT.listingOff]);
@@ -187,7 +215,7 @@ describe('alerts model', () => {
           { moveId: 'a0001104-0000-4000-8000-000000001104', kind: 'deletion_waiting', fileClass: 'id_proof', sourceTable: 'traveller_id_proofs', state: 'verified', lastErrorCode: null, bitrixDealId: '4503', updatedAt: '2026-11-27T05:20:00Z' },
           { moveId: 'a0001105-0000-4000-8000-000000001105', kind: 'something_new', fileClass: 'id_proof', sourceTable: 'traveller_id_proofs', state: 'waiting', lastErrorCode: null, bitrixDealId: null, updatedAt: '2026-11-27T05:30:00Z' },
         ],
-        counts: { noTarget: 3, missedEnqueue: 1, waitingAccounts: 0, soleCopies: 2 },
+        counts: { noTarget: 3, missedEnqueue: 1, waitingAccounts: 0, soleCopies: 2, orphaned: 1 },
       }),
     );
     if (m?.kind !== 'ready') throw new Error('expected ready');
@@ -209,6 +237,7 @@ describe('alerts model', () => {
       'Files kept only in Bitrix now (the CRM’s copy was deleted after the checks): 2.',
       'Files with no Bitrix deal, staying in the CRM: 3.',
       'Uploads listed late by the 10-minute check: 1.',
+      'File records whose CRM deal no longer exists (they are skipped by every check; tell the lead): 1.',
     ]);
   });
 
@@ -287,6 +316,20 @@ describe('actions (mocked database, own session)', () => {
     expect(mocks.revalidatePath).toHaveBeenCalledWith('/app/admin/integration');
   });
 
+  it('switch off with the ready-made reason: the reason is still sent, and an empty reason is still refused', async () => {
+    const { setFileMoveSwitchAction } = await import('@/modules/integration/server/file-move-admin-actions');
+    mocks.rpc.mockResolvedValue({ data: { changed: true, switch: 'delete_after_hold', on: false }, error: null });
+    const off = { [FILE_MOVE_FIELD.switch]: 'delete_after_hold', state: 'off', reason: FILE_MOVE_TEXT.emergencyReason, confirm: 'yes' };
+    const r = await setFileMoveSwitchAction(null, form(off));
+    expect(mocks.rpc).toHaveBeenCalledWith('file_move_set_switch', { p_switch: 'delete_after_hold', p_on: false, p_reason: 'Emergency stop by Super Admin' });
+    expect(r).toMatchObject({ ok: true, changed: true });
+
+    mocks.rpc.mockClear();
+    const empty = await setFileMoveSwitchAction(null, form({ ...off, reason: '' }));
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(empty).toMatchObject({ ok: false, fields: ['reason'] });
+  });
+
   it('switch: no review confirm, no database call', async () => {
     const { setFileMoveSwitchAction } = await import('@/modules/integration/server/file-move-admin-actions');
     const r = await setFileMoveSwitchAction(null, form({ [FILE_MOVE_FIELD.switch]: 'delete_after_hold', state: 'on', reason: REASON }));
@@ -343,7 +386,7 @@ describe('actions (mocked database, own session)', () => {
 });
 
 describe('file not available pages', () => {
-  it.each(['bitrix_unavailable', 'needs_attention'] as const)('%s: complete document, English, no script, the approved words, a link to /app', (kind) => {
+  it.each(['bitrix_unavailable', 'needs_attention', 'view_limit'] as const)('%s: complete document, English, no script, the approved words, a link to /app', (kind) => {
     const html = fileUnavailableHtml(kind);
     expect(html.startsWith('<!doctype html><html lang="en">')).toBe(true);
     expect(html.endsWith('</html>')).toBe(true);
@@ -357,5 +400,15 @@ describe('file not available pages', () => {
   it('keeps the approved sentences word for word (file 14 section 2.5)', () => {
     expect(FILE_UNAVAILABLE_TEXT.bitrix_unavailable.text).toBe('This file is kept in Bitrix and Bitrix is not answering right now. Nothing is lost. Please try again in a few minutes.');
     expect(FILE_UNAVAILABLE_TEXT.needs_attention.text).toBe('This file needs attention. Please tell your administrator.');
+    expect(FILE_UNAVAILABLE_TEXT.view_limit.text).toBe('You opened many files in the last minute. Please wait a minute and try again.');
+  });
+
+  it('says in words whether waiting helps, and never shows Bitrix wording on the view limit page', () => {
+    expect(fileUnavailableHtml('bitrix_unavailable')).toContain('<p class="tag">Try again later</p>');
+    expect(fileUnavailableHtml('view_limit')).toContain('<p class="tag">Try again later</p>');
+    expect(fileUnavailableHtml('needs_attention')).toContain('<p class="tag">Needs attention</p>');
+    expect(fileUnavailableHtml('view_limit')).not.toContain('Bitrix');
+    // Fail closed: an unknown kind is the "needs attention" page, never blank.
+    expect(fileUnavailableHtml('other' as never)).toContain(`<p>${FILE_UNAVAILABLE_TEXT.needs_attention.text}</p>`);
   });
 });

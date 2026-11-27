@@ -144,50 +144,147 @@ export function makePdf(targetBytes) {
   return Buffer.from(out, 'latin1');
 }
 
-/**
- * JPEG: start-of-image, a JFIF header, comment segments of random filler and
- * end-of-image. It carries the JPEG signature but no picture, so it tests
- * byte-for-byte storage, not re-encoding (see the report note).
- */
-export function makeJpeg(targetBytes) {
-  const parts = [Buffer.from([0xff, 0xd8]), Buffer.from([0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00])];
-  let size = 20 + 2;
-  while (size < targetBytes) {
-    const n = Math.min(65533, targetBytes - size - 6);
-    if (n <= 0) break;
-    const seg = Buffer.alloc(4 + n);
-    seg[0] = 0xff;
-    seg[1] = 0xfe;
-    seg.writeUInt16BE(n + 2, 2);
-    // Comment bytes: printable filler (no 0xff, which would end the segment early in some readers).
-    const fill = randomBytes(n);
-    for (let i = 0; i < n; i += 1) seg[4 + i] = 0x20 + (fill[i] % 0x5f);
-    parts.push(seg);
-    size += seg.length;
-  }
-  parts.push(Buffer.from([0xff, 0xd9]));
-  return Buffer.concat(parts);
+/** Random printable filler (no 0xff, no '-', no '<' or '&'), so it is safe inside a JPEG comment and an XMP packet. */
+function printableFiller(n) {
+  // A-Z, a-z, 0-9, '+' and '/' (built from ranges, 64 characters).
+  const range = (from, to) => Array.from({ length: to.charCodeAt(0) - from.charCodeAt(0) + 1 }, (_, i) => String.fromCharCode(from.charCodeAt(0) + i)).join('');
+  const alphabet = `${range('A', 'Z')}${range('a', 'z')}${range('0', '9')}+/`;
+  const fill = randomBytes(n);
+  for (let i = 0; i < n; i += 1) fill[i] = alphabet.charCodeAt(fill[i] & 63);
+  return fill;
 }
 
-/** WebP: a RIFF/WEBP container with one filler chunk. Signature only, like the JPEG. */
+/** A minimal little-endian TIFF/EXIF block: one IFD with Orientation = 1 (normal). */
+function exifTiff() {
+  const t = Buffer.alloc(8 + 2 + 12 + 4);
+  t.write('II', 0, 'ascii');
+  t.writeUInt16LE(42, 2);
+  t.writeUInt32LE(8, 4); // offset of IFD0
+  t.writeUInt16LE(1, 8); // one entry
+  t.writeUInt16LE(0x0112, 10); // Orientation
+  t.writeUInt16LE(3, 12); // SHORT
+  t.writeUInt32LE(1, 14); // count
+  t.writeUInt16LE(1, 18); // value: normal (the other 2 bytes stay 0)
+  t.writeUInt32LE(0, 22); // no next IFD
+  return t;
+}
+
+function jpegSegment(marker, data) {
+  const head = Buffer.from([0xff, marker, 0, 0]);
+  head.writeUInt16BE(data.length + 2, 2);
+  return Buffer.concat([head, data]);
+}
+
+/** Splits `total` bytes into comment segments (4 header bytes + at most 65533 data bytes each). */
+function jpegFillerSegments(total) {
+  if (total <= 0) return [];
+  const count = Math.ceil(total / 65537);
+  const base = Math.floor(total / count);
+  const extra = total % count;
+  const segs = [];
+  for (let i = 0; i < count; i += 1) segs.push(jpegSegment(0xfe, printableFiller(Math.max(0, base + (i < extra ? 1 : 0) - 4))));
+  return segs;
+}
+
+/**
+ * JPEG: a real, decodable baseline image (8 x 8 pixels, YCbCr, one solid
+ * mid-grey colour). Segments: SOI, APP0 JFIF, APP1 EXIF (Orientation = 1),
+ * comment segments of random filler up to the target size, DQT, SOF0, two DHT,
+ * SOS, the entropy-coded data and EOI. Each Huffman table holds one symbol
+ * (code "0"): DC difference category 0, and AC end-of-block. Each of the three
+ * blocks is then the bits 0 0, and the scan is 000000 plus two 1-bit pads
+ * (0x03). Re-encoding, EXIF stripping or comment stripping changes the hash.
+ */
+export function makeJpeg(targetBytes) {
+  const app0 = jpegSegment(0xe0, Buffer.from([0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]));
+  const app1 = jpegSegment(0xe1, Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), exifTiff()]));
+  const dqt = jpegSegment(0xdb, Buffer.concat([Buffer.from([0x00]), Buffer.alloc(64, 1)]));
+  const sof0 = jpegSegment(0xc0, Buffer.from([8, 0, 8, 0, 8, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0]));
+  const oneSymbolTable = (classAndId) => Buffer.concat([Buffer.from([classAndId, 1]), Buffer.alloc(15), Buffer.from([0x00])]);
+  const dhtDc = jpegSegment(0xc4, oneSymbolTable(0x00));
+  const dhtAc = jpegSegment(0xc4, oneSymbolTable(0x10));
+  const sos = jpegSegment(0xda, Buffer.from([3, 1, 0x00, 2, 0x00, 3, 0x00, 0, 63, 0]));
+  const scan = Buffer.from([0x03]);
+  const soi = Buffer.from([0xff, 0xd8]);
+  const eoi = Buffer.from([0xff, 0xd9]);
+  const fixed = soi.length + app0.length + app1.length + dqt.length + sof0.length + dhtDc.length + dhtAc.length + sos.length + scan.length + eoi.length;
+  return Buffer.concat([soi, app0, app1, ...jpegFillerSegments(targetBytes - fixed), dqt, sof0, dhtDc, dhtAc, sos, scan, eoi]);
+}
+
+function riffChunk(type, data) {
+  const head = Buffer.alloc(8);
+  head.write(type, 0, 'ascii');
+  head.writeUInt32LE(data.length, 4);
+  return Buffer.concat(data.length % 2 ? [head, data, Buffer.alloc(1)] : [head, data]);
+}
+
+/** A VP8L (lossless) bitstream of one solid colour: every prefix code is a one-symbol simple code, so each pixel costs 0 bits. */
+function vp8lSolid(width, height, [a, r, g, b]) {
+  const bytes = [0x2f];
+  let acc = 0;
+  let nbits = 0;
+  const put = (value, n) => {
+    for (let i = 0; i < n; i += 1) {
+      acc |= ((value >>> i) & 1) << nbits;
+      nbits += 1;
+      if (nbits === 8) {
+        bytes.push(acc);
+        acc = 0;
+        nbits = 0;
+      }
+    }
+  };
+  put(width - 1, 14);
+  put(height - 1, 14);
+  put(0, 1); // alpha_is_used: no (the colour is opaque)
+  put(0, 3); // version 0
+  put(0, 1); // no transform
+  put(0, 1); // no colour cache
+  put(0, 1); // no meta prefix codes
+  for (const symbol of [g, r, b, a]) {
+    put(1, 1); // simple code
+    put(0, 1); // one symbol
+    put(1, 1); // the symbol takes 8 bits
+    put(symbol, 8);
+  }
+  put(1, 1); // distance code: simple
+  put(0, 1); // one symbol
+  put(0, 1); // the symbol takes 1 bit
+  put(0, 1); // symbol 0
+  if (nbits > 0) bytes.push(acc);
+  return Buffer.from(bytes);
+}
+
+/**
+ * WebP: a real, decodable extended-format lossless image (8 x 8 pixels, one
+ * solid colour). Chunks: VP8X (EXIF and XMP flags set), VP8L, EXIF
+ * (Orientation = 1) and an XMP packet whose XML comment carries random filler
+ * up to the target size. Re-encoding or metadata stripping changes the hash.
+ */
 export function makeWebp(targetBytes) {
-  const n = Math.max(16, targetBytes - 20) & ~1;
-  const chunk = Buffer.alloc(8 + n);
-  chunk.write('XPRB', 0, 'ascii');
-  chunk.writeUInt32LE(n, 4);
-  randomBytes(n).copy(chunk, 8);
-  const head = Buffer.alloc(12);
-  head.write('RIFF', 0, 'ascii');
-  head.writeUInt32LE(4 + chunk.length, 4);
-  head.write('WEBP', 8, 'ascii');
-  return Buffer.concat([head, chunk]);
+  const side = 8;
+  const vp8x = Buffer.alloc(10);
+  vp8x[0] = 0x08 | 0x04; // EXIF + XMP
+  vp8x.writeUIntLE(side - 1, 4, 3);
+  vp8x.writeUIntLE(side - 1, 7, 3);
+  const head = [riffChunk('VP8X', vp8x), riffChunk('VP8L', vp8lSolid(side, side, [0xff, 0x2e, 0x86, 0xc1])), riffChunk('EXIF', exifTiff())];
+  const xmpOpen = '<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><!-- synthetic probe filler ';
+  const xmpClose = ' --></x:xmpmeta><?xpacket end="w"?>';
+  const fixed = 12 + head.reduce((n, c) => n + c.length, 0) + 8 + xmpOpen.length + xmpClose.length;
+  const fill = printableFiller(Math.max(0, targetBytes - fixed));
+  const chunks = [...head, riffChunk('XMP ', Buffer.concat([Buffer.from(xmpOpen, 'ascii'), fill, Buffer.from(xmpClose, 'ascii')]))];
+  const riff = Buffer.alloc(12);
+  riff.write('RIFF', 0, 'ascii');
+  riff.writeUInt32LE(4 + chunks.reduce((n, c) => n + c.length, 0), 4);
+  riff.write('WEBP', 8, 'ascii');
+  return Buffer.concat([riff, ...chunks]);
 }
 
 const MAKERS = {
   'application/pdf': { ext: 'pdf', make: makePdf, decodable: true },
-  'image/jpeg': { ext: 'jpg', make: makeJpeg, decodable: false },
+  'image/jpeg': { ext: 'jpg', make: makeJpeg, decodable: true },
   'image/png': { ext: 'png', make: makePng, decodable: true },
-  'image/webp': { ext: 'webp', make: makeWebp, decodable: false },
+  'image/webp': { ext: 'webp', make: makeWebp, decodable: true },
 };
 
 /** The probe matrix: 8 files in the identity box, 2 in the Accounts box. */
@@ -457,7 +554,7 @@ export async function runProbe(args, env, options = {}) {
   report.byHand = [
     'Check the test Deal history in Bitrix: one change entry per append is expected.',
     'Check whether any automation rule or robot ran on the test Deal.',
-    'JPEG and WebP pretend files carry the signature but no picture; re-encoding is tested by the PNG and PDF files only.',
+    'JPEG and WebP pretend files are tiny solid-colour pictures padded with metadata (EXIF, a JPEG comment, a WebP XMP packet); a hash difference means Bitrix re-encoded or stripped them.',
   ];
   report.summary = {
     allAccepted: report.files.every((f) => f.accepted),

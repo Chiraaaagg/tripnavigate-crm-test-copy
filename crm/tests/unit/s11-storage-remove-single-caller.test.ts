@@ -14,7 +14,8 @@ import { S11_SOURCE_BUCKETS, removeMovedSourceObject, type StorageRemoveClient }
  */
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
-const SCANNED = ['src', join('supabase', 'functions')];
+// Review 14a P3-9: the scripts folder is scanned too.
+const SCANNED = ['src', join('supabase', 'functions'), 'scripts'];
 const ONLY_CALLER = join('src', 'modules', 'integration', 'server', 'file-storage-remove.ts');
 
 function walk(dir: string): string[] {
@@ -44,6 +45,9 @@ const PATTERNS: Array<[string, RegExp]> = [
   ['remove in a Storage file', /\.storage\b[\s\S]*\.remove\s*\(|\.remove\s*\([\s\S]*\.storage\b/],
   ['empty or delete a bucket', /\.(?:emptyBucket|deleteBucket)\s*\(/],
   ['Storage object API called directly', /storage\/v1\/object/],
+  // Review 14a P3-9: a remove reached by name instead of by a dot call.
+  ['remove by bracket name', /\[\s*['"`]remove['"`]\s*\]/],
+  ['remove taken out of an object', /\{[^}]*\bremove\b[^}]*\}\s*=/],
 ];
 
 const files = SCANNED.flatMap((d) => walk(join(ROOT, d)));
@@ -63,6 +67,14 @@ describe('only file-storage-remove.ts removes Storage objects', () => {
       for (const [what, pattern] of PATTERNS) if (pattern.test(text)) offenders.push(`${rel(file)}: ${what}`);
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('only the file move runtime imports the remove helper', () => {
+    const importers = files
+      .filter((file) => rel(file) !== ONLY_CALLER.split(sep).join('/'))
+      .filter((file) => /file-storage-remove/.test(readFileSync(file, 'utf8')))
+      .map(rel);
+    expect(importers).toEqual(['src/modules/integration/server/file-move-runtime.ts']);
   });
 
   it('the one caller removes exactly one path per call', () => {

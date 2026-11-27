@@ -8,6 +8,7 @@ import {
   completeFileMove,
   confirmFileMoveDeleted,
   confirmFileMoveRestored,
+  fileMoveLeaseOk,
   markFileMoveSending,
   recordFileMoveObservation,
   recordFilePresence,
@@ -103,6 +104,8 @@ const row = (mode: string, o: Record<string, unknown> = {}) => ({
   priorFileIds: [],
   knownFileIds: [],
   attempts: 0,
+  // As Postgres writes a timestamptz into jsonb (microseconds, offset).
+  leasedAt: '2026-12-01T09:59:59.123456+00:00',
   ...o,
 });
 
@@ -112,7 +115,7 @@ interface Recorded {
 }
 
 /** Scripted database through the real wrappers: claims hand out `jobs` in order; other commands answer plainly. */
-function run(jobs: Array<Record<string, unknown>>, p: ReturnType<typeof portal>, observation: string = 'verified') {
+function run(jobs: Array<Record<string, unknown>>, p: ReturnType<typeof portal>, observation: string = 'verified', over: Record<string, unknown> = {}) {
   const calls: Recorded[] = [];
   const queue = [...jobs];
   const answers: Record<string, unknown> = {
@@ -121,9 +124,11 @@ function run(jobs: Array<Record<string, unknown>>, p: ReturnType<typeof portal>,
     file_move_record_observation: { result: observation },
     file_move_confirm_deleted: { result: 'deleted' },
     file_move_confirm_restored: { result: 'restored' },
+    file_move_lease_ok: { ok: true },
     file_move_stop: { stopId: STOP },
     file_move_presence_result: { checked: 1, missing: 0 },
     file_move_relocated: { result: 'relocated' },
+    ...over,
   };
   const rpc: RpcClient = {
     rpc: async (fn, args) => {
@@ -160,7 +165,8 @@ function run(jobs: Array<Record<string, unknown>>, p: ReturnType<typeof portal>,
       await completeFileMove(rpc, job, outcome, code, fileId);
     },
     confirmDeleted: (job) => confirmFileMoveDeleted(rpc, job),
-    confirmRestored: (job) => confirmFileMoveRestored(rpc, job),
+    confirmRestored: (job, stored) => confirmFileMoveRestored(rpc, job, stored),
+    leaseOk: (job, minSeconds) => fileMoveLeaseOk(rpc, job, minSeconds),
     stop: async (job, reason) => {
       await stopFileMove(rpc, job, reason);
     },
@@ -214,13 +220,16 @@ function assertClean(label: string, summary: FileMoveSummary, calls: Recorded[])
 }
 
 describe('nothing secret leaves the worker, in any mode or failure', () => {
-  const scenarios: Array<[string, Array<Record<string, unknown>>, PortalMode, string?]> = [
+  const scenarios: Array<[string, Array<Record<string, unknown>>, PortalMode, string?, Record<string, unknown>?]> = [
     ['copy then checks and delete', [row('copy'), row('verify', { bitrixFileId: '88101' }), row('reverify', { bitrixFileId: '88101' }), row('delete', { bitrixFileId: '88101' }), row('confirm_delete', { bitrixFileId: '88101' })], {}],
     ['copy refused by Bitrix with a description naming the webhook', [row('copy')], { writeError: true }],
     ['copy while Bitrix is overloaded (description naming the host and a token)', [row('copy')], { readError: true }],
     ['copy where Bitrix drops an earlier file', [row('copy')], { dropPrior: true }],
     ['verify_copy after a lost answer', [row('verify_copy', { priorFileIds: ['88001'] })], {}],
     ['restore', [row('restore', { bitrixFileId: '88001', sizeBytes: OTHER.byteLength, sha256: sha(OTHER) })], {}, 'restore_checked'],
+    ['restore whose read-back differs', [row('restore', { bitrixFileId: '88001', sizeBytes: OTHER.byteLength, sha256: sha(OTHER) })], {}, 'restore_checked',
+      { file_move_confirm_restored: { result: 'missing' } }],
+    ['delete with the lease no longer held', [row('delete', { bitrixFileId: '88101' })], {}, undefined, { file_move_lease_ok: { ok: false } }],
     ['relocate', [row('relocate', { bitrixFileId: '88999', knownFileIds: [], sizeBytes: OTHER.byteLength, sha256: sha(OTHER) })], {}],
     ['presence', [{ moveId: null, leaseToken: LEASE, mode: 'presence', bitrixDealId: DEAL, bitrixField: IDENTITY_BOX, expectedFileIds: ['88001'] }], {}],
     ['deal not found', [row('verify', { bitrixFileId: '88001' })], { noDeal: true }],
@@ -228,15 +237,32 @@ describe('nothing secret leaves the worker, in any mode or failure', () => {
     // Same size, other bytes: the database compares and answers quarantined.
     ['quarantine on mismatch', [row('verify', { bitrixFileId: '88001', sizeBytes: OTHER.byteLength })], {}, 'quarantined'],
   ];
-  for (const [label, jobs, mode, observation] of scenarios) {
+  for (const [label, jobs, mode, observation, over] of scenarios) {
     it(label, async () => {
-      const r = run(jobs, portal(mode), observation);
+      const r = run(jobs, portal(mode), observation, over);
       const summary = await r.done;
       expect(summary.claimed).toBeGreaterThan(0);
       assertClean(label, summary, r.calls);
       expect(consoleCalls).toEqual([]);
     });
   }
+
+  it('the restore read-back and the lease check send only a hash, a size, the lease and a number', async () => {
+    const r = run([row('restore', { bitrixFileId: '88001', sizeBytes: OTHER.byteLength, sha256: sha(OTHER) }), row('delete', { bitrixFileId: '88101' })],
+      portal(), 'restore_checked');
+    const summary = await r.done;
+    expect(summary.done).toMatchObject({ restore_restored: 1, delete_deleted: 1 });
+    const restored = r.calls.find((c) => c.fn === 'file_move_confirm_restored')!;
+    expect(restored.args).toEqual({ p_id: MOVE, p_lease_token: LEASE, p_stored_sha256: sha(OTHER), p_stored_size: OTHER.byteLength });
+    const lease = r.calls.find((c) => c.fn === 'file_move_lease_ok')!;
+    expect(lease.args).toEqual({ p_id: MOVE, p_lease_token: LEASE, p_min_seconds: 60 });
+    // The lease check comes before the remove's confirmation, and the read start is derived from the lease start.
+    expect(r.calls.findIndex((c) => c.fn === 'file_move_lease_ok')).toBeLessThan(r.calls.findIndex((c) => c.fn === 'file_move_confirm_deleted'));
+    const observed = r.calls.find((c) => c.fn === 'file_move_record_observation')!;
+    expect(observed.args.p_read_started_at).toBe('2026-12-01T09:59:59.124Z');
+    assertClean('restore and delete', summary, r.calls);
+    expect(consoleCalls).toEqual([]);
+  });
 
   it('a database failure whose message names a link ends with a fixed code', async () => {
     const deps = {

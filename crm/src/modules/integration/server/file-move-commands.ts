@@ -94,6 +94,8 @@ const RowJobSchema = z.object({
   priorFileIds: fileIds.default([]),
   knownFileIds: fileIds.default([]),
   attempts: z.number().int().nonnegative(),
+  /** Database time the lease was handed out (review 14a P2-1). */
+  leasedAt: z.string().refine((v) => Number.isFinite(Date.parse(v)), 'leasedAt').optional(),
 });
 
 const PresenceJobSchema = z.object({
@@ -201,11 +203,31 @@ export async function confirmFileMoveDeleted(client: RpcClient, job: Lease): Pro
   return parse(fn, z.object({ result: z.enum(['deleted', 'still_present', 'back_to_verified']) }), data).result;
 }
 
-/** After a restore upload: the database looks at Storage itself. */
-export async function confirmFileMoveRestored(client: RpcClient, job: Lease): Promise<'restored' | 'missing'> {
+/**
+ * After a restore upload: the worker read the object back from Storage and
+ * passes what it observed; the database compares it with the row and looks at
+ * Storage itself (review 14a P3-6).
+ */
+export async function confirmFileMoveRestored(
+  client: RpcClient,
+  job: Lease,
+  stored: { sha256: string; sizeBytes: number },
+): Promise<'restored' | 'missing'> {
   const fn = 'file_move_confirm_restored';
-  const data = await invoke(client, fn, { p_id: job.moveId, p_lease_token: job.leaseToken });
+  const data = await invoke(client, fn, {
+    p_id: job.moveId,
+    p_lease_token: job.leaseToken,
+    p_stored_sha256: stored.sha256,
+    p_stored_size: stored.sizeBytes,
+  });
   return parse(fn, z.object({ result: z.enum(['restored', 'missing']) }), data).result;
+}
+
+/** Just before the Storage remove: is this delete lease still held, with time left? (review 14a P3-7) */
+export async function fileMoveLeaseOk(client: RpcClient, job: Lease, minSeconds: number): Promise<boolean> {
+  const fn = 'file_move_lease_ok';
+  const data = await invoke(client, fn, { p_id: job.moveId, p_lease_token: job.leaseToken, p_min_seconds: minSeconds });
+  return parse(fn, z.object({ ok: z.boolean() }), data).ok;
 }
 
 export type FileMoveStopReason = 'prior_files_lost' | 'copy_mismatch' | 'missing_in_bitrix' | 'deal_not_found';

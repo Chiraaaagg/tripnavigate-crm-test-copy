@@ -76,6 +76,8 @@ export const FileMoveAlertsSchema = z.object({
     missedEnqueue: z.number().int().nonnegative(),
     waitingAccounts: z.number().int().nonnegative(),
     soleCopies: z.number().int().nonnegative(),
+    // Review 14a P3-12; an older database does not send it.
+    orphaned: z.number().int().nonnegative().default(0),
   }),
 });
 export type FileMoveAlerts = z.output<typeof FileMoveAlertsSchema>;
@@ -383,6 +385,13 @@ export interface FileMoveSwitchRowModel {
   tone: 'primary' | 'danger';
   /** Why Change is disabled now (null = it can be changed). The database decides again. */
   blockedText: string | null;
+  /**
+   * Turning the switch off only: the ready-made reason the dialog offers with
+   * one click ("Emergency stop by Super Admin"), so stopping is never slowed
+   * down. It still fills the reason box and is sent as the reason, under the
+   * same 10 to 500 character rule. null when turning it on (a free reason).
+   */
+  readyReason: string | null;
 }
 
 export interface FileMoveValueRowModel {
@@ -450,7 +459,8 @@ function switchRow(key: FileMoveSwitch, s: FileMoveSettings): FileMoveSwitchRowM
   const confirmLabel = `Turn ${title} ${target}`;
   // Deleting is the dangerous direction for its switch; for the checks, switching off is (as on every Settings switch).
   const tone = key === 'delete_after_hold' ? (target === 'on' ? 'danger' : 'primary') : target === 'off' ? 'danger' : 'primary';
-  return { key, title, detail, state, target, confirmLabel, effect, tone, blockedText };
+  const readyReason = target === 'off' ? FILE_MOVE_TEXT.emergencyReason : null;
+  return { key, title, detail, state, target, confirmLabel, effect, tone, blockedText, readyReason };
 }
 
 /** The "Files kept in Bitrix" section, or null when nothing is shown (not the Super Admin). */
@@ -583,6 +593,7 @@ export function fileMoveAlertsModel(load: FileMoveLoad): FileMoveAlertsModel | n
   if (counts.waitingAccounts > 0) countLines.push(fillText(FILE_MOVE_TEXT.countWaiting, { n: counts.waitingAccounts, days }));
   if (counts.noTarget > 0) countLines.push(fillText(FILE_MOVE_TEXT.countNoTarget, { n: counts.noTarget }));
   if (counts.missedEnqueue > 0) countLines.push(fillText(FILE_MOVE_TEXT.countMissed, { n: counts.missedEnqueue }));
+  if (counts.orphaned > 0) countLines.push(fillText(FILE_MOVE_TEXT.countOrphaned, { n: counts.orphaned }));
   const summaryText =
     open + itemModels.length === 0
       ? FILE_MOVE_TEXT.alertsNothing

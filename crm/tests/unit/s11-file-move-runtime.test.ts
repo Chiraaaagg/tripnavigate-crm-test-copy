@@ -24,6 +24,8 @@ import {
   FileMoveCommandError,
   claimFileMoves,
   completeFileMove,
+  confirmFileMoveRestored,
+  fileMoveLeaseOk,
   recordFileMoveObservation,
   type FileMoveJob,
   type FileMoveRowJob,
@@ -31,7 +33,13 @@ import {
   type FilePresenceJob,
   type ObservationResult,
 } from '@/modules/integration/server/file-move-commands';
-import { FILE_MOVE_STEP_WORST_CASE_MS, processFileMoveBatch, type FileMoveDeps, type RowLease } from '@/modules/integration/server/file-move-runtime';
+import {
+  DELETE_MIN_LEASE_SECONDS,
+  FILE_MOVE_STEP_WORST_CASE_MS,
+  processFileMoveBatch,
+  type FileMoveDeps,
+  type RowLease,
+} from '@/modules/integration/server/file-move-runtime';
 import { removeMovedSourceObject } from '@/modules/integration/server/file-storage-remove';
 
 /**
@@ -39,7 +47,9 @@ import { removeMovedSourceObject } from '@/modules/integration/server/file-stora
  * end to end against a MOCK portal (stubbed fetch on synthetic loopback
  * webhooks) and an in-memory database that applies the freeze's rules
  * (claim modes, D6 copy-back, one writer per deal both ways, the in-flight
- * rule and the "read after the last append" rule, database-side comparison).
+ * rule and the "lease after the last append" rule by the database clock,
+ * database-side comparison, the lease check before a remove, the restore
+ * read-back compared by the database).
  * The real DEC-43 batch (id-proof-copy.ts) runs against the same fakes for
  * the race cases. No real portal, no real credential, no Bitrix call.
  */
@@ -208,6 +218,11 @@ interface Row {
   keepInCrm: boolean;
   lease: string | null;
   lockedUntil: number;
+  /** Database time the current lease was handed out (leased_at). */
+  leasedAt: number;
+  leaseMode: FileMoveRowJob['mode'] | null;
+  /** The lease in which the copy-back download matched (restore_checked_at of this lease). */
+  restoreChecked: string | null;
   notBefore: number;
   attempts: number;
   lastCode: string | null;
@@ -282,6 +297,9 @@ class FakeDb {
       keepInCrm: false,
       lease: null,
       lockedUntil: 0,
+      leasedAt: 0,
+      leaseMode: null,
+      restoreChecked: null,
       notBefore: 0,
       attempts: 0,
       lastCode: null,
@@ -343,6 +361,9 @@ class FakeDb {
   private release(r: Row) {
     r.lease = null;
     r.lockedUntil = 0;
+    r.leaseMode = null;
+    // The lease ends, and with it any copy-back check made in it.
+    r.restoreChecked = null;
   }
 
   private switchOn(r: Row) {
@@ -372,6 +393,8 @@ class FakeDb {
       priorFileIds: r.prior,
       knownFileIds: known,
       attempts: r.attempts,
+      // As Postgres writes leased_at into the job (microseconds, offset).
+      leasedAt: new Date(r.leasedAt).toISOString().replace('Z', '456+00:00'),
     };
   }
 
@@ -406,6 +429,9 @@ class FakeDb {
         else if (r.state === 'delete_pending' && !this.inFlight(r.deal, r.box)) mode = this.switches.del ? 'delete' : 'confirm_delete';
         if (!mode) continue;
         this.takeLease(r);
+        r.leasedAt = this.now;
+        r.leaseMode = mode;
+        r.restoreChecked = null;
         this.trail.push(`claimed ${mode}`);
         return this.jobOf(r, mode);
       }
@@ -448,6 +474,8 @@ class FakeDb {
   }
 
   recordObservation(job: RowLease, o: { bitrixFileId: number; sha256: string; sizeBytes: number; readStartedAt: string }): ObservationResult {
+    // The observation reaches the database a little after the read began (time passes in a real call).
+    this.now += 5;
     const r = this.row('file_move_record_observation', job);
     const result = ((): ObservationResult => {
       // The database compares; the worker only reported what it observed.
@@ -464,7 +492,10 @@ class FakeDb {
         this.release(r);
         return 'quarantined';
       }
-      if (r.state === 'restore_pending') return 'restore_checked';
+      if (r.state === 'restore_pending') {
+        r.restoreChecked = r.lease;
+        return 'restore_checked';
+      }
       if (r.state === 'copied') {
         r.state = 'verified';
         r.deleteAfter = this.now + HOLD_MS;
@@ -472,10 +503,12 @@ class FakeDb {
         return 'verified';
       }
       if (r.state === 'verified') {
+        // By the database clock: the lease began at or after the hold and after
+        // the last append; the worker's read start lies between the lease and now.
         const started = Date.parse(o.readStartedAt);
         const last = this.lastAppend.get(this.key(r.deal, r.box)) ?? Number.NEGATIVE_INFINITY;
-        const early = r.deleteAfter === null || this.now < r.deleteAfter;
-        if (early || this.inFlight(r.deal, r.box) || !(started > last) || started > this.now) {
+        const early = r.deleteAfter === null || this.now < r.deleteAfter || r.leasedAt < r.deleteAfter;
+        if (early || this.inFlight(r.deal, r.box) || !(r.leasedAt > last) || !(started >= r.leasedAt) || started > this.now) {
           this.release(r);
           return 'retry';
         }
@@ -538,18 +571,37 @@ class FakeDb {
     return result;
   }
 
-  confirmRestored(job: RowLease): 'restored' | 'missing' {
+  readonly restoredWith: Array<{ sha256: string; sizeBytes: number }> = [];
+
+  confirmRestored(job: RowLease, stored: { sha256: string; sizeBytes: number }): 'restored' | 'missing' {
     const r = this.row('file_move_confirm_restored', job);
+    // A copy-back check made in THIS lease is needed.
+    if (r.restoreChecked !== job.leaseToken) throw new FileMoveCommandError('file_move_confirm_restored', '55000', 'wrong_state');
+    this.restoredWith.push(stored);
     this.release(r);
     const obj = this.storage.get(`${r.bucket}/${r.path}`);
-    const result = obj && obj.byteLength === r.size ? 'restored' : 'missing';
+    // The database compares the read-back with the row, and looks at Storage itself.
+    const same = stored.sha256 === r.sha && stored.sizeBytes === r.size;
+    const result = same && obj && obj.byteLength === r.size ? 'restored' : 'missing';
     if (result === 'restored') {
       r.crmCopy = true;
       // Copied back: it goes through check, hold, second check and deletion again.
       r.state = 'copied';
+    } else {
+      r.lastCode = same ? 'restore_missing' : 'restore_mismatch';
+      r.notBefore = this.now + 60_000;
     }
     this.trail.push(`confirm_restored ${result}`);
     return result;
+  }
+
+  /** file_move_lease_ok: this delete lease, delete_pending, enough lease left, deletion still allowed. */
+  leaseOk(job: RowLease, minSeconds: number): boolean {
+    const r = this.rows.find((x) => x.id === job.moveId);
+    const ok = !!r && r.lease === job.leaseToken && r.leaseMode === 'delete' && r.state === 'delete_pending'
+      && r.lockedUntil >= this.now + minSeconds * 1000 && this.switches.del && this.switchOn(r) && !r.keepInCrm;
+    this.trail.push(`lease_ok ${ok}`);
+    return ok;
   }
 
   stop(job: RowLease, reason: string) {
@@ -664,7 +716,8 @@ function deps(db: FakeDb, portal: MockPortal, over: Partial<FileMoveDeps> & { no
     recordObservation: async (job, o) => db.recordObservation(job, o),
     complete: async (job, outcome, code, fileId) => db.complete(job, outcome, code, fileId),
     confirmDeleted: async (job) => db.confirmDeleted(job),
-    confirmRestored: async (job) => db.confirmRestored(job),
+    confirmRestored: async (job, stored) => db.confirmRestored(job, stored),
+    leaseOk: async (job, minSeconds) => db.leaseOk(job, minSeconds),
     stop: async (job, reason) => db.stop(job, reason),
     presence: async (_job, ids) => {
       db.presenceCalls.push(ids);
@@ -888,7 +941,7 @@ describe('B1 interleaved: no second check or deletion while an append is in flig
     expect(writes(portal)).toBe(1);
   });
 
-  it('a second check whose read started before the last append does not count (read start noted before the read)', async () => {
+  it('a second check whose lease started before the last append does not count (database clock)', async () => {
     const { portal, db } = setup();
     const { xId, xBytes } = verifiedX(portal);
     const x = db.addRow({ name: 'x', bytes: xBytes, state: 'verified', bitrixFileId: xId });
@@ -905,6 +958,78 @@ describe('B1 interleaved: no second check or deletion while an append is in flig
     db.now += 1_000;
     const again = await processFileMoveBatch(deps(db, portal));
     expect(again.done).toMatchObject({ delete_pending: 1, delete_deleted: 1 });
+  });
+});
+
+describe('the read start is derived from the database lease start, not the app clock', () => {
+  for (const skewMs of [10 * 60_000, -10 * 60_000]) {
+    it(`app clock ${skewMs > 0 ? 'far ahead' : 'far behind'}: readStartedAt = leasedAt + 1 ms (+ time since the claim); the second check counts`, async () => {
+      const { portal, db } = setup();
+      const bytes = bytesOf('x');
+      const id = portal.put(DEAL, IDENTITY_BOX, bytes);
+      const x = db.addRow({ name: 'x', bytes, state: 'verified', bitrixFileId: id });
+      const leaseAt = db.now;
+      const seen: string[] = [];
+      const appNow = () => db.now + skewMs;
+      const run = await processFileMoveBatch(deps(db, portal, {
+        now: appNow,
+        deadline: appNow() + 10 * 60_000,
+        recordObservation: async (job, o) => {
+          seen.push(o.readStartedAt);
+          return db.recordObservation(job, o);
+        },
+        maxJobs: 1,
+      }));
+      expect(run.done).toEqual({ delete_pending: 1 });
+      expect(seen).toEqual([new Date(leaseAt + 1).toISOString()]);
+      expect(x.state).toBe('delete_pending');
+    });
+  }
+
+  it('time spent after the claim is added (measured on the app clock), so the read start never falls before the lease', async () => {
+    const { portal, db } = setup();
+    const bytes = bytesOf('x');
+    const id = portal.put(DEAL, IDENTITY_BOX, bytes);
+    db.addRow({ name: 'x', bytes, state: 'verified', bitrixFileId: id });
+    const leaseAt = db.now;
+    let app = db.now + 3_600_000;
+    const seen: string[] = [];
+    const run = await processFileMoveBatch(deps(db, portal, {
+      // Every app-clock reading moves 2 ms on (the database clock moves too).
+      now: () => {
+        app += 2;
+        db.now += 2;
+        return app;
+      },
+      deadline: app + 10 * 60_000,
+      recordObservation: async (job, o) => {
+        seen.push(o.readStartedAt);
+        return db.recordObservation(job, o);
+      },
+      maxJobs: 1,
+    }));
+    expect(run.done).toEqual({ delete_pending: 1 });
+    expect(seen).toHaveLength(1);
+    const reported = Date.parse(seen[0]!);
+    expect(reported).toBeGreaterThan(leaseAt);
+    expect(reported).toBeLessThanOrEqual(db.now);
+  });
+
+  it('with the app clock ahead, a lease that began before the last append is still refused', async () => {
+    const { portal, db } = setup();
+    const bytes = bytesOf('x');
+    const id = portal.put(DEAL, IDENTITY_BOX, bytes);
+    const x = db.addRow({ name: 'x', bytes, state: 'verified', bitrixFileId: id });
+    // An append to the box settles while X's box is read (after X's lease began).
+    portal.onRead = () => {
+      db.now += 1_000;
+      db.lastAppend.set(`${DEAL}|${IDENTITY_BOX}`, db.now);
+    };
+    const appNow = () => db.now + 10 * 60_000;
+    const run = await processFileMoveBatch(deps(db, portal, { now: appNow, deadline: appNow() + 10 * 60_000, maxJobs: 1 }));
+    expect(run.done).toEqual({ retry: 1 });
+    expect(x.state).toBe('verified');
+    expect(db.removed).toEqual([]);
   });
 });
 
@@ -1115,6 +1240,52 @@ describe('crash between delete_pending and the remove; remove of an absent objec
     expect(r.state).toBe('deleted');
   });
 
+  it('delete: the lease is checked right before the remove; when not held, the job is released and nothing is removed', async () => {
+    const { portal, db } = setup();
+    const r = db.addRow({ name: 'r', bytes: bytesOf('paper'), state: 'delete_pending', bitrixFileId: 5 });
+    const asked: number[] = [];
+    const removeCrm = vi.fn<FileMoveDeps['removeCrm']>(async () => ({ kind: 'removed' }));
+    const run = await processFileMoveBatch(deps(db, portal, {
+      leaseOk: async (_job, minSeconds) => {
+        asked.push(minSeconds);
+        return false;
+      },
+      removeCrm,
+      maxJobs: 1,
+    }));
+    expect(run).toMatchObject({ claimed: 1, done: { delete_lease_not_held: 1 }, stopped: false });
+    expect(asked).toEqual([DELETE_MIN_LEASE_SECONDS]);
+    expect(DELETE_MIN_LEASE_SECONDS).toBe(60);
+    expect(removeCrm).not.toHaveBeenCalled();
+    expect(db.removed).toEqual([]);
+    expect(db.storage.has(`${r.bucket}/${r.path}`)).toBe(true);
+    expect(db.trail).toContain('complete released');
+    expect(db.trail).not.toContain('confirm_deleted deleted');
+    expect(r).toMatchObject({ state: 'delete_pending', crmCopy: true, lease: null });
+    expect(portal.log).toEqual([]);
+  });
+
+  it('delete: the delete switch turned off after the claim, or a lease with under 60 s left: no remove', async () => {
+    for (const change of ['switch_off', 'short_lease'] as const) {
+      const { portal, db } = setup();
+      const r = db.addRow({ name: 'r', bytes: bytesOf('paper'), state: 'delete_pending', bitrixFileId: 5 });
+      const run = await processFileMoveBatch(deps(db, portal, {
+        claim: async () => {
+          const job = db.claim();
+          if (change === 'switch_off') db.switches.del = false;
+          else r.lockedUntil = db.now + 59_000;
+          return job;
+        },
+        maxJobs: 1,
+      }));
+      expect(run.done, change).toEqual({ delete_lease_not_held: 1 });
+      expect(db.trail, change).toContain('lease_ok false');
+      expect(db.removed, change).toEqual([]);
+      expect(db.storage.has(`${r.bucket}/${r.path}`), change).toBe(true);
+      expect(r.state, change).toBe('delete_pending');
+    }
+  });
+
   it('delete switch off: confirm only, never a remove', async () => {
     const { portal, db } = setup();
     db.switches.del = false;
@@ -1144,6 +1315,59 @@ describe('restore', () => {
     const again = db.addRow({ name: 'again', bytes, state: 'restore_pending', crmCopy: false, bitrixFileId: id });
     db.storage.set(`${again.bucket}/${again.path}`, bytes);
     expect((await processFileMoveBatch(deps(db, portal, { maxJobs: 1 }))).done).toEqual({ restore_restored: 1 });
+  });
+
+  it('restore: after the upload the object is read back from Storage and its hash and size go to the database', async () => {
+    const { portal, db } = setup();
+    const bytes = bytesOf('paper');
+    const id = portal.put(DEAL, IDENTITY_BOX, bytes);
+    db.addRow({ name: 'r', bytes, state: 'restore_pending', crmCopy: false, bitrixFileId: id });
+    const reads: string[] = [];
+    const run = await processFileMoveBatch(deps(db, portal, {
+      downloadCrm: async (bucket, path) => {
+        reads.push(`${bucket}/${path}`);
+        return db.storage.get(`${bucket}/${path}`)!;
+      },
+      maxJobs: 1,
+    }));
+    expect(run.done).toEqual({ restore_restored: 1 });
+    expect(reads).toHaveLength(1);
+    expect(db.restoredWith).toEqual([{ sha256: sha(bytes), sizeBytes: bytes.byteLength }]);
+    expect(db.trail.indexOf('upload')).toBeLessThan(db.trail.indexOf('confirm_restored restored'));
+  });
+
+  it("restore: an object already there ('exists') that differs is hashed and reported; the database answers missing; nothing is overwritten", async () => {
+    const { portal, db } = setup();
+    const bytes = bytesOf('paper A');
+    const other = bytesOf('paper B');
+    expect(other.byteLength).toBe(bytes.byteLength);
+    const id = portal.put(DEAL, IDENTITY_BOX, bytes);
+    const r = db.addRow({ name: 'r', bytes, state: 'restore_pending', crmCopy: false, bitrixFileId: id });
+    // Same size, other content at the old path.
+    db.storage.set(`${r.bucket}/${r.path}`, other);
+    const run = await processFileMoveBatch(deps(db, portal, { maxJobs: 1 }));
+    expect(run.done).toEqual({ restore_missing: 1 });
+    expect(db.restoredWith).toEqual([{ sha256: sha(other), sizeBytes: other.byteLength }]);
+    expect(r).toMatchObject({ state: 'restore_pending', crmCopy: false, lastCode: 'restore_mismatch', lease: null });
+    expect(db.uploads).toEqual([]);
+    expect(db.storage.get(`${r.bucket}/${r.path}`)).toEqual(other);
+    expect(db.trail.indexOf('upload')).toBeLessThan(db.trail.indexOf('confirm_restored missing'));
+  });
+
+  it('restore: a read-back that fails is a retry, never a confirmation', async () => {
+    const { portal, db } = setup();
+    const bytes = bytesOf('paper');
+    const id = portal.put(DEAL, IDENTITY_BOX, bytes);
+    const r = db.addRow({ name: 'r', bytes, state: 'restore_pending', crmCopy: false, bitrixFileId: id });
+    const run = await processFileMoveBatch(deps(db, portal, {
+      downloadCrm: async () => {
+        throw new Error('storage down');
+      },
+      maxJobs: 1,
+    }));
+    expect(run.done).toEqual({ retry: 1 });
+    expect(r).toMatchObject({ state: 'restore_pending', crmCopy: false, lastCode: 'storage_read_back_failed', restoreChecked: null });
+    expect(db.restoredWith).toEqual([]);
   });
 
   it('no upload when the database does not answer restore_checked', async () => {
@@ -1332,8 +1556,34 @@ describe('file-move-commands', () => {
     expect(jobs[1]).toMatchObject({ mode: 'presence', expectedFileIds: [901] });
   });
 
+  it('claim keeps the lease start the database wrote (microseconds and offset); a job without one still parses', async () => {
+    const leasedAt = '2026-12-01T10:00:00.123456+00:00';
+    const jobs = await claimFileMoves(client([{ ...rowJob, leasedAt }, rowJob]).rpc);
+    expect(jobs[0]).toMatchObject({ leasedAt });
+    expect(Date.parse((jobs[0] as FileMoveRowJob).leasedAt!)).toBe(Date.parse('2026-12-01T10:00:00.123Z'));
+    expect((jobs[1] as FileMoveRowJob).leasedAt).toBeUndefined();
+  });
+
+  it('confirm_restored passes the read-back hash and size; lease_ok passes the minimum seconds; odd answers fail closed', async () => {
+    const restored = client({ result: 'missing' });
+    expect(await confirmFileMoveRestored(restored.rpc, rowJob, { sha256: 'c'.repeat(64), sizeBytes: 10 })).toBe('missing');
+    expect(restored.calls).toEqual([{ fn: 'file_move_confirm_restored',
+      args: { p_id: rowJob.moveId, p_lease_token: rowJob.leaseToken, p_stored_sha256: 'c'.repeat(64), p_stored_size: 10 } }]);
+    await expect(confirmFileMoveRestored(client({ result: 'matched' }).rpc, rowJob, { sha256: 'c'.repeat(64), sizeBytes: 10 }))
+      .rejects.toBeInstanceOf(FileMoveCommandError);
+    for (const ok of [true, false]) {
+      const lease = client({ ok });
+      expect(await fileMoveLeaseOk(lease.rpc, rowJob, 60)).toBe(ok);
+      expect(lease.calls).toEqual([{ fn: 'file_move_lease_ok', args: { p_id: rowJob.moveId, p_lease_token: rowJob.leaseToken, p_min_seconds: 60 } }]);
+    }
+    for (const bad of [{ ok: 'yes' }, null, { result: 'ok' }]) {
+      await expect(fileMoveLeaseOk(client(bad).rpc, rowJob, 60)).rejects.toBeInstanceOf(FileMoveCommandError);
+    }
+  });
+
   it('an unexpected job fails closed', async () => {
-    for (const bad of [{ ...rowJob, mime: 'text/html' }, { ...rowJob, mode: 'erase' }, { ...rowJob, bitrixField: 'title' }, { ...rowJob, sizeBytes: 5_000_000 }]) {
+    for (const bad of [{ ...rowJob, mime: 'text/html' }, { ...rowJob, mode: 'erase' }, { ...rowJob, bitrixField: 'title' }, { ...rowJob, sizeBytes: 5_000_000 },
+      { ...rowJob, leasedAt: 'not a time' }]) {
       await expect(claimFileMoves(client([bad]).rpc)).rejects.toBeInstanceOf(FileMoveCommandError);
     }
   });

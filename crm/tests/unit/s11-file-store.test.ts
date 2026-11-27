@@ -224,6 +224,81 @@ describe('downloadEntry: urlMachine only, same host, bytes hashed, never throws'
   });
 });
 
+describe("a caller's signal cancels the Bitrix request itself (the view path's deadline)", () => {
+  /** A fetch that ends only when its signal aborts, also when it arrives already aborted; records the signal it saw. */
+  function abortable() {
+    const signals: AbortSignal[] = [];
+    const route: Route = (_url, init) =>
+      new Promise<Response>((_, reject) => {
+        const signal = init?.signal ?? undefined;
+        if (signal) signals.push(signal);
+        const fail = () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        if (signal?.aborted) fail();
+        else signal?.addEventListener('abort', fail);
+      });
+    return { route, signals };
+  }
+  const later = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+  it('readBox: an already aborted signal makes no call; an abort during the read cancels the request the fetch holds', async () => {
+    const s = stub(() => jsonRes(item()));
+    const gone = new AbortController();
+    gone.abort();
+    await expect(reader(s.fetchImpl).readBox('501', IDENTITY_BOX, { signal: gone.signal })).rejects.toMatchObject({ kind: 'unavailable', code: 'bitrix_timeout' });
+    expect(s.calls).toHaveLength(0);
+
+    const a = abortable();
+    const held = stub(a.route);
+    const caller = new AbortController();
+    // The read's own limit is far away: only the caller's abort can end it.
+    const pending = reader(held.fetchImpl, { readTimeoutMs: 60_000 }).readBox('501', IDENTITY_BOX, { signal: caller.signal }).catch((e: unknown) => e);
+    await later(5);
+    expect(held.calls).toHaveLength(1);
+    expect(a.signals[0]!.aborted).toBe(false);
+    caller.abort();
+    const error = await pending;
+    expect(error).toBeInstanceOf(FileStoreError);
+    expect(error).toMatchObject({ kind: 'unavailable' });
+    expect(['bitrix_timeout', 'bitrix_unavailable']).toContain((error as FileStoreError).code);
+    expect(a.signals[0]!.aborted).toBe(true);
+    expect(held.calls).toHaveLength(1);
+  });
+
+  it('readBox: a signal that is never aborted changes nothing', async () => {
+    const s = stub(() => jsonRes(item()));
+    const r = await reader(s.fetchImpl).readBox('501', IDENTITY_BOX, { signal: new AbortController().signal });
+    expect(r).toMatchObject({ kind: 'ok' });
+    expect(s.calls).toHaveLength(1);
+  });
+
+  it('downloadEntry: an already aborted signal or an abort during the download ends as timeout, never throws', async () => {
+    const before = abortable();
+    const s1 = stub(before.route);
+    const gone = new AbortController();
+    gone.abort();
+    expect(await reader(s1.fetchImpl, { downloadTimeoutMs: 60_000 }).downloadEntry(entry(11), 1000, { signal: gone.signal }))
+      .toEqual({ kind: 'unreadable', code: 'timeout' });
+    expect(before.signals.every((x) => x.aborted)).toBe(true);
+
+    const during = abortable();
+    const s2 = stub(during.route);
+    const caller = new AbortController();
+    const pending = reader(s2.fetchImpl, { downloadTimeoutMs: 60_000 }).downloadEntry(entry(11), 1000, { signal: caller.signal });
+    await later(5);
+    expect(s2.calls).toHaveLength(1);
+    expect(during.signals[0]!.aborted).toBe(false);
+    caller.abort();
+    expect(await pending).toEqual({ kind: 'unreadable', code: 'timeout' });
+    expect(during.signals[0]!.aborted).toBe(true);
+  });
+
+  it('downloadEntry: a signal that is never aborted still reads and hashes the bytes', async () => {
+    const s = stub(() => fileRes(BYTES));
+    const r = await reader(s.fetchImpl).downloadEntry(entry(11), BYTES.byteLength, { signal: new AbortController().signal });
+    expect(r).toMatchObject({ kind: 'ok', sha256: SHA, sizeBytes: BYTES.byteLength });
+  });
+});
+
 describe('neutral names', () => {
   it('id-<sha8>.<ext> for identity papers, acc-<kind>-<sha8>.<ext> for Accounts papers; anything else refused', () => {
     expect(neutralBoxFileName('id', SHA, 'image/jpeg')).toBe(`id-${SHA.slice(0, 8)}.jpg`);

@@ -27,7 +27,8 @@
 --     otherwise P0002 not_found.
 --   public.file_view_finish(p_view_id, p_outcome) (authenticated): same
 --     person, once. served | bitrix_unavailable | mismatch |
---     not_found_in_bitrix | deal_not_found; every outcome except
+--     not_found_in_bitrix | deal_not_found | unreadable_in_bitrix (no link,
+--     another host or a redirect: an alert only, review 14a P3-3); every outcome except
 --     bitrix_unavailable needs a resolved view (so a person cannot trip the
 --     safety stop by calling this directly). mismatch quarantines the row and
 --     turns the delete switch off; not_found_in_bitrix queues a search by hash;
@@ -131,7 +132,8 @@ declare
   v_view public.file_bitrix_views%rowtype;
   v_m public.file_bitrix_moves%rowtype;
 begin
-  if p_outcome is null or p_outcome not in ('served', 'bitrix_unavailable', 'mismatch', 'not_found_in_bitrix', 'deal_not_found') then
+  if p_outcome is null or p_outcome not in ('served', 'bitrix_unavailable', 'mismatch', 'not_found_in_bitrix', 'deal_not_found',
+       'unreadable_in_bitrix') then
     raise exception 'invalid_input' using errcode = '22023', hint = 'outcome';
   end if;
   select * into v_view from public.file_bitrix_views v where v.id = p_view_id for update;
@@ -164,6 +166,14 @@ begin
     end if;
   elsif p_outcome = 'deal_not_found' then
     perform authz.file_move_open_stop(v_m.legal_entity_id, v_m.id, v_m.source_deal_id, v_m.bitrix_field, 'deal_not_found', true);
+  elsif p_outcome = 'unreadable_in_bitrix' then
+    -- Review 14a P3-3: the file could not be read (no link, another host, a
+    -- redirect), which is not a different file. Alert only: no quarantine,
+    -- the delete switch stays as it is. One open alert per move is enough.
+    if not exists (select 1 from public.file_move_stops s
+                   where s.move_id = v_m.id and s.reason_code = 'view_unreadable' and s.acknowledged_at is null) then
+      perform authz.file_move_open_stop(v_m.legal_entity_id, v_m.id, v_m.source_deal_id, v_m.bitrix_field, 'view_unreadable', false);
+    end if;
   end if;
   perform authz.write_audit('files.served_from_bitrix', v_m.legal_entity_id,
     (select d.branch_id from public.deals d where d.id = v_m.deal_id), 'file_bitrix_view', v_view.id, null,
@@ -342,7 +352,9 @@ begin
   update public.file_move_settings s set accounts_bitrix_field = p_item_key, updated_by = (select auth.uid()) where s.id = v.id;
   perform authz.settings_end_change(v_prev);
   perform authz.write_audit('files.move_switch_changed', v.legal_entity_id, null, 'file_move_settings', v.id, v_reason,
-    jsonb_build_object('setting', 'accounts_bitrix_field', 'before', v.accounts_bitrix_field, 'after', p_item_key));
+    -- Review 14a P3-5: that the box changed, not the Bitrix key itself.
+    jsonb_build_object('setting', 'accounts_bitrix_field', 'changed', true, 'wasSet', v.accounts_bitrix_field is not null,
+      'isSet', p_item_key is not null));
   return jsonb_build_object('changed', true, 'accountsBox', p_item_key);
 end;
 $$;
@@ -459,7 +471,12 @@ begin
       'waitingAccounts', (select count(*)::integer from public.file_bitrix_moves m
                           where m.legal_entity_id = v_entity and m.file_class = 'accounts' and m.state = 'waiting'),
       'soleCopies', (select count(*)::integer from public.file_bitrix_moves m
-                     where m.legal_entity_id = v_entity and not m.crm_copy_present)));
+                     where m.legal_entity_id = v_entity and not m.crm_copy_present),
+      -- Review 14a P3-12: move rows whose CRM deal row no longer exists (there
+      -- is no foreign key); such rows drop out of every claim and presence run.
+      'orphaned', (select count(*)::integer from public.file_bitrix_moves m
+                   where m.legal_entity_id = v_entity and m.deal_id is not null
+                     and not exists (select 1 from public.deals d where d.id = m.deal_id))));
 end;
 $$;
 

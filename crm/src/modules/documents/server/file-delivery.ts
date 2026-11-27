@@ -8,7 +8,7 @@ import { EVIDENCE_MAX_BYTES, EVIDENCE_MIME_TYPES } from '@/modules/fulfilment/co
 import { sniffEvidenceMime } from '@/modules/fulfilment/evidence';
 import type { StaffContext } from '@/modules/identity/server/session';
 import type { BitrixFileReader, BoxEntry, DownloadResult, ReadBoxResult } from '@/modules/integration/bitrix/file-store';
-import { fileUnavailableHtml } from '@/views/files/file-unavailable-page';
+import { fileUnavailableHtml, type FileUnavailableKind } from '@/views/files/file-unavailable-page';
 
 /**
  * S11 "files to Bitrix": one way to open a stored file (file 14 section 2.4,
@@ -29,6 +29,8 @@ import { fileUnavailableHtml } from '@/views/files/file-unavailable-page';
  *      must match the CRM's record (size, SHA-256 and the file type's leading
  *      bytes). The outcome is written under the user's session FIRST; only
  *      then the whole file is answered (200, never streamed, no ranges).
+ *      Reading the box and downloading share one 15-second budget; when it
+ *      runs out, both Bitrix requests are cancelled, not left running.
  *
  * Nothing is cached anywhere: not in memory between requests, not on disk,
  * not at the edge. Nothing here logs. No Bitrix deal id, file id, box key,
@@ -119,6 +121,22 @@ export function objectPathIsIds(objectPath: string, segments: number): boolean {
 }
 
 /**
+ * True when the path is a plain relative Storage key: 1 to 8 segments joined
+ * by "/", each starting with a letter or digit and holding only letters,
+ * digits, dot, underscore and dash. So no "." or ".." segment, no leading,
+ * doubled or trailing slash, no backslash, no percent sign and no control
+ * character. Every path the CRM writes has this shape (ids, a word such as
+ * "refund", a ".pdf" ending). deliverFile refuses any other path for every
+ * handler, before anything is signed or read, so a wrong database answer can
+ * never point a signed URL at another object.
+ */
+export function isPlainObjectPath(objectPath: string): boolean {
+  if (objectPath.length < 1 || objectPath.length > 1024) return false;
+  const parts = objectPath.split('/');
+  return parts.length <= 8 && parts.every((part) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(part));
+}
+
+/**
  * The rule the booking and department authorize answers were checked against
  * before (letters, digits, dot, space, underscore, dash; 1 to 120 characters).
  * Those handlers keep refusing any other recorded name, as before.
@@ -164,7 +182,14 @@ const ResolveAnswerSchema = z.object({
 });
 type ResolveAnswer = z.infer<typeof ResolveAnswerSchema>;
 
-type FinishOutcome = 'served' | 'bitrix_unavailable' | 'mismatch' | 'not_found_in_bitrix' | 'deal_not_found';
+/**
+ * The view outcomes file_view_finish accepts. `unreadable_in_bitrix` (review
+ * 14a P3-3): Bitrix gave no usable link to the file (no link, a link to
+ * another host, a redirect). The file is not served and the database opens an
+ * alert only; unlike `mismatch` it does not quarantine the file or switch
+ * deleting off, because "cannot read" is not "a different file".
+ */
+type FinishOutcome = 'served' | 'bitrix_unavailable' | 'mismatch' | 'unreadable_in_bitrix' | 'not_found_in_bitrix' | 'deal_not_found';
 
 async function callRpc(client: RpcClient, fn: string, args: Record<string, unknown>): Promise<{ data: unknown; error: RpcError | null }> {
   const reply = await client.rpc(fn, args);
@@ -234,10 +259,14 @@ async function crmRedirect(input: DeliverFileInput, file: AuthorizedFile, downlo
   return new Response(null, { status: 302, headers: { ...CRM_NO_STORE, Location: new URL(signedUrl, expectedOrigin).toString() } });
 }
 
-/** The 503 page for a Bitrix-held file (texts owned by the UI slice). Inline styles only; no script may run. */
-function unavailablePage(kind: 'bitrix_unavailable' | 'needs_attention', extra: Record<string, string> = {}): Response {
+/**
+ * The page for a Bitrix-held file that cannot be shown (texts owned by the UI
+ * slice): 503 for "Bitrix is not answering" and "needs attention", 429 for the
+ * CRM's own view limit. Inline styles only; no script may run.
+ */
+function unavailablePage(kind: FileUnavailableKind, extra: Record<string, string> = {}): Response {
   return new Response(fileUnavailableHtml(kind), {
-    status: 503,
+    status: kind === 'view_limit' ? 429 : 503,
     headers: {
       ...BITRIX_NO_STORE,
       'Content-Type': 'text/html; charset=utf-8',
@@ -261,32 +290,61 @@ export function attachmentDisposition(name: string): string {
 
 const TIMED_OUT = Symbol('timed_out');
 
-/** Resolves to TIMED_OUT when the deadline passes first. The timer never outlives the call. */
-async function beforeDeadline<T>(work: Promise<T>, deadline: number): Promise<T | typeof TIMED_OUT> {
-  const left = deadline - Date.now();
-  if (left <= 0) return TIMED_OUT;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
-    timer = setTimeout(() => resolve(TIMED_OUT), left);
+/**
+ * Resolves to TIMED_OUT as soon as the signal is aborted (the 15-second budget
+ * ran out), otherwise to the work's own answer. The same signal was given to
+ * the Bitrix request, so aborting it also cancels that request; this wait only
+ * makes sure a reader that is slow to notice cannot hold the answer back. The
+ * listener never outlives the call.
+ */
+async function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T | typeof TIMED_OUT> {
+  if (signal.aborted) {
+    // The request was already cancelled; its own late answer or error is ignored.
+    work.catch(() => undefined);
+    return TIMED_OUT;
+  }
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<typeof TIMED_OUT>((resolve) => {
+    onAbort = () => resolve(TIMED_OUT);
+    signal.addEventListener('abort', onAbort, { once: true });
   });
   try {
-    return await Promise.race([work, timeout]);
+    return await Promise.race([work, aborted]);
   } finally {
-    if (timer !== undefined) clearTimeout(timer);
+    if (onAbort) signal.removeEventListener('abort', onAbort);
   }
 }
+
+/** Download answers that mean Bitrix gave no usable link to the file: not served, an alert only (review 14a P3-3). */
+const UNREADABLE_CODES: ReadonlySet<string> = new Set(['no_link', 'other_host', 'redirect']);
 
 type BitrixRead =
   | { kind: 'ok'; bytes: Uint8Array }
   | { kind: 'fail'; outcome: Exclude<FinishOutcome, 'served'> };
 
-/** Reads the box and downloads the one file. Every Bitrix detail stays inside this function. */
+/**
+ * Reads the box and downloads the one file, within one 15-second budget.
+ * One AbortController covers both Bitrix requests: when the budget runs out it
+ * is aborted, which cancels whichever request is still running, and the view
+ * finishes as "Bitrix is not answering". It is also aborted on the way out, so
+ * no Bitrix request ever outlives this function. Every Bitrix detail stays
+ * inside this function.
+ */
 async function readFromBitrix(reader: BitrixFileReader, resolved: ResolveAnswer, file: AuthorizedFile): Promise<BitrixRead> {
-  const deadline = Date.now() + BITRIX_VIEW_TIMEOUT_MS;
+  const budget = new AbortController();
+  const timer = setTimeout(() => budget.abort(), BITRIX_VIEW_TIMEOUT_MS);
+  try {
+    return await readWithin(reader, resolved, file, budget.signal);
+  } finally {
+    clearTimeout(timer);
+    budget.abort();
+  }
+}
 
+async function readWithin(reader: BitrixFileReader, resolved: ResolveAnswer, file: AuthorizedFile, signal: AbortSignal): Promise<BitrixRead> {
   let box: ReadBoxResult | typeof TIMED_OUT;
   try {
-    box = await beforeDeadline(reader.readBox(resolved.bitrixDealId, resolved.bitrixField), deadline);
+    box = await untilAborted(reader.readBox(resolved.bitrixDealId, resolved.bitrixField, { signal }), signal);
   } catch {
     // FileStoreError (unavailable, rate limited, sign-in problem) or anything unexpected.
     return { kind: 'fail', outcome: 'bitrix_unavailable' };
@@ -301,16 +359,20 @@ async function readFromBitrix(reader: BitrixFileReader, resolved: ResolveAnswer,
   let download: DownloadResult | typeof TIMED_OUT;
   try {
     // Capped at the recorded size: a bigger file cannot be ours.
-    download = await beforeDeadline(reader.downloadEntry(entry, resolved.sizeBytes), deadline);
+    download = await untilAborted(reader.downloadEntry(entry, resolved.sizeBytes, { signal }), signal);
   } catch {
     return { kind: 'fail', outcome: 'bitrix_unavailable' };
   }
   if (download === TIMED_OUT) return { kind: 'fail', outcome: 'bitrix_unavailable' };
   if (download.kind !== 'ok') {
-    // Bitrix did not answer in time or answered an HTTP error: try again later.
-    // Anything else (no link, another host, a redirect, not a file, too large)
-    // means the box does not hold our file as recorded: never served, flagged.
-    return { kind: 'fail', outcome: download.code === 'timeout' || download.code === 'http_error' ? 'bitrix_unavailable' : 'mismatch' };
+    // Never served, whatever the reason:
+    //  - Bitrix did not answer in time or answered an HTTP error: try again later.
+    //  - No link, a link to another host, or a redirect: Bitrix gave no usable
+    //    link, which says nothing about the file itself. An alert only.
+    //  - Not a file, or bigger than the record: the box does not hold our file
+    //    as recorded. A mismatch (quarantined, fail closed).
+    if (download.code === 'timeout' || download.code === 'http_error') return { kind: 'fail', outcome: 'bitrix_unavailable' };
+    return { kind: 'fail', outcome: UNREADABLE_CODES.has(download.code) ? 'unreadable_in_bitrix' : 'mismatch' };
   }
 
   // Never trust a size or hash reported by anyone else: measure the bytes here.
@@ -389,14 +451,18 @@ export async function deliverFile(input: DeliverFileInput): Promise<DeliverFileR
     if (!legacy) return { kind: 'refused', error: null };
     file = legacy;
   } else if (begun.kind === 'error') {
-    // The view limit is reached only after the person was allowed to open the file: say "try again".
-    if (begun.error.sqlState === VIEW_LIMIT_STATE) return { kind: 'response', response: unavailablePage('bitrix_unavailable', { 'Retry-After': '60' }) };
+    // The view limit is the CRM's own (files opened per person per minute), not
+    // Bitrix. It is reached only after the person was allowed to open the file,
+    // so the honest answer is 429 "wait a minute" (review 14a P3-4).
+    if (begun.error.sqlState === VIEW_LIMIT_STATE) return { kind: 'response', response: unavailablePage('view_limit', { 'Retry-After': '60' }) };
     return { kind: 'refused', error: begun.error };
   } else {
     file = { objectPath: begun.answer.objectPath, fileName: begun.answer.fileName, mime: begun.answer.mime };
     if (begun.answer.location === 'bitrix') viewId = begun.answer.viewId;
   }
 
+  // Every handler: a path that is not a plain Storage key is refused before anything is signed or read.
+  if (!isPlainObjectPath(file.objectPath)) return { kind: 'refused', error: null };
   if (input.accept && !input.accept(file)) return { kind: 'refused', error: null };
   const downloadName = input.downloadName(file);
   if (!downloadName) return { kind: 'refused', error: null };

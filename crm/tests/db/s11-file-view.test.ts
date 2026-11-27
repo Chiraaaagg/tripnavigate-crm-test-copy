@@ -20,7 +20,8 @@ import {
  *     Bitrix id, box key or file id; a row without a CRM copy (any state) or
  *     delete_pending is routed to Bitrix;
  *   - file_view_resolve: once, within 60 seconds, unfinished views only;
- *     file_view_finish: same person, once; the 30-a-minute view limit.
+ *     file_view_finish: same person, once; unreadable_in_bitrix is an alert
+ *     only; the 30-a-minute view limit, which never hides an authorize refusal.
  * Synthetic fixtures; every case rolled back.
  */
 
@@ -384,6 +385,42 @@ describe('file_view_resolve and file_view_finish', () => {
     });
   }, 300_000);
 
+  it('finish unreadable_in_bitrix: an alert only (view_unreadable), no quarantine, the delete switch stays; one open alert per move', async () => {
+    await asOwner(db, async () => {
+      const v = await bitrixView();
+      await s.settings({ box: ACC_BOX, check: true, del: true });
+      const before = await s.move(v.moveId);
+      const finish = async () => {
+        const begun = await one<{ viewId: string; location: string }>(OWNER, SQL.viewBegin, ['traveller_id_proofs', v.fileId]);
+        expect(begun.location).toBe('bitrix');
+        await one(SVC, SQL.viewResolve, [begun.viewId]);
+        expect(await one(OWNER, SQL.viewFinish, [begun.viewId, 'unreadable_in_bitrix'])).toEqual({ outcome: 'unreadable_in_bitrix' });
+        return begun.viewId;
+      };
+      // Like every outcome but bitrix_unavailable, it needs a resolved view.
+      await s.refusedWith(OWNER, SQL.viewFinish, [v.viewId, 'unreadable_in_bitrix'], '55000', 'wrong_state', 'not_resolved');
+      await one(SVC, SQL.viewResolve, [v.viewId]);
+      expect(await one(OWNER, SQL.viewFinish, [v.viewId, 'unreadable_in_bitrix'])).toEqual({ outcome: 'unreadable_in_bitrix' });
+      expect(await s.move(v.moveId)).toMatchObject({ state: before.state, crm_copy_present: before.crm_copy_present,
+        last_error_code: before.last_error_code, relocate_due: before.relocate_due });
+      expect((await s.settingsRow())!.delete_after_hold).toBe(true);
+      expect((await s.stops()).map((x) => [x.move_id, x.reason_code, x.acknowledged])).toEqual([[v.moveId, 'view_unreadable', false]]);
+      expect(await s.audits('files.move_quarantined', v.moveId)).toHaveLength(0);
+      const [audit] = await s.audits('files.served_from_bitrix');
+      expect(audit!.details).toMatchObject({ viewId: v.viewId, moveId: v.moveId, outcome: 'unreadable_in_bitrix' });
+      // A second unreadable view while the alert is open opens no second row.
+      await finish();
+      expect((await s.stops()).filter((x) => x.reason_code === 'view_unreadable')).toHaveLength(1);
+      // Once the alert is acknowledged, the next unreadable view opens a new one.
+      const [open] = await s.stops();
+      await one(SUPER, SQL.ackStop, [open!.id, 'Synthetic S11 test run, alert seen and handled']);
+      await finish();
+      expect((await s.stops()).filter((x) => x.reason_code === 'view_unreadable').map((x) => x.acknowledged).sort()).toEqual([false, true]);
+      expect((await s.move(v.moveId)).state).toBe(before.state);
+      expect((await s.settingsRow())!.delete_after_hold).toBe(true);
+    });
+  }, 300_000);
+
   it('a mismatch reported while the row is delete_pending opens the stop and lets the delete step settle it', async () => {
     await asOwner(db, async () => {
       const f = await s.proofFiles();
@@ -423,6 +460,31 @@ describe('view limit', () => {
       expect(other, 'a second person allowed to open the proof').toBeDefined();
       expect((await one<{ location: string }>(other!, SQL.viewBegin, ['traveller_id_proofs', f.stored[0]!])).location).toBe('bitrix');
       expect((await one<{ location: string }>(OWNER, SQL.viewBegin, ['traveller_id_proofs', f.stored[1]!])).location).toBe('crm');
+    });
+  }, 300_000);
+
+  it('a person the authorize function refuses gets that refusal, never view_limit, even with 30+ Bitrix views in the last minute', async () => {
+    await asOwner(db, async () => {
+      const f = await s.proofFiles();
+      const fin = await s.financeFiles();
+      const proofMove = await soleCopyOf('traveller_id_proofs', f.stored[0]!, 1492);
+      await soleCopyOf('finance_evidence', fin.bankProof, 1493);
+      const entity = await s.entityId();
+      const seed = (actor: string, n: number) =>
+        owner(`insert into public.file_bitrix_views (legal_entity_id, actor_user_id, move_id, started_at)
+               select $1::uuid, $2::uuid, $3::uuid, now() - interval '10 seconds' from generate_series(1, $4::int)`, [entity, actor, proofMove, n]);
+      const cases: Array<[string, Actor, string, string, string]> = [
+        ['other company', { userId: U.salesEntityB }, U.salesEntityB, 'traveller_id_proofs', f.stored[0]!],
+        ['purchase only', PURCHASE, U.purchaseJodhpur, 'finance_evidence', fin.bankProof],
+      ];
+      for (const [label, actor, userId, table, id] of cases) {
+        await seed(userId, 35);
+        const { direct, begin } = await agree(`${label} at the view limit`, actor, table, id);
+        expect(direct.ok, label).toBe(false);
+        expect(['42501', 'P0002'], label).toContain(begin.error!.code);
+        expect(begin.error!.code, label).not.toBe('PT429');
+        expect(begin.error!.message, label).not.toBe('view_limit');
+      }
     });
   }, 300_000);
 });

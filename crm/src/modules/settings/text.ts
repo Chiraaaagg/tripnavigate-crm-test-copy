@@ -290,6 +290,10 @@ export const FILE_MOVE_TEXT = {
   deleteOff: 'Nothing more is deleted from the CRM. Files already deleted keep opening from Bitrix through the CRM.',
   deleteNeedsPilot: 'Set the pilot deal first: the first time, deleting can start on one pilot deal only.',
   deleteNeedsAck: 'Acknowledge the open automatic stops on the Clean-up tab first.',
+  // Turning a switch off (review 14a open question 6): a ready-made reason, so stopping is never slowed down.
+  emergencyReason: 'Emergency stop by Super Admin',
+  emergencyUse: 'Use the reason “Emergency stop by Super Admin”',
+  emergencyHint: 'To stop at once, use the ready-made reason with one click, or write your own.',
   // The values
   holdTitle: 'Hold before deleting',
   holdDetail: 'How long the CRM waits after the first matching check before it checks again and deletes its copy.',
@@ -388,6 +392,7 @@ export const FILE_MOVE_TEXT = {
   countMissed: 'Uploads listed late by the 10-minute check: {n}.',
   countWaiting: 'Accounts files waiting for their {days} days in the CRM: {n}.',
   countSole: 'Files kept only in Bitrix now (the CRM’s copy was deleted after the checks): {n}.',
+  countOrphaned: 'File records whose CRM deal no longer exists (they are skipped by every check; tell the lead): {n}.',
 } as const;
 
 /** Stop reasons (file_move_stops.reason_code) in plain words. */
@@ -397,6 +402,7 @@ export const FILE_MOVE_STOP_WORDS: Record<string, string> = {
   missing_in_bitrix: 'A file was not found in the Bitrix deal, and a search by its content found nothing. Deleting was switched off.',
   deal_not_found: 'Bitrix could not find this deal. Nothing was deleted or sent again.',
   deal_removed_with_files: 'This deal left the CRM while Bitrix held the only copy of some of its files.',
+  view_unreadable: 'Bitrix gave no usable download for a file someone tried to open. The file was not shown. Nothing was deleted, and deleting stays as it was.',
 };
 
 /** Alert item kinds (file_move_alerts().items[].kind) in plain words. */

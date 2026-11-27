@@ -43,6 +43,11 @@ export const MANAGER: Actor = { userId: U.managerDelhi };
 export const ANON: Actor = { userId: null };
 export { DEAL, OWNER, SALES_B, SUPER, SVC, rid };
 export const DEAL2 = D.del002;
+/**
+ * The read start a second check accepts in a test: the transaction's now(),
+ * which equals the leased_at a claim (or the lease helper) just set.
+ */
+export const READ_AT_LEASE = 'now()';
 
 /** The six S11 migrations, in order. */
 export const S11_VERSIONS = ['20261212000100', '20261212000110', '20261212000120', '20261212000130', '20261212000140', '20261212000150'];
@@ -77,7 +82,8 @@ export const SQL = {
   observe: 'select public.file_move_record_observation($1, $2, $3::bigint, $4, $5, $6::timestamptz) as r',
   complete: 'select public.file_move_complete($1, $2, $3, $4, $5::bigint) as r',
   confirmDeleted: 'select public.file_move_confirm_deleted($1, $2) as r',
-  confirmRestored: 'select public.file_move_confirm_restored($1, $2) as r',
+  confirmRestored: 'select public.file_move_confirm_restored($1, $2, $3, $4) as r',
+  leaseOk: 'select public.file_move_lease_ok($1, $2, $3) as r',
   stop: 'select public.file_move_stop($1, $2, $3) as r',
   presence: 'select public.file_move_presence_result($1::bigint, $2, $3, $4::bigint[]) as r',
   relocated: 'select public.file_move_relocated($1, $2, $3::bigint, $4, $5) as r',
@@ -119,6 +125,8 @@ export type Job = {
   knownFileIds?: string[];
   attempts?: number;
   expectedFileIds?: string[];
+  /** Database time the lease was handed out (file_bitrix_moves.leased_at). */
+  leasedAt?: string;
 };
 export type Dec43Job = { jobId: string; leaseToken: string; mode: string; bitrixDealId: string };
 
@@ -407,10 +415,14 @@ export function s11Helpers(getDb: () => TestDb) {
       deleted_at = now() - interval '19 minutes', crm_copy_present = false, presence_checked_at = null, next_attempt_at = now(), ${NO_LEASE}`);
     if (state !== 'deleted') await setMove(id, `state = '${state}', next_attempt_at = now()`);
   }
-  /** Gives a row a lease of this mode (as a claim would); returns the token. */
+  /**
+   * Gives a row a lease of this mode (as a claim would: leased_at = now(), and
+   * no copy-back check carried over from an earlier lease); returns the token.
+   */
   async function lease(id: string, mode: string, seconds = 180): Promise<string> {
     const token = rid();
-    await setMove(id, `lease_token = '${token}'::uuid, locked_until = now() + make_interval(secs => ${seconds}), lease_mode = '${mode}'`);
+    await setMove(id, `lease_token = '${token}'::uuid, locked_until = now() + make_interval(secs => ${seconds}), lease_mode = '${mode}',
+      leased_at = now(), restore_checked_at = null`);
     return token;
   }
   const expireLease = (id: string) => setMove(id, `locked_until = now() - interval '1 second'`);
@@ -447,11 +459,30 @@ export function s11Helpers(getDb: () => TestDb) {
     return out;
   }
   const jobFor = (jobs: Job[], moveId: string) => jobs.find((j) => j.moveId === moveId);
+  /**
+   * record_observation with the read start given as SQL. Inside one test
+   * transaction now() does not move and a claim sets leased_at = now(), so
+   * READ_AT_LEASE ('now()') is the only read start a second check accepts
+   * unless leased_at is moved by owner SQL; anything earlier is before the lease.
+   */
   const observe = (job: { moveId: string | null; leaseToken: string }, fileId: number, sha: string, size: number, readStartedSql: string | null) =>
     one<{ result: string }>(SVC, `select public.file_move_record_observation($1, $2, $3::bigint, $4, $5, (${readStartedSql ?? 'null'})::timestamptz) as r`,
       [job.moveId, job.leaseToken, fileId, sha, size]);
   const complete = (job: { moveId: string | null; leaseToken: string }, outcome: string, code: string | null, fileId: number | null = null) =>
     one<{ moveId: string; state: string; attempts: number }>(SVC, SQL.complete, [job.moveId, job.leaseToken, outcome, code, fileId]);
+  /** confirm_restored with the hash and size the worker read back from Storage (default: the row's own). */
+  const confirmRestored = (job: { moveId: string | null; leaseToken: string }, sha: string, size = 2048) =>
+    one<{ result: string }>(SVC, SQL.confirmRestored, [job.moveId, job.leaseToken, sha, size]);
+  const leaseOk = (job: { moveId: string | null; leaseToken: string }, minSeconds: number) =>
+    one<{ ok: boolean }>(SVC, SQL.leaseOk, [job.moveId, job.leaseToken, minSeconds]);
+  /** The lease and copy-back times of one row, compared with now() (inside one transaction now() does not move). */
+  const leaseTimes = async (id: string) =>
+    (await owner<{ leased_now: boolean | null; leased_set: boolean; checked_set: boolean; after_append_is_lease: boolean | null }>(
+      `select m.leased_at = now() as leased_now, m.leased_at is not null as leased_set, m.restore_checked_at is not null as checked_set,
+         m.reverified_after_append_at = m.leased_at as after_append_is_lease
+       from public.file_bitrix_moves m where m.id = $1`,
+      [id],
+    ))[0]!;
 
   const dec43Claim = () => one<Dec43Job[]>(SVC, SQL.dec43Claim, [5, 60]);
   const dec43Jobs = (deal: string) =>
@@ -598,7 +629,7 @@ export function s11Helpers(getDb: () => TestDb) {
     ...h, h, f, entityId, branchId, failure, ownerFailure, refusedWith, attempt, settings, settingsRow, dec43, bitrixDeal, bitrixify, removeDeal,
     restoreDeal, putObject, storeProof, refundFile, moveOf, move, moveIdOf, setMove, setMoveAsCopyWriter, copyPending, copied,
     verifiedPastHold, deletePending, soleCopy, lease, expireLease, due, appendSettledAgo, boxState, claim, claimAll, jobFor,
-    observe, complete, dec43Claim, dec43Jobs, audits, stops, confirmedPackage, departmentFile, supplierMoneyFile, partyFile,
+    observe, complete, confirmRestored, leaseOk, leaseTimes, dec43Claim, dec43Jobs, audits, stops, confirmedPackage, departmentFile, supplierMoneyFile, partyFile,
     financeFiles, bookingFiles, proofFiles,
   };
 }

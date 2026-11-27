@@ -39,9 +39,15 @@
 --   public.file_move_mark_sending(p_id, p_lease_token, p_prior_file_ids)
 --   public.file_move_record_observation(p_id, p_lease_token, p_bitrix_file_id,
 --     p_observed_sha256, p_observed_size, p_read_started_at)
+--     The second check is ordered by the database clock (review 14a P2-1):
+--     the lease (leased_at, set by the claim, returned as leasedAt) must have
+--     started at or after delete_after and after the box's last append;
+--     p_read_started_at must lie between leased_at and now().
 --   public.file_move_complete(p_id, p_lease_token, p_outcome, p_error_code, p_bitrix_file_id)
 --   public.file_move_confirm_deleted(p_id, p_lease_token)
---   public.file_move_confirm_restored(p_id, p_lease_token)
+--   public.file_move_confirm_restored(p_id, p_lease_token, p_stored_sha256, p_stored_size)
+--   public.file_move_lease_ok(p_id, p_lease_token, p_min_seconds): asked just
+--     before the Storage remove (review 14a P3-7)
 --   public.file_move_stop(p_id, p_lease_token, p_reason_code)
 --   public.file_move_presence_result(p_source_deal_id, p_bitrix_field, p_lease_token, p_present_ids)
 --   public.file_move_relocated(p_id, p_lease_token, p_new_file_id, p_observed_sha256, p_observed_size)
@@ -193,7 +199,8 @@ begin
     'sha256', p_move.sha256, 'bitrixFileId', p_move.bitrix_file_id::text,
     'priorFileIds', coalesce((select jsonb_agg(u.x::text order by u.o) from unnest(p_move.prior_file_ids) with ordinality u(x, o)), '[]'::jsonb),
     'knownFileIds', v_known,
-    'attempts', p_move.attempts);
+    'attempts', p_move.attempts,
+    'leasedAt', p_move.leased_at);
 end;
 $$;
 
@@ -290,7 +297,7 @@ begin
 
     v_token := gen_random_uuid();
     update public.file_bitrix_moves m
-    set lease_token = v_token, locked_until = v_until, lease_mode = v_mode
+    set lease_token = v_token, locked_until = v_until, lease_mode = v_mode, leased_at = now(), restore_checked_at = null
     where m.id = v_m.id
     returning * into v_m;
     v_out := v_out || jsonb_build_array(authz.file_move_job(v_m, v_mode));
@@ -318,7 +325,7 @@ begin
       v_token := gen_random_uuid();
       with leased as (
         update public.file_bitrix_moves m
-        set lease_token = v_token, locked_until = v_until, lease_mode = 'presence'
+        set lease_token = v_token, locked_until = v_until, lease_mode = 'presence', leased_at = now()
         where m.id in (
           select x.id from public.file_bitrix_moves x
           where x.source_deal_id = g.source_deal_id and x.bitrix_field = g.bitrix_field and not x.crm_copy_present
@@ -332,7 +339,8 @@ begin
       v_out := v_out || jsonb_build_array(jsonb_build_object(
         'moveId', null, 'leaseToken', v_token, 'mode', 'presence',
         'bitrixDealId', g.source_deal_id::text, 'bitrixField', g.bitrix_field,
-        'expectedFileIds', (select jsonb_agg(u.x::text order by u.x) from unnest(v_ids) u(x))));
+        'expectedFileIds', (select jsonb_agg(u.x::text order by u.x) from unnest(v_ids) u(x)),
+        'leasedAt', now()));
       v_deals := v_deals || g.source_deal_id;
     end loop;
   end if;
@@ -462,9 +470,16 @@ begin
   if v_m.state = 'verified' then
     select b.last_append_at into v_last from public.file_move_box_state b
     where b.source_deal_id = v_deal and b.bitrix_field = v_m.bitrix_field;
+    -- Review 14a P2-1: the order is decided by the database clock. The read
+    -- began after this lease was handed out (leased_at), so the lease must
+    -- have started at or after the hold ended and after the last append to
+    -- this box settled. p_read_started_at (the worker's own figure, derived
+    -- from leasedAt) is only an extra check: never before the lease, never in
+    -- the future.
     if now() < v_m.delete_after
-       or p_read_started_at is null or p_read_started_at > now() or p_read_started_at < v_m.delete_after
-       or (v_last is not null and p_read_started_at <= v_last)
+       or v_m.leased_at is null or v_m.leased_at < v_m.delete_after
+       or (v_last is not null and v_m.leased_at <= v_last)
+       or p_read_started_at is null or p_read_started_at < v_m.leased_at or p_read_started_at > now()
        or authz.file_move_append_in_flight(v_deal, v_m.bitrix_field, null, true)
        or not authz.file_move_may_delete(v_m, v_s)
        or exists (select 1 from public.deals d where d.id = v_m.deal_id and d.removed_at is not null)
@@ -480,7 +495,7 @@ begin
     end if;
     update public.file_bitrix_moves m
     set state = 'delete_pending', reverified_sha256 = p_observed_sha256, reverified_size_bytes = p_observed_size,
-        reverified_at = now(), reverified_after_append_at = p_read_started_at,
+        reverified_at = now(), reverified_after_append_at = v_m.leased_at,
         read_back_attempts = 0, last_error_code = null, next_attempt_at = now(),
         lease_token = null, locked_until = null, lease_mode = null
     where m.id = v_m.id
@@ -504,7 +519,7 @@ begin
     update public.file_bitrix_moves m
     set read_back_attempts = m.read_back_attempts + 1, last_error_code = 'copy_mismatch',
         next_attempt_at = now() + authz.id_proof_copy_backoff(m.read_back_attempts + 1),
-        lease_token = null, locked_until = null, lease_mode = null
+        restore_checked_at = null, lease_token = null, locked_until = null, lease_mode = null
     where m.id = v_m.id;
     return jsonb_build_object('result', 'retry');
   end if;
@@ -561,6 +576,13 @@ begin
   end;
   if not coalesce(v_ok, false) then
     raise exception 'wrong_state' using errcode = '55000', hint = 'outcome_not_allowed';
+  end if;
+  -- Review 14a P3-6: the lease ends here, and with it any copy-back check of
+  -- this lease (a later restore must check the bytes again).
+  update public.file_bitrix_moves m set restore_checked_at = null where m.id = v_m.id and m.restore_checked_at is not null
+  returning * into v_m;
+  if v_m.id is null then
+    select * into v_m from public.file_bitrix_moves m where m.id = p_id;
   end if;
   if p_outcome = 'copied' and p_bitrix_file_id = any (coalesce(v_m.prior_file_ids, '{}'::bigint[])) then
     raise exception 'invalid_input' using errcode = '22023', hint = 'bitrixFileId';
@@ -721,12 +743,38 @@ begin
 end;
 $$;
 
--- After a database-compared copy-back download (restore_checked) and the
--- upload of those bytes to the old path: object back with the stored size ->
--- restored (the CRM holds the file again; pinned rows stop at verified, others
--- go through the first check, hold and second check again); otherwise missing.
+-- Review 14a P3-7: asked by the worker immediately before the Storage remove.
+-- Answers ok only while this delete lease is still held, the row is still
+-- delete_pending, deletion is still allowed for it and at least p_min_seconds
+-- of the lease are left. On "not ok" the worker does not remove anything.
+create function public.file_move_lease_ok(p_id uuid, p_lease_token uuid, p_min_seconds integer) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  v_m public.file_bitrix_moves%rowtype;
+  v_ok boolean;
+begin
+  if p_min_seconds is null or p_min_seconds not between 0 and 900 then
+    raise exception 'invalid_input' using errcode = '22023', hint = 'minSeconds';
+  end if;
+  select * into v_m from public.file_bitrix_moves m where m.id = p_id for update;
+  v_ok := v_m.id is not null and v_m.lease_token is not distinct from p_lease_token and p_lease_token is not null
+    and v_m.lease_mode = 'delete' and v_m.state = 'delete_pending'
+    and v_m.locked_until >= now() + make_interval(secs => p_min_seconds)
+    and authz.file_move_may_delete(v_m, authz.file_move_settings_for(v_m.legal_entity_id));
+  return jsonb_build_object('ok', coalesce(v_ok, false));
+end;
+$$;
+
+-- After a database-compared copy-back download (restore_checked, in THIS
+-- lease) and the upload of those bytes to the old path, the worker reads the
+-- object back from Storage and passes the hash and size it observed there.
+-- The database compares them with the row (review 14a P3-6: not size only)
+-- and checks storage.objects holds the object with that size -> restored (the
+-- CRM holds the file again; pinned rows stop at verified, others go through
+-- the first check, hold and second check again); otherwise missing.
 -- Fails closed (55000) when storage.objects does not exist.
-create function public.file_move_confirm_restored(p_id uuid, p_lease_token uuid) returns jsonb
+create function public.file_move_confirm_restored(p_id uuid, p_lease_token uuid, p_stored_sha256 text, p_stored_size integer)
+returns jsonb
 language plpgsql volatile security definer set search_path = '' as $$
 declare
   v_m public.file_bitrix_moves%rowtype;
@@ -739,21 +787,40 @@ begin
   if v_m.state <> 'restore_pending' or v_m.lease_mode is distinct from 'restore' then
     raise exception 'wrong_state' using errcode = '55000', hint = 'state';
   end if;
-  if v_m.restore_checked_at is null then
+  if v_m.restore_checked_at is null or v_m.leased_at is null or v_m.restore_checked_at < v_m.leased_at then
     raise exception 'wrong_state' using errcode = '55000', hint = 'not_checked';
+  end if;
+  if p_stored_sha256 is null or p_stored_sha256 !~ '^[0-9a-f]{64}$' then
+    raise exception 'invalid_input' using errcode = '22023', hint = 'storedSha256';
+  end if;
+  if p_stored_size is null or p_stored_size < 0 then
+    raise exception 'invalid_input' using errcode = '22023', hint = 'storedSize';
   end if;
   if to_regclass('storage.objects') is null then
     raise exception 'wrong_state' using errcode = '55000', hint = 'storage_unavailable';
   end if;
-  if not exists (
+  if p_stored_sha256 <> v_m.sha256 or p_stored_size <> v_m.size_bytes or not exists (
        select 1 from storage.objects o
        where o.bucket_id = v_m.bucket_id and o.name = v_m.object_path
          and (o.metadata ->> 'size') ~ '^[0-9]{1,18}$'
          and (o.metadata ->> 'size')::bigint = v_m.size_bytes) then
+    -- The fifth time in a row (for example a different object already sits at
+    -- the old path and is never overwritten): needs a person. An alert opens;
+    -- the row still blocks appends to this box (D6) until a Super Admin acts.
+    if v_m.read_back_attempts + 1 >= 5 then
+      update public.file_bitrix_moves m
+      set state = 'needs_manual_check', read_back_attempts = least(m.read_back_attempts + 1, 50),
+          last_error_code = case when p_stored_sha256 <> v_m.sha256 or p_stored_size <> v_m.size_bytes then 'restore_mismatch' else 'restore_missing' end,
+          restore_checked_at = null, lease_token = null, locked_until = null, lease_mode = null
+      where m.id = v_m.id returning * into v_m;
+      perform authz.file_move_audit('files.move_stopped', v_m, null, jsonb_build_object('reasonCode', v_m.last_error_code));
+      return jsonb_build_object('result', 'missing');
+    end if;
     update public.file_bitrix_moves m
-    set read_back_attempts = least(m.read_back_attempts + 1, 50), last_error_code = 'restore_missing',
+    set read_back_attempts = least(m.read_back_attempts + 1, 50),
+        last_error_code = case when p_stored_sha256 <> v_m.sha256 or p_stored_size <> v_m.size_bytes then 'restore_mismatch' else 'restore_missing' end,
         next_attempt_at = now() + authz.id_proof_copy_backoff(m.read_back_attempts + 1),
-        lease_token = null, locked_until = null, lease_mode = null
+        restore_checked_at = null, lease_token = null, locked_until = null, lease_mode = null
     where m.id = v_m.id;
     return jsonb_build_object('result', 'missing');
   end if;
@@ -886,9 +953,12 @@ $$;
 
 -- One relocation candidate: the database compares the observed hash and size.
 -- Match -> the row takes the new file id (and the new Bitrix deal, when the
--- Super Admin named one); a row that had lost its CRM copy is then copied
--- back; a row that still has it gets a fresh first check. No match ->
--- no_match (lease kept for the next candidate).
+-- Super Admin named one). A deleted row stays deleted with the new id (the
+-- database has just compared its hash) and a restore_pending row stays
+-- restore_pending; any other row that has lost its CRM copy becomes
+-- restore_pending (copied back); a row that still has its CRM copy gets a
+-- fresh first check (copied). No match -> no_match (lease kept for the next
+-- candidate).
 create function public.file_move_relocated(p_id uuid, p_lease_token uuid, p_new_file_id bigint,
   p_observed_sha256 text, p_observed_size integer) returns jsonb
 language plpgsql volatile security definer set search_path = '' as $$
@@ -1016,7 +1086,8 @@ revoke all on function
   public.file_move_record_observation(uuid, uuid, bigint, text, integer, timestamptz),
   public.file_move_complete(uuid, uuid, text, text, bigint),
   public.file_move_confirm_deleted(uuid, uuid),
-  public.file_move_confirm_restored(uuid, uuid),
+  public.file_move_confirm_restored(uuid, uuid, text, integer),
+  public.file_move_lease_ok(uuid, uuid, integer),
   public.file_move_stop(uuid, uuid, text),
   public.file_move_presence_result(bigint, text, uuid, bigint[]),
   public.file_move_relocated(uuid, uuid, bigint, text, integer),
@@ -1028,7 +1099,8 @@ grant execute on function
   public.file_move_record_observation(uuid, uuid, bigint, text, integer, timestamptz),
   public.file_move_complete(uuid, uuid, text, text, bigint),
   public.file_move_confirm_deleted(uuid, uuid),
-  public.file_move_confirm_restored(uuid, uuid),
+  public.file_move_confirm_restored(uuid, uuid, text, integer),
+  public.file_move_lease_ok(uuid, uuid, integer),
   public.file_move_stop(uuid, uuid, text),
   public.file_move_presence_result(bigint, text, uuid, bigint[]),
   public.file_move_relocated(uuid, uuid, bigint, text, integer),

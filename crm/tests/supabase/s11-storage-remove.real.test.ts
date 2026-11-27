@@ -16,9 +16,10 @@ import { SQL, SVC, s11Helpers } from '../db/s11-support';
  *   3. End to end through the S11 commands: a stored traveller proof whose
  *      bytes really are in Storage reaches delete_pending, is removed through
  *      the Storage API, file_move_confirm_deleted sees it gone; the copy-back
- *      (database-compared observation) uploads the same bytes to the same path
- *      and file_move_confirm_restored sees them back; the object downloads
- *      with the same SHA-256.
+ *      (database-compared observation) uploads the same bytes to the same path,
+ *      reads them back from Storage, and file_move_confirm_restored compares
+ *      that read-back's hash and size (a differing read-back is "missing")
+ *      and sees the object back; the object downloads with the same SHA-256.
  * Synthetic bytes and ids only; no Bitrix call. Database steps run in one
  * transaction that is rolled back; objects left in Storage are removed in
  * afterAll. Fails (never skips) when REQUIRE_REAL_STACK=1 and the stack or
@@ -163,7 +164,20 @@ describe.skipIf(!enabled)('S11 Storage removal and restore (real local stack)', 
       await resetActor(db);
       expect(observed[0]!.r).toEqual({ result: 'restore_checked' });
       await upload(begun.objectPath, bytes);
-      expect(await s.one(SVC, SQL.confirmRestored, [moveId, restore])).toEqual({ result: 'restored' });
+      // As the worker does: read the object back from Storage and give the database what it holds.
+      const stored = await download(begun.objectPath);
+      expect(sha256(stored)).toBe(sha);
+      // A read-back that differs is never "restored" (the database compares; this lease then ends).
+      expect(await s.one(SVC, SQL.confirmRestored, [moveId, restore, sha256(new Uint8Array(stored.byteLength)), stored.byteLength]))
+        .toEqual({ result: 'missing' });
+      expect(await s.move(moveId)).toMatchObject({ state: 'restore_pending', crm_copy_present: false, last_error_code: 'restore_mismatch' });
+      // A fresh lease: the copy-back is checked again, then the real read-back confirms.
+      const second = await s.lease(moveId, 'restore');
+      await setActor(db, SVC);
+      const reobserved = await db.query<{ r: { result: string } }>(SQL.observe, [moveId, second, 1901, sha, bytes.length, null]);
+      await resetActor(db);
+      expect(reobserved[0]!.r).toEqual({ result: 'restore_checked' });
+      expect(await s.one(SVC, SQL.confirmRestored, [moveId, second, sha256(stored), stored.byteLength])).toEqual({ result: 'restored' });
       expect(await s.move(moveId)).toMatchObject({ state: 'copied', crm_copy_present: true, object_path: begun.objectPath });
       expect(await objectRow(begun.objectPath)).toEqual([{ size: '2048' }]);
       expect(sha256(await download(begun.objectPath))).toBe(sha);
