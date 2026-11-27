@@ -386,14 +386,17 @@ describe.skipIf(!enabled)('P5: outside scheduler instead of pg_cron + pg_net (mo
   }, 120_000);
 
   it('every 30 s for 3 minutes: one run per call, no overlap, the event is processed one tick later without a kick', async () => {
+    const loopStarted = Date.now();
+    const loop = runSchedulerLoop(env!.appBaseUrl);
+    // The record appears in the mock Bitrix and its event is sent a few seconds
+    // AFTER the first tick, so neither that tick's pull nor its inbox drain sees
+    // it: the event waits for the next tick (round 1 added the record before the
+    // loop, and the first pull imported it before the event arrived).
+    await sleep(8_000);
     const now = new Date().toISOString();
     mock!.deals.set(String(dealId), syntheticDeal(dealId, {
       STAGE_ID: 'C7:NEW', ASSIGNED_BY_ID: '101', DATE_CREATE: now, DATE_MODIFY: now, SOURCE_ID: SOURCE,
     }));
-    const loopStarted = Date.now();
-    const loop = runSchedulerLoop(env!.appBaseUrl);
-    // Send the event a few seconds after the first tick, so it waits for the next one.
-    await sleep(8_000);
     const sent = await handleBitrixEventEdge(
       syntheticEventRequest(FN_URL, { applicationToken: TOKEN, memberId: MEMBER, domain: DOMAIN, ts: String(Math.floor(Date.now() / 1000)), dealId: String(dealId), event: 'ONCRMDEALADD' }),
       { applicationToken: TOKEN, ...createPostgrestDeps({ supabaseUrl: env!.url, publishableKey: env!.publishableKey, receiverCredential: credential }) },
@@ -453,6 +456,8 @@ describe.skipIf(!enabled)('P5: outside scheduler instead of pg_cron + pg_net (mo
     // No kick: the event waited for the next tick, which came within one interval.
     expect(waitSeconds).not.toBeNull();
     expect(waitSeconds!).toBeLessThanOrEqual(INTERVAL_S + 15);
+    expect(nextCall, 'a tick started after the event arrived').toBeTruthy();
+    expect(finishedAt!.getTime(), 'processed by that tick, not before it').toBeGreaterThanOrEqual(Date.parse(nextCall!.startedAt) - 500);
     expect(kicks.find((k) => k.kind === 'event')?.n ?? 0).toBe(0);
   }, 300_000);
 

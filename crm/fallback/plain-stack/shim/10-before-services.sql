@@ -15,17 +15,18 @@
 
 \set ON_ERROR_STOP on
 
--- G1: the three API roles every grant in the CRM migrations names.
+-- G1: the three API roles every grant in the CRM migrations names. INHERIT, as
+-- the CLI stack shows them (step 0 capture, run 45983995949).
 do $$
 begin
   if not exists (select from pg_roles where rolname = 'anon') then
-    create role anon nologin noinherit;
+    create role anon nologin;
   end if;
   if not exists (select from pg_roles where rolname = 'authenticated') then
-    create role authenticated nologin noinherit;
+    create role authenticated nologin;
   end if;
   if not exists (select from pg_roles where rolname = 'service_role') then
-    create role service_role nologin noinherit bypassrls;
+    create role service_role nologin bypassrls;
   end if;
   -- G1b: login roles of the three services (not named in the CRM SQL).
   if not exists (select from pg_roles where rolname = 'authenticator') then
@@ -46,8 +47,8 @@ alter role supabase_storage_admin with password :'svc_password';
 
 -- PostgREST switches from authenticator to the role in the token.
 grant anon, authenticated, service_role to authenticator;
--- storage-api switches to the caller's role per request.
-grant anon, authenticated, service_role to supabase_storage_admin;
+-- storage-api switches to the caller's role per request, through authenticator
+-- (the CLI stack grants supabase_storage_admin only authenticator).
 grant authenticator to supabase_storage_admin;
 
 -- Per-role settings as in the Supabase image. Not reproduced (gap G15):
@@ -59,6 +60,8 @@ alter role authenticator set statement_timeout = '8s';
 alter role authenticator set lock_timeout = '8s';
 alter role supabase_auth_admin set search_path = auth;
 alter role supabase_auth_admin set idle_in_transaction_session_timeout = '60000';
+alter role supabase_auth_admin set log_statement = none;
+alter role supabase_storage_admin set log_statement = none;
 alter role supabase_storage_admin set search_path = storage;
 alter role postgres set search_path = "$user", public, extensions;
 

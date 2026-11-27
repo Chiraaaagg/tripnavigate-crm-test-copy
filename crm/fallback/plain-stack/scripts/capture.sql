@@ -59,7 +59,7 @@ select jsonb_pretty(jsonb_build_object(
   'current_user_is_superuser', (select rolsuper from pg_roles where rolname = current_user),
   'database', (select jsonb_build_object('encoding', pg_encoding_to_char(d.encoding), 'collate', d.datcollate,
                  'ctype', d.datctype, 'locale_provider', d.datlocprovider, 'owner', pg_get_userbyid(d.datdba),
-                 'acl', d.datacl::text)
+                 'icu_locale', d.datlocale, 'acl', d.datacl::text)
                from pg_database d where d.datname = current_database()),
   'database_settings', (select v from db_settings),
   'settings', (select jsonb_object_agg(name, case when name ~* (select re from redact) then '(redacted)' else setting end)

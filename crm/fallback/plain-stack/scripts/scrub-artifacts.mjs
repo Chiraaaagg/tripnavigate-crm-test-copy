@@ -16,7 +16,7 @@ if (!folder) {
   process.exit(2);
 }
 const NAMES = ['PLAIN_JWT_SECRET', 'PLAIN_DB_PASSWORD', 'PLAIN_SVC_DB_PASSWORD', 'PLAIN_PROBE_PASSWORD', 'PLAIN_S3_ACCESS_KEY',
-  'PLAIN_S3_SECRET_KEY', 'PLAIN_ANON_KEY', 'PLAIN_SERVICE_KEY'];
+  'PLAIN_S3_SECRET_KEY', 'PLAIN_ANON_KEY', 'PLAIN_SERVICE_KEY', 'PLAIN_EC_PRIVATE_D'];
 const values = NAMES.map((n) => process.env[n]?.trim()).filter((v) => v && v.length >= 8);
 
 let files = 0;

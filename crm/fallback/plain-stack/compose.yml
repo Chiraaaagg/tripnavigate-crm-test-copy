@@ -36,6 +36,10 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_DB: postgres
       POSTGRES_PASSWORD: ${PLAIN_DB_PASSWORD:?run scripts/mint-keys.mjs first}
+      # The CLI stack's database uses the ICU provider with en-US (step 0 capture,
+      # run 45983995949: locale_provider i, en_US.UTF-8). With the image's
+      # default libc collation, text sorts differently (tests/db/vn-hotels.test.ts).
+      POSTGRES_INITDB_ARGS: --locale-provider=icu --icu-locale=en-US --locale=en_US.UTF-8
     ports:
       - 127.0.0.1:55432:5432
     shm_size: 256mb
@@ -65,9 +69,13 @@ services:
       GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
       GOTRUE_JWT_EXP: '900'
-      # Shared-secret signing (HS256). The CLI signs user tokens with a key
-      # pair (GOTRUE_JWT_KEYS, ES256); the difference is a gap-report row.
+      # Sessions are signed with a per-run ES256 key pair, as the CLI does
+      # (GOTRUE_JWT_KEYS); the shared secret still validates the two HS256 API
+      # keys. HS256-only signing was tried in round 1 and failed a journey (G16).
       GOTRUE_JWT_SECRET: ${PLAIN_JWT_SECRET:?}
+      GOTRUE_JWT_KEYS: ${PLAIN_JWT_KEYS:?}
+      GOTRUE_JWT_VALID_METHODS: HS256,RS256,ES256
+      GOTRUE_JWT_VALIDMETHODS: HS256,RS256,ES256
       GOTRUE_JWT_ISSUER: http://127.0.0.1:54321/auth/v1
       GOTRUE_EXTERNAL_EMAIL_ENABLED: 'true'
       GOTRUE_MAILER_SECURE_EMAIL_CHANGE_ENABLED: 'true'
@@ -141,6 +149,7 @@ services:
       SERVICE_KEY: ${PLAIN_SERVICE_KEY:?}
       AUTH_JWT_SECRET: ${PLAIN_JWT_SECRET:?}
       AUTH_JWT_ALGORITHM: HS256
+      JWT_JWKS: ${PLAIN_JWKS:?}
       DATABASE_URL: ${PLAIN_STORAGE_DB_URL:?}
       # Roles come from shim part 1 (the Supabase image pre-creates them too);
       # storage-api must not install its own (it would grant postgres to authenticator).
@@ -176,7 +185,8 @@ services:
       PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
       PGRST_DB_MAX_ROWS: '1000'
       PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: ${PLAIN_JWT_SECRET:?}
+      # A JWKS (shared secret + session public key), as the CLI passes it.
+      PGRST_JWT_SECRET: ${PLAIN_JWKS:?}
       PGRST_ADMIN_SERVER_PORT: '3001'
     ports:
       - 127.0.0.1:3999:3000

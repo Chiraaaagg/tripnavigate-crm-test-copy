@@ -11,8 +11,12 @@
 //
 // The JWT secret, the database passwords and the S3 keys are random per run;
 // the API keys are HS256 tokens for the roles anon and service_role signed
-// with that secret, as Supabase's legacy API keys are.
-import { createHmac, randomBytes } from 'node:crypto';
+// with that secret, as Supabase's legacy API keys are. User sessions are signed
+// by GoTrue with a per-run ES256 key pair, as the Supabase CLI stack does (step
+// 0 capture, run 45983995949). Round 1 signed them with the shared secret
+// (HS256): two tokens for the same session in the same second were then
+// byte-identical and journey.real.e2e.ts "new access token" failed (gap G16).
+import { createHmac, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 
 const target = process.env.GITHUB_ENV || process.env.PLAIN_ENV_FILE;
@@ -41,6 +45,20 @@ const now = Math.floor(Date.now() / 1000);
 const anonKey = mintJwt(jwtSecret, 'anon', now);
 const serviceKey = mintJwt(jwtSecret, 'service_role', now);
 
+// Session signing key (private JWK for GoTrue) and the JWKS that PostgREST and
+// storage-api verify with: the shared secret (for the two API keys) plus the
+// public half of the key pair.
+const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+const ecPrivate = privateKey.export({ format: 'jwk' });
+const kid = hex(8);
+const signingKeys = [{ kty: 'EC', kid, use: 'sig', key_ops: ['sign', 'verify'], alg: 'ES256', ext: true, crv: ecPrivate.crv, x: ecPrivate.x, y: ecPrivate.y, d: ecPrivate.d }];
+const jwks = {
+  keys: [
+    { kty: 'oct', k: Buffer.from(jwtSecret, 'utf8').toString('base64url'), alg: 'HS256' },
+    { kty: 'EC', kid, use: 'sig', key_ops: ['verify'], alg: 'ES256', ext: true, crv: ecPrivate.crv, x: ecPrivate.x, y: ecPrivate.y },
+  ],
+};
+
 // Database URLs: the services reach Postgres on the compose network ("db"),
 // the runner reaches it on loopback only.
 const dbUrl = (user, password, host, port) => `postgres://${user}:${password}@${host}:${port}/postgres`;
@@ -55,6 +73,10 @@ const values = {
   PLAIN_S3_SECRET_KEY: s3SecretKey,
   PLAIN_ANON_KEY: anonKey,
   PLAIN_SERVICE_KEY: serviceKey,
+  PLAIN_JWT_KEYS: JSON.stringify(signingKeys),
+  PLAIN_JWKS: JSON.stringify(jwks),
+  // Only for masking and the artifact scrub: the private part of the key pair.
+  PLAIN_EC_PRIVATE_D: ecPrivate.d,
   PLAIN_AUTH_DB_URL: dbUrl('supabase_auth_admin', serviceDbPassword, 'db', 5432),
   PLAIN_STORAGE_DB_URL: dbUrl('supabase_storage_admin', serviceDbPassword, 'db', 5432),
   PLAIN_REST_DB_URL: dbUrl('authenticator', serviceDbPassword, 'db', 5432),
@@ -68,9 +90,9 @@ const values = {
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: anonKey,
 };
 
-const secrets = [jwtSecret, dbPassword, serviceDbPassword, probePassword, s3AccessKey, s3SecretKey, anonKey, serviceKey];
+const secrets = [jwtSecret, dbPassword, serviceDbPassword, probePassword, s3AccessKey, s3SecretKey, anonKey, serviceKey, ecPrivate.d, jwks.keys[0].k];
 if (process.env.GITHUB_ACTIONS === 'true') {
   for (const secret of secrets) console.log(`::add-mask::${secret}`);
 }
 appendFileSync(target, Object.entries(values).map(([name, value]) => `${name}=${value}\n`).join(''));
-console.log(`mint-keys: ${Object.keys(values).length} values written (${secrets.length} masked); API keys are HS256, valid 12 h`);
+console.log(`mint-keys: ${Object.keys(values).length} values written (${secrets.length} masked); API keys HS256 (12 h), sessions ES256`);
