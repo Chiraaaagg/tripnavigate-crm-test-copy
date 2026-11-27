@@ -8,6 +8,17 @@ import { loadIdProofCopyAlerts } from '@/modules/fulfilment/server/id-proofs';
 import { retryIdProofCopyAction } from '@/modules/fulfilment/server/id-proof-actions';
 import { countBitrixEligible, loadBitrixDirectory } from '@/modules/integration/server/bitrix-admin';
 import { loadIntakeEntryRule, loadIntakeScope, loadIntegrationStatus } from '@/modules/integration/server/queries';
+import {
+  acceptFileMoveLostAction,
+  acknowledgeFileMoveStopAction,
+  relocateFileMoveAction,
+  retryFileMoveAction,
+  setFileMoveAccountsBoxAction,
+  setFileMoveHoldAction,
+  setFileMovePilotAction,
+  setFileMoveSwitchAction,
+} from '@/modules/integration/server/file-move-admin-actions';
+import { loadFileMoveAdmin } from '@/modules/integration/server/file-move-admin';
 import { loadBitrixNameReadState } from '@/modules/integration/server/name-map';
 import { setBitrixNameReadAction } from '@/modules/integration/server/name-map-actions';
 import { setBitrixTripDetailsReadAction } from '@/modules/integration/server/trip-details-actions';
