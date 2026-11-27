@@ -1,0 +1,208 @@
+# Fallback "architecture C1" plain stack (hosting-migration contract file 12).
+#
+# Plain PostgreSQL 17 + self-run PostgREST + self-run Supabase Auth (GoTrue)
+# + self-run Supabase Storage in front of an S3 stand-in + a plain nginx front
+# door, started ONLY inside the CI job .github/workflows/fallback-plain-stack.yml.
+# Synthetic data only. Every published port is bound to 127.0.0.1.
+#
+# Every value that could be secret (database passwords, the JWT secret, the two
+# API keys, the S3 keys and the internal database URLs built from them) is
+# generated per run by scripts/mint-keys.mjs and reaches this file only through
+# the environment. Nothing secret-shaped is committed here.
+#
+# Start order matters (contract 3.2) and is driven by scripts/up.sh, not by
+# depends_on: db -> shim part 1 -> mailpit + auth (GoTrue runs its own
+# migrations) -> s3 + storage (storage-api runs its own migrations) -> shim
+# part 2 -> the CRM migrations -> rest14 + rest16 -> proxy.
+#
+# Images: official registries only, pinned by tag and digest. The digests were
+# read from the Docker Hub registry API on 27 November 2026 and are checked again
+# on the runner (`docker buildx imagetools inspect`) by the workflow.
+name: plainstack
+
+services:
+  db:
+    # Live runs PostgreSQL 17.11 (03 line 31). Official image, not supabase/postgres.
+    image: postgres:17.11@sha256:ff87138949ad9a46f32ff23bd6852b52ce024a13dffe9b4087be98292cdd3b4f
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - max_connections=200
+      - -c
+      - log_min_duration_statement=-1
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${PLAIN_DB_PASSWORD:?run scripts/mint-keys.mjs first}
+    ports:
+      - 127.0.0.1:55432:5432
+    shm_size: 256mb
+
+  mailpit:
+    # Same version as the Supabase CLI 2.119.0 stack (ci.yml MAILPIT_URL).
+    image: axllent/mailpit:v1.31.3@sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d
+    ports:
+      - 127.0.0.1:54324:8025
+
+  auth:
+    # Supabase Auth (GoTrue), the version Supabase CLI 2.119.0 starts.
+    # Settings mirror crm/supabase/config.toml as the CLI translates them
+    # (apps/cli/src/commands/start/services/gotrue.service.ts at v2.119.0);
+    # the baseline job captures the CLI's real values for comparison.
+    image: supabase/gotrue:v2.197.0@sha256:1736a63078f5922b198c4cbe50f80ab9a2d3b54fe8b7b6cfb2e9dc5dbbc12c6b
+    environment:
+      API_EXTERNAL_URL: http://127.0.0.1:54321/auth/v1
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: '9999'
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: ${PLAIN_AUTH_DB_URL:?}
+      GOTRUE_SITE_URL: ${PLAIN_SITE_URL:-http://127.0.0.1:3000}
+      GOTRUE_URI_ALLOW_LIST: http://127.0.0.1:3000/auth/confirm,http://localhost:3000/auth/confirm,http://127.0.0.1:3100/auth/confirm,http://localhost:3100/auth/confirm
+      GOTRUE_DISABLE_SIGNUP: 'true'
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: '900'
+      # Shared-secret signing (HS256). The CLI signs user tokens with a key
+      # pair (GOTRUE_JWT_KEYS, ES256); the difference is a gap-report row.
+      GOTRUE_JWT_SECRET: ${PLAIN_JWT_SECRET:?}
+      GOTRUE_JWT_ISSUER: http://127.0.0.1:54321/auth/v1
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: 'true'
+      GOTRUE_MAILER_SECURE_EMAIL_CHANGE_ENABLED: 'true'
+      GOTRUE_MAILER_AUTOCONFIRM: 'false'
+      GOTRUE_MAILER_OTP_LENGTH: '6'
+      GOTRUE_MAILER_OTP_EXP: '86400'
+      GOTRUE_MAILER_TEMPLATE_RELOADING_ENABLED: 'true'
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: 'false'
+      GOTRUE_SMTP_MAX_FREQUENCY: 1m0s
+      GOTRUE_MAILER_URLPATHS_INVITE: http://127.0.0.1:54321/auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: http://127.0.0.1:54321/auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_RECOVERY: http://127.0.0.1:54321/auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: http://127.0.0.1:54321/auth/v1/verify
+      # E-mail templates of config.toml, served to GoTrue by the front door (G10).
+      GOTRUE_MAILER_TEMPLATES_INVITE: http://proxy:8088/email/invite.html
+      GOTRUE_MAILER_SUBJECTS_INVITE: Your TripNavigate CRM staff invitation
+      GOTRUE_MAILER_TEMPLATES_RECOVERY: http://proxy:8088/email/recovery.html
+      GOTRUE_MAILER_SUBJECTS_RECOVERY: Set your TripNavigate CRM password
+      GOTRUE_RATE_LIMIT_EMAIL_SENT: '360000'
+      GOTRUE_EXTERNAL_PHONE_ENABLED: 'false'
+      GOTRUE_SMS_AUTOCONFIRM: 'true'
+      GOTRUE_PASSWORD_MIN_LENGTH: '12'
+      GOTRUE_PASSWORD_REQUIRED_CHARACTERS: abcdefghijklmnopqrstuvwxyz:ABCDEFGHIJKLMNOPQRSTUVWXYZ:0123456789
+      GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED: 'true'
+      GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL: '10'
+      GOTRUE_SECURITY_MANUAL_LINKING_ENABLED: 'false'
+      GOTRUE_SECURITY_UPDATE_PASSWORD_REQUIRE_REAUTHENTICATION: 'true'
+      GOTRUE_MFA_PHONE_ENROLL_ENABLED: 'false'
+      GOTRUE_MFA_PHONE_VERIFY_ENABLED: 'false'
+      GOTRUE_MFA_TOTP_ENROLL_ENABLED: 'true'
+      GOTRUE_MFA_TOTP_VERIFY_ENABLED: 'true'
+      GOTRUE_MFA_WEB_AUTHN_ENROLL_ENABLED: 'false'
+      GOTRUE_MFA_WEB_AUTHN_VERIFY_ENABLED: 'false'
+      GOTRUE_MFA_MAX_ENROLLED_FACTORS: '10'
+      GOTRUE_RATE_LIMIT_ANONYMOUS_USERS: '30'
+      GOTRUE_RATE_LIMIT_TOKEN_REFRESH: '300'
+      GOTRUE_RATE_LIMIT_OTP: '300'
+      GOTRUE_RATE_LIMIT_VERIFY: '300'
+      GOTRUE_RATE_LIMIT_SMS_SENT: '30'
+      GOTRUE_RATE_LIMIT_WEB3: '30'
+      GOTRUE_SESSIONS_TIMEBOX: 12h0m0s
+      GOTRUE_SESSIONS_INACTIVITY_TIMEOUT: 2h0m0s
+      GOTRUE_SMTP_HOST: mailpit
+      GOTRUE_SMTP_PORT: '1025'
+      GOTRUE_SMTP_ADMIN_EMAIL: noreply@plain-stack.example.test
+      GOTRUE_SMTP_SENDER_NAME: Plain stack CI
+    ports:
+      - 127.0.0.1:59999:9999
+
+  s3:
+    # S3 stand-in. MinIO no longer publishes an image on Docker Hub (27 Nov 2026);
+    # RustFS 1.0.0 is the S3 server storage-api's own development stack uses
+    # (supabase/storage .docker/docker-compose-infra.yml at v1.79.28).
+    image: rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
+    environment:
+      RUSTFS_ACCESS_KEY: ${PLAIN_S3_ACCESS_KEY:?}
+      RUSTFS_SECRET_KEY: ${PLAIN_S3_SECRET_KEY:?}
+      RUSTFS_ADDRESS: ':9000'
+      RUSTFS_CONSOLE_ENABLE: 'false'
+    ports:
+      - 127.0.0.1:59000:9000
+
+  storage:
+    # Supabase Storage (storage-api), the version Supabase CLI 2.119.0 starts,
+    # here with the S3 backend instead of the CLI's file backend (owner
+    # decision 27 Nov 2026, option A). Other values follow
+    # apps/cli/src/commands/start/services/storage.service.ts at v2.119.0.
+    image: supabase/storage-api:v1.79.28@sha256:1f6c99d3952d78d57129802aa2ae8a80d75e327492cf24742fd0aeaf90967b96
+    environment:
+      ANON_KEY: ${PLAIN_ANON_KEY:?}
+      SERVICE_KEY: ${PLAIN_SERVICE_KEY:?}
+      AUTH_JWT_SECRET: ${PLAIN_JWT_SECRET:?}
+      AUTH_JWT_ALGORITHM: HS256
+      DATABASE_URL: ${PLAIN_STORAGE_DB_URL:?}
+      # Roles come from shim part 1 (the Supabase image pre-creates them too);
+      # storage-api must not install its own (it would grant postgres to authenticator).
+      DB_INSTALL_ROLES: 'false'
+      DB_SUPER_USER: postgres
+      FILE_SIZE_LIMIT: '10485760'
+      UPLOAD_FILE_SIZE_LIMIT: '52428800000'
+      UPLOAD_FILE_SIZE_LIMIT_STANDARD: '5242880000'
+      SIGNED_UPLOAD_URL_EXPIRATION_TIME: '7200'
+      STORAGE_BACKEND: s3
+      STORAGE_S3_BUCKET: crm-plain-files
+      STORAGE_S3_ENDPOINT: http://s3:9000
+      STORAGE_S3_FORCE_PATH_STYLE: 'true'
+      STORAGE_S3_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: ${PLAIN_S3_ACCESS_KEY:?}
+      AWS_SECRET_ACCESS_KEY: ${PLAIN_S3_SECRET_KEY:?}
+      TENANT_ID: stub
+      REGION: us-east-1
+      ENABLE_IMAGE_TRANSFORMATION: 'false'
+      IMAGE_TRANSFORMATION_ENABLED: 'false'
+      TUS_URL_PATH: /storage/v1/upload/resumable
+      S3_PROTOCOL_ENABLED: 'false'
+    ports:
+      - 127.0.0.1:55000:5000
+
+  rest14:
+    # The version live runs (04 line 42); the same pin as the G0 gate.
+    image: postgrest/postgrest:v14.18@sha256:c7cd7e265a85b05248abf53f4473fcec7e327c282d0bd0cf60f1551996d09fcf
+    environment: &postgrest-env
+      PGRST_DB_URI: ${PLAIN_REST_DB_URL:?}
+      # Only public is exposed (G6: graphql_public is not used).
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
+      PGRST_DB_MAX_ROWS: '1000'
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${PLAIN_JWT_SECRET:?}
+      PGRST_ADMIN_SERVER_PORT: '3001'
+    ports:
+      - 127.0.0.1:3999:3000
+
+  rest16:
+    # Information-only second leg: the PostgREST version the CLI stack runs.
+    image: postgrest/postgrest:v16.4@sha256:d155c6718ed9a9f990d159a2ab7c0a3f16944dbb6d0a0344557421042acfe0df
+    environment: *postgrest-env
+    ports:
+      - 127.0.0.1:53998:3000
+
+  proxy:
+    # Front door (stand-in for Kong, G9): /auth/v1, /rest/v1, /storage/v1 on
+    # one base address, the API-key header check, CORS, and the e-mail
+    # templates for GoTrue on the internal port 8088.
+    #   8000 -> 127.0.0.1:54321  /rest/v1 goes to PostgREST 14.18 (main leg)
+    #   8001 -> 127.0.0.1:54331  /rest/v1 goes to PostgREST 16.4 (information leg)
+    image: nginx:1.30.8-alpine@sha256:8eb04fe3b385090e9aa02961f77398ad09b6bf33ab07f6669a5bb7acce22c0d3
+    environment:
+      NGINX_ENVSUBST_FILTER: ^PLAIN_
+      PLAIN_ANON_KEY: ${PLAIN_ANON_KEY:?}
+      PLAIN_SERVICE_KEY: ${PLAIN_SERVICE_KEY:?}
+    volumes:
+      - ./proxy/plain-front-door.conf.template:/etc/nginx/templates/plain-front-door.conf.template:ro
+      - ./proxy/plain-locations.inc.template:/etc/nginx/templates/plain-locations.inc.template:ro
+      - ../../supabase/templates:/srv/email:ro
+    ports:
+      - 127.0.0.1:54321:8000
+      - 127.0.0.1:54331:8001

@@ -1,0 +1,68 @@
+# Shared by both front-door servers in plain-front-door.conf.template
+# (rendered to /etc/nginx/conf.d/plain-locations.inc; not a *.conf, so nginx
+# loads it only through those include lines). Server context.
+
+default_type application/json;
+client_max_body_size 64m;
+proxy_http_version 1.1;
+proxy_read_timeout 120s;
+proxy_set_header Host $http_host;
+proxy_set_header X-Forwarded-For $remote_addr;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-Host $http_host;
+proxy_set_header Connection "";
+# Set here, once: a proxy_set_header inside a location would drop the ones above.
+proxy_set_header Authorization $plain_bearer;
+
+# CORS at the gateway, as Kong's cors plugin with its defaults (any origin,
+# the requested headers, every method). The services' own CORS headers are
+# replaced so a browser never sees two values.
+proxy_hide_header Access-Control-Allow-Origin;
+proxy_hide_header Access-Control-Allow-Methods;
+proxy_hide_header Access-Control-Allow-Headers;
+proxy_hide_header Access-Control-Allow-Credentials;
+proxy_hide_header Access-Control-Max-Age;
+add_header Access-Control-Allow-Origin * always;
+add_header Access-Control-Allow-Methods "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS" always;
+add_header Access-Control-Allow-Headers $http_access_control_request_headers always;
+add_header Access-Control-Max-Age 3600 always;
+
+if ($request_method = OPTIONS) {
+  return 204;
+}
+
+# Open GoTrue routes (email links, OAuth): no API key, as in Kong.
+location /auth/v1/verify {
+  proxy_pass http://auth:9999/verify;
+}
+location /auth/v1/callback {
+  proxy_pass http://auth:9999/callback;
+}
+location /auth/v1/authorize {
+  proxy_pass http://auth:9999/authorize;
+}
+
+location /auth/v1/ {
+  if ($plain_key_ok = 0) {
+    return 401 '{"message":"No API key found in request","hint":"No `apikey` request header or url param was found."}';
+  }
+  proxy_pass http://auth:9999/;
+}
+
+# storage-api checks the token itself; signed links arrive with no key at all.
+location /storage/v1/ {
+  proxy_request_buffering off;
+  proxy_pass http://storage:5000/;
+}
+
+# Not run in this stack (the existing CI leaves Realtime out as well; the app
+# falls back to polling) and no Edge Functions (G11).
+location /realtime/v1/ {
+  return 404 '{"message":"Realtime is not part of the plain stack"}';
+}
+location /functions/v1/ {
+  return 404 '{"message":"Edge Functions are not part of the plain stack"}';
+}
+location / {
+  return 404 '{"message":"no route"}';
+}

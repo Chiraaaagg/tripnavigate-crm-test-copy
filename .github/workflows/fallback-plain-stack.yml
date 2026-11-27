@@ -1,0 +1,478 @@
+# Fallback "architecture C1" free CI test (hosting-migration contract file 12).
+#
+# Runs the CRM's 225 migrations, access rules, sign-in with the authenticator
+# app, saving, file upload and the background sync on PLAIN parts instead of
+# Supabase's own hosting: official Postgres 17 + self-run PostgREST +
+# self-run Supabase Auth (GoTrue) + self-run Supabase Storage in front of an S3
+# stand-in + an nginx front door (crm/fallback/plain-stack). It also measures
+# today's Supabase CLI stack (job baseline) and writes an honest gap report.
+#
+# Information only. It never deploys, uses no repository secrets, variables or
+# environments, touches no hosted service, and is NOT a required check. It does
+# not run on pull requests, main or phase-* (the triggers of the required gate
+# ci.yml), so it cannot slow, block or change that gate. Started by hand
+# (workflow_dispatch) or by a push to a claude/fallback-plain* branch of the
+# test copy (a workflow that is not on the default branch cannot be dispatched
+# before it has run once). Synthetic data only; every per-run secret is
+# generated inside the job and masked.
+name: Fallback plain stack (C1)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['claude/fallback-plain*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fallback-plain-stack-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: crm
+
+env:
+  # The CLI the gate pins (ci.yml); used only by the baseline job.
+  SUPABASE_CLI_VERSION: 2.119.0
+  NEXT_TELEMETRY_DISABLED: '1'
+  NODE_HEAP_OPTIONS: --max-old-space-size=4096
+  PLAIN: fallback/plain-stack
+
+jobs:
+  static:
+    name: New files - typecheck, lint, image digests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      APP_ENV: local
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder_not_a_key
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5)
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crm/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+        env:
+          NODE_OPTIONS: ${{ env.NODE_HEAP_OPTIONS }}
+      - run: npm run lint
+      - name: Shell syntax and compose file
+        run: |
+          for f in "$PLAIN"/scripts/*.sh; do bash -n "$f"; done
+          # Placeholder values (not secrets) only to let compose parse the file.
+          env PLAIN_DB_PASSWORD=x PLAIN_AUTH_DB_URL=x PLAIN_JWT_SECRET=x PLAIN_S3_ACCESS_KEY=x PLAIN_S3_SECRET_KEY=x \
+            PLAIN_ANON_KEY=x PLAIN_SERVICE_KEY=x PLAIN_STORAGE_DB_URL=x PLAIN_REST_DB_URL=x \
+            docker compose -f "$PLAIN/compose.yml" config --quiet
+      - name: Image digests resolved on the runner match the pinned ones
+        run: |
+          mkdir -p test-results/plain-static
+          ok=1
+          : > test-results/plain-static/images.tsv
+          for ref in $(grep -oE 'image: [^ ]+@sha256:[0-9a-f]{64}' "$PLAIN/compose.yml" | cut -d' ' -f2 | sort -u); do
+            name_tag="${ref%@*}"
+            pinned="${ref#*@}"
+            resolved="$(docker buildx imagetools inspect "$name_tag" --format '{{json .Manifest}}' | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).digest))')"
+            printf '%s\t%s\t%s\n' "$name_tag" "$pinned" "$resolved" >> test-results/plain-static/images.tsv
+            if [ "$pinned" = "$resolved" ]; then echo "::notice title=image digest::$name_tag $resolved"; else echo "::error title=image digest::$name_tag pinned $pinned, registry now $resolved"; ok=0; fi
+          done
+          [ "$ok" = 1 ]
+      - name: No hosted-service address in the new files
+        run: |
+          if grep -rInE 'supabase\.(co|com)\b|vercel\.app|bitrix24\.|amazonaws\.com' "$PLAIN" ../.github/workflows/fallback-plain-stack.yml; then
+            echo "::error title=isolation::a hosted-service address appears in the plain-stack files"; exit 1
+          fi
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (= v6)
+        if: always()
+        with:
+          name: plain-static
+          path: crm/test-results/plain-static/
+          retention-days: 14
+          if-no-files-found: warn
+
+  baseline:
+    name: Step 0 baseline - Supabase CLI stack capture and fingerprint
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      REQUIRE_REAL_STACK: '1'
+      APP_ENV: local
+      LOCAL_FIXTURE_PASSWORD: ci-Synthetic-Only-Password-1
+      MAILPIT_URL: http://127.0.0.1:54324
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5)
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crm/package-lock.json
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3 (= v1)
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - run: npm ci
+      # Exactly as the gate starts it (ci.yml supabase-integration).
+      - name: Start the local Supabase stack
+        run: bash scripts/ci/supabase-start.sh
+      - name: Export local stack connection values
+        run: |
+          supabase status -o env \
+            --override-name api.url=SUPABASE_URL \
+            --override-name auth.anon_key=SUPABASE_PUBLISHABLE_KEY \
+            --override-name auth.service_role_key=SUPABASE_SECRET_KEY \
+            --override-name db.url=TEST_DATABASE_URL \
+            | grep -E '^(SUPABASE_URL|SUPABASE_PUBLISHABLE_KEY|SUPABASE_SECRET_KEY|TEST_DATABASE_URL)=' \
+            | sed 's/"//g' > "$RUNNER_TEMP/stack.env"
+          cat "$RUNNER_TEMP/stack.env" >> "$GITHUB_ENV"
+          . "$RUNNER_TEMP/stack.env"
+          echo "::add-mask::$SUPABASE_SECRET_KEY"
+          rm "$RUNNER_TEMP/stack.env"
+      - run: supabase db reset
+      - name: Schema fingerprint (after migrations, before seeding)
+        run: |
+          mkdir -p test-results/plain-baseline
+          psql "$TEST_DATABASE_URL" -X -At -v ON_ERROR_STOP=1 -f "$PLAIN/scripts/fingerprint.sql" > test-results/plain-baseline/fingerprint.json
+          node -e 'const f=require("./test-results/plain-baseline/fingerprint.json"); for (const [k,v] of Object.entries(f.categories)) console.log(k, v.count, v.md5)'
+      - name: Seed synthetic fixtures
+        run: DATABASE_URL="$TEST_DATABASE_URL" node scripts/seed-local.mjs
+      - name: Capture the stack (images, settings, roles, grants, token shape)
+        run: bash "$PLAIN/scripts/capture-baseline.sh" baseline test-results/plain-baseline
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (= v6)
+        if: always()
+        with:
+          name: plain-baseline
+          path: crm/test-results/plain-baseline/
+          retention-days: 14
+          if-no-files-found: warn
+      - if: always()
+        run: supabase stop --no-backup
+
+  plain-stack:
+    name: Plain stack - migrations, shim, database and real-stack suites, proofs
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      # The same synthetic, non-secret values as the gate (ci.yml supabase-integration).
+      REQUIRE_REAL_STACK: '1'
+      LOCAL_FIXTURE_PASSWORD: ci-Synthetic-Only-Password-1
+      MAILPIT_URL: http://127.0.0.1:54324
+      APP_ENV: local
+      APP_BASE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      PLAIN_SITE_URL: http://127.0.0.1:3000
+      BITRIX_WEBHOOK_BASE_URL: http://127.0.0.1:54390/rest/1/ciSyntheticMockWebhook0001/
+      BITRIX_EVENT_APPLICATION_TOKEN: ci-synthetic-application-token-not-a-secret
+      INTAKE_WORKER_SECRET: ci-synthetic-worker-secret-not-a-secret-0001
+      CRON_SECRET: ci-synthetic-cron-secret-not-a-secret-000001
+      OUT: test-results/plain
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5)
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crm/package-lock.json
+      - run: npm ci
+      - name: Generate this run's secrets and API keys (masked)
+        run: node "$PLAIN/scripts/mint-keys.mjs"
+      - name: Start the plain stack (Postgres, shim, GoTrue, storage-api, migrations, PostgREST, front door)
+        id: up
+        run: bash "$PLAIN/scripts/up.sh" "$OUT"
+      - name: Real-stack configuration must be complete
+        run: |
+          for name in SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_SECRET_KEY TEST_DATABASE_URL LOCAL_FIXTURE_PASSWORD APP_BASE_URL NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY BITRIX_WEBHOOK_BASE_URL BITRIX_EVENT_APPLICATION_TOKEN INTAKE_WORKER_SECRET; do
+            if [ -z "${!name}" ]; then echo "::error title=real-stack config::$name is missing"; exit 1; fi
+          done
+          curl -fsS "$MAILPIT_URL/api/v1/messages?limit=1" > /dev/null || { echo "::error title=real-stack config::Mailpit API not reachable"; exit 1; }
+      - name: Schema fingerprint (after migrations, before seeding)
+        run: |
+          psql "$PLAIN_ADMIN_DB_URL" -X -At -v ON_ERROR_STOP=1 -f "$PLAIN/scripts/fingerprint.sql" > "$OUT/fingerprint.json"
+          node -e 'const f=require("./'"$OUT"'/fingerprint.json"); for (const [k,v] of Object.entries(f.categories)) console.log(k, v.count, v.md5)'
+      - name: Seed synthetic fixtures (unchanged seed-local.mjs and its guards)
+        run: DATABASE_URL="$TEST_DATABASE_URL" node scripts/seed-local.mjs 2>&1 | tee "$OUT/seed.log"
+      - name: Database suite (all files, one at a time) against plain Postgres
+        if: always() && steps.up.outcome == 'success'
+        run: >
+          npx vitest run --project db
+          --reporter=default --reporter=json --outputFile.json=test-results/plain/vitest-db.json
+      - name: Build and start the app against the plain stack (port 3000)
+        if: always() && steps.up.outcome == 'success'
+        env:
+          NODE_OPTIONS: ${{ env.NODE_HEAP_OPTIONS }}
+        run: |
+          npm run build
+          nohup npx next start --port 3000 --hostname 127.0.0.1 > "$RUNNER_TEMP/next.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null "$APP_BASE_URL/sign-in"; then exit 0; fi
+            sleep 2
+          done
+          echo "::error title=plain stack::app did not start on $APP_BASE_URL"
+          tail -50 "$RUNNER_TEMP/next.log"
+          exit 1
+      - name: Real-stack suites (17 of the 18 must-pass files of contract 4.1; br-postgrest-loop runs below)
+        if: always() && steps.up.outcome == 'success'
+        run: >
+          npx vitest run --project supabase
+          tests/supabase/real-stack.test.ts
+          tests/supabase/session-recovery.real.test.ts
+          tests/supabase/intake.real.test.ts
+          tests/supabase/intake-routes.real.test.ts
+          tests/supabase/intake-receiver.real.test.ts
+          tests/supabase/finance-concurrency.real.test.ts
+          tests/supabase/b1-journey.real.test.ts
+          tests/supabase/b11-won-only.real.test.ts
+          tests/supabase/booking.real.test.ts
+          tests/supabase/booking-flow.real.test.ts
+          tests/supabase/booking-form.real.test.ts
+          tests/supabase/procurement.real.test.ts
+          tests/supabase/deals-visibility.real.test.ts
+          tests/supabase/lead-scope.real.test.ts
+          tests/supabase/lead-screens.real.test.ts
+          tests/supabase/search.real.test.ts
+          tests/supabase/speed-deals-list.real.test.ts
+          --reporter=default --reporter=json --outputFile.json=test-results/plain/vitest-supabase.json
+      - name: Required plain-stack suites ran (not skipped) and passed
+        if: always() && steps.up.outcome == 'success'
+        run: >
+          node "$PLAIN/scripts/required-suites.mjs" "$OUT/vitest-supabase.json"
+          tests/supabase/real-stack.test.ts tests/supabase/session-recovery.real.test.ts tests/supabase/intake.real.test.ts
+          tests/supabase/intake-routes.real.test.ts tests/supabase/intake-receiver.real.test.ts tests/supabase/finance-concurrency.real.test.ts
+          tests/supabase/b1-journey.real.test.ts tests/supabase/b11-won-only.real.test.ts tests/supabase/booking.real.test.ts
+          tests/supabase/booking-flow.real.test.ts tests/supabase/booking-form.real.test.ts tests/supabase/procurement.real.test.ts
+          tests/supabase/deals-visibility.real.test.ts tests/supabase/lead-scope.real.test.ts tests/supabase/lead-screens.real.test.ts
+          tests/supabase/search.real.test.ts tests/supabase/speed-deals-list.real.test.ts
+      # P3: "pinned" = PostgREST 14.18 (the live version, direct), "default" =
+      # PostgREST 16.4 behind the information-leg front door (127.0.0.1:54331).
+      - name: PostgREST loop gate (P3) - pinned 14.18, default 16.4 (information leg)
+        if: always() && steps.up.outcome == 'success'
+        env:
+          G0_PINNED_REST_URL: http://127.0.0.1:3999
+          G0_PINNED_TAG: v14.18
+          G0_DEFAULT_IMAGE: postgrest/postgrest:v16.4 (plain stack, information-leg front door)
+          G0_OUT: test-results/plain/g0/postgrest-loop.json
+        run: >
+          SUPABASE_URL=http://127.0.0.1:54331
+          npx vitest run --project supabase tests/supabase/br-postgrest-loop.real.test.ts
+          --reporter=default --reporter=json --outputFile.json=test-results/plain/vitest-br.json
+      - name: Required P3 suite ran and passed
+        if: always() && steps.up.outcome == 'success'
+        run: node "$PLAIN/scripts/required-suites.mjs" "$OUT/vitest-br.json" tests/supabase/br-postgrest-loop.real.test.ts
+      - name: Restart the app with a synthetic timer bearer (P5 timer route)
+        if: always() && steps.up.outcome == 'success'
+        env:
+          TIMER_SECRET: ci-synthetic-timer-secret-not-a-secret-00001
+        run: |
+          pkill -f 'next start --port 3000' || true
+          sleep 2
+          nohup npx next start --port 3000 --hostname 127.0.0.1 >> "$RUNNER_TEMP/next.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null "$APP_BASE_URL/sign-in"; then exit 0; fi
+            sleep 2
+          done
+          echo "::error title=plain stack::app did not restart"
+          exit 1
+      - name: Architecture-C proofs P1, P4, P5 (+ G13 measurement)
+        if: always() && steps.up.outcome == 'success'
+        env:
+          TIMER_SECRET: ci-synthetic-timer-secret-not-a-secret-00001
+          PLAIN_PROOFS_OUT: test-results/plain/proofs.json
+        run: >
+          npx vitest run --config fallback/plain-stack/vitest.plain.config.ts
+          --reporter=default --reporter=json --outputFile.json=test-results/plain/vitest-proofs.json
+      - name: P9 no-superuser probe (information only)
+        if: always() && steps.up.outcome == 'success'
+        continue-on-error: true
+        run: bash "$PLAIN/scripts/no-superuser-probe.sh" "$OUT/probe.json"
+      - name: Excluded suites, run for evidence only (they need pg_cron, pg_net or Vault)
+        if: always() && steps.up.outcome == 'success'
+        continue-on-error: true
+        run: >
+          npx vitest run --project supabase
+          tests/supabase/auto-sync.real.test.ts tests/supabase/auto-sync-health.real.test.ts
+          tests/supabase/s4-event-kick.real.test.ts tests/supabase/s4-no-missed-event.real.test.ts
+          tests/supabase/sync-completion.real.test.ts
+          --reporter=default --reporter=json --outputFile.json=test-results/plain/vitest-excluded.json
+      - name: Capture the plain stack (images, settings, roles, grants, token shape)
+        if: always() && steps.up.outcome != 'skipped'
+        continue-on-error: true
+        run: bash "$PLAIN/scripts/capture-baseline.sh" plain "$OUT"
+      - name: Service log excerpts and run-secret scrub
+        if: always()
+        run: |
+          mkdir -p "$OUT/logs"
+          for s in db auth storage rest14 rest16 proxy s3 mailpit; do
+            docker compose -f "$PLAIN/compose.yml" logs --no-color --tail 400 "$s" > "$OUT/logs/$s.log" 2>&1 || true
+          done
+          tail -n 400 "$RUNNER_TEMP/next.log" > "$OUT/logs/next.log" 2>/dev/null || true
+          node "$PLAIN/scripts/scrub-artifacts.mjs" "$OUT"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (= v6)
+        if: always()
+        with:
+          name: plain-stack
+          path: crm/test-results/plain/
+          retention-days: 14
+          if-no-files-found: warn
+      - if: always()
+        run: docker compose -f "$PLAIN/compose.yml" down -v --remove-orphans || true
+
+  plain-journeys:
+    name: Plain stack - real browser journeys (stage 2)
+    needs: plain-stack
+    # Stage 2 runs even when stage 1 reported failures, so every round shows
+    # both; it is skipped only when stage 1 was cancelled.
+    if: always() && needs.plain-stack.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      REQUIRE_REAL_STACK: '1'
+      APP_ENV: local
+      LOCAL_FIXTURE_PASSWORD: ci-Synthetic-Only-Password-1
+      MAILPIT_URL: http://127.0.0.1:54324
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3100
+      # E-mail links reach the Playwright server (ci.yml rewrites config.toml for the same).
+      PLAIN_SITE_URL: http://127.0.0.1:3100
+      OUT: test-results/plain-journeys
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5)
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crm/package-lock.json
+      - run: npm ci
+      - name: Generate this run's secrets and API keys (masked)
+        run: node "$PLAIN/scripts/mint-keys.mjs"
+      - name: Start the plain stack
+        run: bash "$PLAIN/scripts/up.sh" "$OUT/stack"
+      - name: Seed synthetic fixtures
+        run: DATABASE_URL="$TEST_DATABASE_URL" node scripts/seed-local.mjs
+      - run: npx playwright install --with-deps chromium
+      - name: Production build against the plain stack
+        env:
+          NODE_OPTIONS: ${{ env.NODE_HEAP_OPTIONS }}
+        run: npm run build
+      - name: Client bundle must not reference the secret key
+        run: |
+          test -d .next/static || { echo "::error title=client bundle::.next/static missing"; exit 1; }
+          if grep -rl "SUPABASE_SECRET_KEY" .next/static; then echo "::error title=client bundle::the secret key name appears in the client bundle"; exit 1; fi
+          if grep -rlF -- "$SUPABASE_SECRET_KEY" .next/static; then echo "::error title=client bundle::the secret key value appears in the client bundle"; exit 1; fi
+      - name: Real browser journeys (7 files) against the plain stack
+        run: npx playwright test --config=playwright.real.config.ts --project=real-journey
+      - name: Required real browser journeys ran (not skipped) and passed
+        if: always()
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const report = JSON.parse(readFileSync("test-results/playwright-real-journey.json", "utf8"));
+            const tests = [];
+            const walk = (s) => { for (const spec of s.specs ?? []) for (const t of spec.tests) tests.push({ file: spec.file, status: t.status, results: t.results.map((r) => r.status) }); for (const c of s.suites ?? []) walk(c); };
+            for (const s of report.suites ?? []) walk(s);
+            let failed = false;
+            for (const file of ["accounts.real.e2e.ts", "journey.real.e2e.ts", "b11-journey.real.e2e.ts", "b12-quote-to-booking.real.e2e.ts", "b2-autofill.real.e2e.ts", "b3-referral.real.e2e.ts", "bookform-journey.real.e2e.ts"]) {
+              const mine = tests.filter((t) => t.file.split("/").pop() === file);
+              const passed = mine.filter((t) => t.status === "expected" && t.results.includes("passed")).length;
+              if (mine.length === 0 || passed !== mine.length) { console.log(`::error title=plain-stack journey::${file}: ${passed}/${mine.length} passed (missing, skipped or failed)`); failed = true; }
+              else console.log(`::notice title=plain-stack journey::${file}: ${passed}/${mine.length} passed`);
+            }
+            process.exit(failed ? 1 : 0);
+          '
+      - name: Collect results and scrub run secrets
+        if: always()
+        run: |
+          mkdir -p "$OUT/logs"
+          cp test-results/playwright-real-journey.json "$OUT/" 2>/dev/null || true
+          for s in auth storage rest14 proxy; do
+            docker compose -f "$PLAIN/compose.yml" logs --no-color --tail 300 "$s" > "$OUT/logs/$s.log" 2>&1 || true
+          done
+          node "$PLAIN/scripts/scrub-artifacts.mjs" "$OUT"
+      # JSON report and screenshots only: traces and videos carry the run's cookies.
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (= v6)
+        if: always()
+        with:
+          name: plain-journeys
+          path: |
+            crm/test-results/plain-journeys/
+            crm/test-results/real-journey/**/*.png
+          retention-days: 14
+          if-no-files-found: warn
+      - if: always()
+        run: docker compose -f "$PLAIN/compose.yml" down -v --remove-orphans || true
+
+  plain-speed:
+    name: Plain stack - Accounts speed suites (information only)
+    needs: plain-stack
+    if: always() && needs.plain-stack.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      REQUIRE_REAL_STACK: '1'
+      LOCAL_FIXTURE_PASSWORD: ci-Synthetic-Only-Password-1
+      MAILPIT_URL: http://127.0.0.1:54324
+      APP_ENV: local
+      APP_BASE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      ACCOUNTS_SPEED: '1'
+      OUT: test-results/plain-speed
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5)
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crm/package-lock.json
+      - run: npm ci
+      - name: Generate this run's secrets and API keys (masked)
+        run: node "$PLAIN/scripts/mint-keys.mjs"
+      - name: Start the plain stack
+        run: bash "$PLAIN/scripts/up.sh" "$OUT/stack"
+      - name: Seed synthetic fixtures and the Accounts volumes
+        run: |
+          DATABASE_URL="$TEST_DATABASE_URL" node scripts/seed-local.mjs
+          for file in accounts-volume accounts2-volume accounts3-volume; do
+            psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f "scripts/perf/$file.sql"
+          done
+      - name: Accounts speed suites (runner timings are not Mumbai timings)
+        continue-on-error: true
+        run: >
+          npx vitest run --project supabase tests/supabase/speed-accounts-phase
+          --reporter=default --reporter=json --outputFile.json=test-results/plain-speed/vitest-speed.json
+      - name: Scrub run secrets
+        if: always()
+        run: node "$PLAIN/scripts/scrub-artifacts.mjs" "$OUT"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (= v6)
+        if: always()
+        with:
+          name: plain-speed
+          path: crm/test-results/plain-speed/
+          retention-days: 14
+          if-no-files-found: warn
+      - if: always()
+        run: docker compose -f "$PLAIN/compose.yml" down -v --remove-orphans || true
+
+  report:
+    name: Gap report and run summary
+    needs: [static, baseline, plain-stack, plain-journeys, plain-speed]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5)
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5)
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0 (= v6)
+        with:
+          path: ${{ runner.temp }}/plain-artifacts
+      - name: Build gap-report.json and the run summary
+        run: node "$PLAIN/scripts/build-gap-report.mjs" "$RUNNER_TEMP/plain-artifacts" test-results/plain-report
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (= v6)
+        if: always()
+        with:
+          name: plain-gap-report
+          path: crm/test-results/plain-report/
+          retention-days: 14
+          if-no-files-found: warn

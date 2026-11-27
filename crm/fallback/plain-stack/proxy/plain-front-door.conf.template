@@ -1,0 +1,89 @@
+# Plain-stack front door (G9 stand-in for Supabase's Kong gateway).
+#
+# The official nginx image renders this template with envsubst at start-up
+# (NGINX_ENVSUBST_FILTER=^PLAIN_ in compose.yml, so only the two API keys are
+# substituted; nginx's own $variables are left alone). The rendered file lives
+# only inside the container. Included in the http context.
+#
+# What Kong does locally (Supabase CLI 2.119.0, apps/cli/src/commands/start/
+# templates/kong.yml.ts) and what is reproduced here:
+#   - path routing with the prefix stripped: /auth/v1/* -> GoTrue /*,
+#     /rest/v1/* -> PostgREST /*, /storage/v1/* -> storage-api /*;
+#     /auth/v1/verify, /callback and /authorize are open (no API key);
+#   - Authorization defaults to "Bearer <apikey>" when the client sent only
+#     an apikey (Kong's request-transformer); an existing Authorization is kept;
+#   - CORS answered at the gateway.
+# Added, as on hosted projects: /rest/v1 and the non-open /auth/v1 routes
+# require a known API key (header or ?apikey=). This is a header check only:
+# no TLS, no rate limits (gap G9).
+
+map_hash_bucket_size 512;
+
+map $http_apikey $plain_header_key {
+  default 0;
+  "${PLAIN_ANON_KEY}" 1;
+  "${PLAIN_SERVICE_KEY}" 1;
+}
+
+map $arg_apikey $plain_query_key {
+  default 0;
+  "${PLAIN_ANON_KEY}" 1;
+  "${PLAIN_SERVICE_KEY}" 1;
+}
+
+map "$plain_header_key$plain_query_key" $plain_key_ok {
+  default 1;
+  "00" 0;
+}
+
+# "<authorization>|<apikey>": keep an Authorization the client sent; otherwise
+# use the apikey as the bearer; with neither, send no Authorization at all.
+map "$http_authorization|$http_apikey" $plain_bearer {
+  default $http_authorization;
+  "~^[|]$" "";
+  "~^[|](?<plainapikey>.+)$" "Bearer $plainapikey";
+}
+
+# Request lines without query strings (signed links and ?apikey= stay out of the log).
+log_format plain_front_door '$remote_addr "$request_method $uri" $status $body_bytes_sent $request_time';
+
+# Main leg: the app, the test suites and the browser journeys use 127.0.0.1:54321.
+server {
+  listen 8000;
+  access_log /dev/stdout plain_front_door;
+  include /etc/nginx/conf.d/plain-locations.inc;
+
+  location /rest/v1/ {
+    if ($plain_key_ok = 0) {
+      return 401 '{"message":"No API key found in request","hint":"No `apikey` request header or url param was found."}';
+    }
+    proxy_pass http://rest14:3000/;
+  }
+}
+
+# Information leg: same front door, /rest/v1 on PostgREST 16.4 (127.0.0.1:54331).
+server {
+  listen 8001;
+  access_log /dev/stdout plain_front_door;
+  include /etc/nginx/conf.d/plain-locations.inc;
+
+  location /rest/v1/ {
+    if ($plain_key_ok = 0) {
+      return 401 '{"message":"No API key found in request","hint":"No `apikey` request header or url param was found."}';
+    }
+    proxy_pass http://rest16:3000/;
+  }
+}
+
+# E-mail templates for GoTrue (G10), reachable only on the compose network.
+server {
+  listen 8088;
+  access_log off;
+  location /email/ {
+    alias /srv/email/;
+    default_type text/html;
+  }
+  location / {
+    return 404;
+  }
+}
