@@ -261,31 +261,29 @@ jobs:
       - name: Required P3 suite ran and passed
         if: always() && steps.up.outcome == 'success'
         run: node "$PLAIN/scripts/required-suites.mjs" "$OUT/vitest-br.json" tests/supabase/br-postgrest-loop.real.test.ts
-      - name: Restart the app with a synthetic timer bearer (P5 timer route)
+      # A second app process on port 3001 with a synthetic timer bearer for P5;
+      # the first one (port 3000, no timer bearer, as in the gate) keeps running.
+      # Round 2 (run 45990846607) showed that stopping and restarting on 3000
+      # left the old server on the port.
+      - name: Start a second app process with a synthetic timer bearer (P5 timer route, port 3001)
         if: always() && steps.up.outcome == 'success'
         env:
           TIMER_SECRET: ci-synthetic-timer-secret-not-a-secret-00001
         run: |
-          # next start runs a child server process: stop whatever listens on port 3000.
-          for pid in $(lsof -t -iTCP:3000 -sTCP:LISTEN 2>/dev/null); do kill "$pid" || true; done
-          pkill -f 'next start --port 3000' || true
-          for i in $(seq 1 30); do
-            if ! curl -s -o /dev/null "$APP_BASE_URL/sign-in"; then break; fi
-            sleep 1
-          done
-          nohup npx next start --port 3000 --hostname 127.0.0.1 >> "$RUNNER_TEMP/next.log" 2>&1 &
+          nohup npx next start --port 3001 --hostname 127.0.0.1 > "$RUNNER_TEMP/next-3001.log" 2>&1 &
           for i in $(seq 1 60); do
-            if curl -fsS -o /dev/null "$APP_BASE_URL/sign-in"; then break; fi
+            if curl -fsS -o /dev/null http://127.0.0.1:3001/sign-in; then break; fi
             sleep 2
           done
-          # The restarted app must know the timer bearer: a wrong bearer is 401, not 503.
-          code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Authorization: Bearer wrong-bearer' "$APP_BASE_URL/api/integrations/timer")"
+          # This app must know the timer bearer: a wrong bearer is 401, not 503.
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Authorization: Bearer wrong-bearer' http://127.0.0.1:3001/api/integrations/timer)"
           echo "timer route with a wrong bearer -> HTTP $code (expected 401)"
-          [ "$code" = 401 ] || { echo "::error title=plain stack::the restarted app does not see TIMER_SECRET (HTTP $code)"; exit 1; }
+          [ "$code" = 401 ] || { echo "::error title=plain stack::the second app does not see TIMER_SECRET (HTTP $code)"; tail -40 "$RUNNER_TEMP/next-3001.log"; exit 1; }
       - name: Architecture-C proofs P1, P4, P5 (+ G13 measurement)
         if: always() && steps.up.outcome == 'success'
         env:
           TIMER_SECRET: ci-synthetic-timer-secret-not-a-secret-00001
+          APP_BASE_URL: http://127.0.0.1:3001
           PLAIN_PROOFS_OUT: test-results/plain/proofs.json
         run: >
           npx vitest run --config fallback/plain-stack/vitest.plain.config.ts
@@ -315,6 +313,7 @@ jobs:
             docker compose -f "$PLAIN/compose.yml" logs --no-color --tail 400 "$s" > "$OUT/logs/$s.log" 2>&1 || true
           done
           tail -n 400 "$RUNNER_TEMP/next.log" > "$OUT/logs/next.log" 2>/dev/null || true
+          tail -n 400 "$RUNNER_TEMP/next-3001.log" > "$OUT/logs/next-3001.log" 2>/dev/null || true
           node "$PLAIN/scripts/scrub-artifacts.mjs" "$OUT"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (= v6)
         if: always()
