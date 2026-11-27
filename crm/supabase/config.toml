@@ -1,0 +1,138 @@
+# Local Supabase stack for TripNavigate CRM (Batch 1). Used by `supabase start`.
+# Hosted staging/production settings are applied in the Supabase dashboard; the
+# required values are listed in docs/implementation/04-setup-and-environments.md.
+
+project_id = "tripnavigate-crm"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[db.seed]
+# Fixtures are loaded by scripts/seed-local.mjs (needs Auth users first).
+enabled = false
+
+# Live deal updates (/app/deals): postgres_changes on public.deals, filtered by
+# each subscriber's RLS. The app only refreshes; it never renders the payload.
+[realtime]
+enabled = true
+
+[studio]
+enabled = true
+port = 54323
+
+# Local email capture (Mailpit; web UI and REST API /api/v1 on this port).
+# No email leaves the machine. The real-stack tests read invitations and
+# recovery emails from it.
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "10MiB"
+
+[auth]
+enabled = true
+# Local default. The CI job "real-browser-journey" rewrites this line to
+# http://127.0.0.1:3100 before `supabase start` so emailed links reach the
+# Playwright server. Email templates build links from {{ .SiteURL }}.
+site_url = "http://127.0.0.1:3000"
+# Only the /auth/confirm landing route may be a redirect target (R03/N06).
+# 3000 = `next dev`, 3100 = Playwright (mock and real-journey servers).
+additional_redirect_urls = [
+  "http://127.0.0.1:3000/auth/confirm",
+  "http://localhost:3000/auth/confirm",
+  "http://127.0.0.1:3100/auth/confirm",
+  "http://localhost:3100/auth/confirm",
+]
+# PROPOSED (owner approval pending): short access tokens limit how long a
+# revoked session keeps a cryptographically valid JWT. The database still
+# denies data at once after a barrier move (contract section 1, S4-S6).
+jwt_expiry = 900
+# PROPOSED: refresh token rotation with a short reuse interval.
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+# Invitation only: no public sign-up, no anonymous users. This global flag is
+# what blocks self sign-up for every provider (GOTRUE_DISABLE_SIGNUP).
+enable_signup = false
+enable_anonymous_sign_ins = false
+enable_manual_linking = false
+minimum_password_length = 12
+password_requirements = "lower_upper_letters_digits"
+
+# LOCAL/CI values only. The real-stack test suites sign in, verify TOTP codes
+# and send recovery emails many times within minutes from one IP (127.0.0.1).
+# Hosted projects keep the provider defaults or stricter, set in the dashboard.
+[auth.rate_limit]
+email_sent = 100
+sign_in_sign_ups = 300
+token_verifications = 300
+token_refresh = 300
+
+# PROPOSED values pending owner approval (docs/implementation/03-access-matrix.md).
+# Hosted projects need a paid plan for these. They are NOT the enforcement
+# point: the database enforces the absolute session age from
+# public.security_policy.session_max_age_seconds (PROPOSED 43 200 s) on every
+# Data API request, whatever the provider would still refresh.
+[auth.sessions]
+timebox = "12h"
+inactivity_timeout = "2h"
+
+[auth.mfa]
+max_enrolled_factors = 10
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[auth.mfa.phone]
+enroll_enabled = false
+verify_enabled = false
+
+[auth.mfa.web_authn]
+enroll_enabled = false
+verify_enabled = false
+
+[auth.email]
+# MUST stay true: in the Supabase CLI this key enables the email PROVIDER
+# (GOTRUE_EXTERNAL_EMAIL_ENABLED). Setting it to false disables email/password
+# sign-in entirely ("Email logins are disabled", CI run 36859267025). Public
+# sign-up stays disabled by `[auth] enable_signup = false` above, which the
+# real-stack test "public sign-up is disabled" proves.
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+secure_password_change = true
+max_frequency = "1m0s"
+otp_length = 6
+otp_expiry = 86400
+
+# Invitation (inviteUserByEmail) and recovery (resetPasswordForEmail, also used
+# for invitation resend) both land on /auth/confirm with a token hash.
+[auth.email.template.invite]
+subject = "Your TripNavigate CRM staff invitation"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.recovery]
+subject = "Set your TripNavigate CRM password"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.sms]
+enable_signup = false
+
+[auth.external.google]
+enabled = false
+
+# Bitrix outbound-event receiver (Phase 3.5). Bitrix cannot send a Supabase JWT;
+# the function authenticates every request by the constant-time application_token check.
+[functions.bitrix-events]
+verify_jwt = false
