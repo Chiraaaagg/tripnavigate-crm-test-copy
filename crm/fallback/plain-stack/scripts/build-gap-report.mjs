@@ -55,6 +55,7 @@ const plain = {
   br: load('vitest-br.json', 'plain-stack'),
   g0: load('postgrest-loop.json', 'plain-stack'),
   excluded: load('vitest-excluded.json', 'plain-stack'),
+  proofTests: load('vitest-proofs.json', 'plain-stack'),
   proofs: load('proofs.json', 'plain-stack'),
   probe: load('probe.json', 'plain-stack'),
   seedLog: text('seed.log', 'plain-stack'),
@@ -210,6 +211,7 @@ const suites = {
   brPostgrestLoop: brSummary,
   mustPass,
   excluded: vitestSummary(plain.excluded),
+  proofTests: vitestSummary(plain.proofTests),
   speedInformation: vitestSummary(plain.speed),
   journeys: playwrightSummary(plain.journeys),
 };
@@ -234,8 +236,9 @@ const acceptance = {
   A5: { pass: mustPass.every((m) => m.ok), evidence: mustPass.filter((m) => !m.ok) },
   A6: {
     pass: ['P1', 'P4', 'P5'].every((p) => proofs[p]) && pinnedPt409?.executionsTotal === 1 && pinnedPt409?.http?.status === 409
+      && Boolean(suites.proofTests) && suites.proofTests.files > 0 && suites.proofTests.filesFailed === 0 && suites.proofTests.tests.skipped === 0
       && mustPass.find((m) => m.file.includes('session-recovery'))?.ok === true && mustPass.find((m) => m.file.includes('intake-routes'))?.ok === true,
-    evidence: { P3pinnedPT409: pinnedPt409 ?? 'missing', P3real4a: realPinned ?? 'missing', proofsPresent: Object.keys(proofs) },
+    evidence: { P3pinnedPT409: pinnedPt409 ?? 'missing', P3real4a: realPinned ?? 'missing', proofsPresent: Object.keys(proofs), proofTests: suites.proofTests ? suites.proofTests.perFile : 'missing' },
   },
   A7: { pass: suites.journeys ? suites.journeys.filesPassed === suites.journeys.requiredFiles : false, evidence: suites.journeys ?? 'journeys report missing' },
   A8: { pass: true, evidence: 'gap rows below; dispositions are finalised in the results file (13)' },
