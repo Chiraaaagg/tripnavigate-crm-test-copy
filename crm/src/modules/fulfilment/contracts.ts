@@ -513,9 +513,9 @@ export const BOOK_BATCH2_TEXT = {
   ageAtTravel: (years: number) => `Age at travel: ${years} (from the date of birth, on the trip start date)`,
   /** W10b: passenger drawer, date of birth saved, no trip dates yet. */
   ageAfterTripDates: 'Age at travel is worked out once the trip dates are saved.',
-  /** W10d: refusal when the derived age is 18 or more. */
+  /** W10d: warning (never a refusal; owner "warn and allow") when a child's or infant's age on the trip start is 18 or more. */
   ageTooHigh:
-    'This date of birth makes the passenger 18 or older on the trip start date. Children and infants must be under 18. Check the date, or change the passenger type.',
+    'This date of birth makes the passenger 18 or older on the trip start date. Check the date, or change the passenger type. The booking can still be saved.',
   /** W10e (proposed, addendum 1, owner Q4 "warn and allow"): never blocks the save. */
   ageTypeMismatch:
     'This date of birth does not match the passenger type on the trip start date (for example, an infant aged 3). Check the type. The booking can still be saved.',

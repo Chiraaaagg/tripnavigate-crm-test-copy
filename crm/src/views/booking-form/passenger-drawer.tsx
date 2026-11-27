@@ -143,7 +143,7 @@ export function ageAtTravel(
   return { kind: 'typed' };
 }
 
-/** Age bands used only for the warning (owner Q4: warn and allow): infant under 2, child 2 to 17, adult 12 or older. */
+/** Age bands used only for the warning (owner Q4: warn and allow): infant under 2, child 2 to 17. Adults get no age warning (owner, 27 November 2026). */
 export type AgeWarning = 'age_too_high' | 'type_mismatch';
 
 /** B2-1 warning for the date of birth in the drawer (never blocks a save). */
@@ -153,7 +153,6 @@ export function ageWarning(type: TravellerType, dateOfBirth: string | null | und
   if (type !== 'adult' && years >= 18) return 'age_too_high';
   if (type === 'infant' && years >= 2) return 'type_mismatch';
   if (type === 'child' && years < 2) return 'type_mismatch';
-  if (type === 'adult' && years < 12) return 'type_mismatch';
   return null;
 }
 

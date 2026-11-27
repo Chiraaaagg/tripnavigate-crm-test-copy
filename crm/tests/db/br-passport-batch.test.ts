@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type TestDb, asOwner, createTestDb } from '../helpers/db';
 import { expectConflict } from '../helpers/sqlstates';
-import { ACCOUNTS, DEAL, FLIGHT, OWNER, PURCHASE, SUPER, TRAVELLERS } from './b1-support';
+import { ACCOUNTS, DEAL, FLIGHT, OWNER, PURCHASE, SALES_AMD, SALES_B, SUPER, TRAVELLERS } from './b1-support';
 import { relbHelpers } from './acc3-relb-support';
 import { DESK, IDENTITY, PARTICIPATION_SQL, PASSPORT, SETTING_SQL_B11, SWITCH_REASON, VISA_CLAIM_SQL } from './b11-support';
 import { formHelpers } from './booking-form-support';
@@ -126,6 +126,16 @@ describe('booking_passport_items_add', () => {
       const d = await draft();
       await h.addFlight();
       for (const actor of [PURCHASE, FLIGHT, ACCOUNTS]) {
+        await h.refused(actor, BATCH_SQL, [d.versionId, d.rowVersion, JSON.stringify(PASSPORT), [1, 2], crypto.randomUUID()], '42501', 'not_authorized');
+      }
+      expect(await passportItems()).toEqual([]);
+    });
+  });
+
+  it('a Sales person who is not the Deal owner, in the same branch or another branch, is refused', async () => {
+    await asOwner(db, async () => {
+      const d = await draft();
+      for (const actor of [SALES_B, SALES_AMD]) {
         await h.refused(actor, BATCH_SQL, [d.versionId, d.rowVersion, JSON.stringify(PASSPORT), [1, 2], crypto.randomUUID()], '42501', 'not_authorized');
       }
       expect(await passportItems()).toEqual([]);

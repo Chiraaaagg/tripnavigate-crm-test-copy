@@ -123,7 +123,7 @@ describe('bookingPassportItemsAdd (booking_passport_items_add)', () => {
     }
   });
 
-  it('a database without the migration answers "function missing" (the screen then offers one applicant only)', async () => {
+  it('a database without the migration answers "function missing" (the choice stays visible; the save answers the existing "needs the database update" text)', async () => {
     const { c } = client({ error: { code: 'PGRST202', message: 'Could not find the function' } });
     const e = await bookingPassportItemsAdd(c, input).catch((x: unknown) => x);
     expect(isFunctionMissing(e)).toBe(true);

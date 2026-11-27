@@ -75,20 +75,21 @@ describe('warn and allow (owner Q4)', () => {
   it('warns when the date of birth does not fit the passenger type (W10e)', () => {
     expect(ageWarning('infant', '2023-06-01', TRIP)).toBe('type_mismatch');
     expect(ageWarning('child', '2026-01-05', TRIP)).toBe('type_mismatch');
-    expect(ageWarning('adult', '2019-12-10', TRIP)).toBe('type_mismatch');
     expect(BOOK_BATCH2_TEXT.ageTypeMismatch).toMatch(/The booking can still be saved\.$/);
   });
 
   it('warns with W10d for a child or infant 18 or older on the trip start', () => {
     expect(ageWarning('child', '2008-12-10', TRIP)).toBe('age_too_high');
     expect(ageWarning('infant', '1990-05-17', TRIP)).toBe('age_too_high');
-    expect(BOOK_BATCH2_TEXT.ageTooHigh).toMatch(/^This date of birth makes the passenger 18 or older/);
+    expect(BOOK_BATCH2_TEXT.ageTooHigh).toBe('This date of birth makes the passenger 18 or older on the trip start date. Check the date, or change the passenger type. The booking can still be saved.');
   });
 
   it('no warning when the type fits, without trip dates, or without a date of birth', () => {
     expect(ageWarning('child', '2019-12-10', TRIP)).toBeNull();
     expect(ageWarning('infant', '2026-01-05', TRIP)).toBeNull();
     expect(ageWarning('adult', '1990-05-17', TRIP)).toBeNull();
+    // Owner, 27 November 2026: no adult age band (an adult under 12 gets no warning).
+    expect(ageWarning('adult', '2019-12-10', TRIP)).toBeNull();
     expect(ageWarning('infant', '2023-06-01', null)).toBeNull();
     expect(ageWarning('child', '', TRIP)).toBeNull();
   });

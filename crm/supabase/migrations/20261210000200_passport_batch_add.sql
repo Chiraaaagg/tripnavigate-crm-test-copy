@@ -36,8 +36,10 @@
 -- invalid_input, too_many_items, and those of booking_service_save).
 -- No new table, column, read or switch. No money: no price or cost is created.
 -- Rollback (forward-only): a NEW migration dropping the function; passport
--- services already created stay as ordinary passport services. The app hides
--- the several-applicant choice when the function is missing.
+-- services already created stay as ordinary passport services. The app keeps
+-- the several-applicant choice visible; without the function a save for two
+-- or more applicants answers the existing "needs the database update" text
+-- and nothing is saved (one applicant still saves as before).
 
 begin;
 set local lock_timeout = '15s';
