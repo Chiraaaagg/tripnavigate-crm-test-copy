@@ -1,6 +1,6 @@
 import 'server-only';
 import { z } from 'zod';
-import { deliverFile, isRecordedFileName } from '@/modules/documents/server/file-delivery';
+import { deliverFile, isRecordedFileName, objectPathIsIds } from '@/modules/documents/server/file-delivery';
 import { requireStaff } from '@/modules/identity/server/session';
 import { departmentEvidenceAuthorizeDownload } from '../b11-commands';
 import { asRpcClient } from '../commands';
@@ -44,6 +44,8 @@ export async function departmentEvidenceDownloadResponse(rawId: string): Promise
     bucket: DEPARTMENT_EVIDENCE_BUCKET,
     signedUrlSeconds: EVIDENCE_SIGNED_URL_SECONDS,
     legacyAuthorize: () => departmentEvidenceAuthorizeDownload(asRpcClient(staff.supabase), id.data),
+    // <entity>/<task>/<evidence id>, as the authorize answer was checked before.
+    accept: (file) => objectPathIsIds(file.objectPath, 3),
     // The recorded name, held to the same rule the authorize answer was checked against before.
     downloadName: (file) => (isRecordedFileName(file.fileName) && isEvidenceMime(file.mime) ? file.fileName : null),
     crmUnavailable: unavailable,

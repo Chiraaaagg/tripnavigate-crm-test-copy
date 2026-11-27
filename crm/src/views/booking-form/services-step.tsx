@@ -200,7 +200,7 @@ export function ServicesStep({
   setSelected: (fn: (x: ServiceType[]) => ServiceType[]) => void;
   vm: BookingFormVM;
   view: BookNowView;
-  actions: Pick<BookingFormActions, 'saveService' | 'removeServiceItem' | 'uploadServiceFile' | 'removeServiceFile' | 'saveFlightFares' | 'addReturnFlights'>;
+  actions: Pick<BookingFormActions, 'saveService' | 'removeServiceItem' | 'uploadServiceFile' | 'removeServiceFile' | 'saveFlightFares' | 'addReturnFlights' | 'addPassportServices'>;
   reloadHref?: string;
   /** Typed party of step 1. */
   party: { total: number | null; children: number; infants: number };
@@ -498,6 +498,7 @@ export function ServicesStep({
           items={items}
           searchHotels={searchHotels}
           action={actions.saveService}
+          batchAction={actions.addPassportServices ?? null}
           fileActions={{ upload: actions.uploadServiceFile, remove: actions.removeServiceFile }}
           filesEditable={vm.itemFilesCanEdit}
           onClose={() => {

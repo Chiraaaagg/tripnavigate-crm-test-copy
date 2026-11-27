@@ -3,7 +3,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isRealStackRequired } from '@/lib/config';
 import type { FinanceCommandResult } from '@/modules/finance/contracts';
-import { FIXTURE_EMAILS, FIXTURE_USERS as U, assertDatabaseUrlNotOperational, istBusinessDate } from '../helpers/db';
+import { FIXTURE_EMAILS, FIXTURE_USERS as U, assertDatabaseUrlNotOperational, claimsFor, istBusinessDate } from '../helpers/db';
 import { createRealStack, resolveRealStackEnv, type SignedIn } from '../helpers/real-stack';
 import { CONFLICT_STATE } from '../helpers/sqlstates';
 
@@ -435,6 +435,48 @@ describe.skipIf(!enabled)('Phase 5A finance through PostgREST: denials and concu
     for (const row of rows) expect(row.ok, row.id).toBe(true);
     const newVersion = policy!.data!.id;
     for (const row of rows) expect([before.id, newVersion]).toContain(row.version_id);
+  });
+
+  it('G19: a policy update whose transaction started before a committed receipt is effective after that receipt (two sessions)', async () => {
+    const deal = await newDeal();
+    // Session A (the policy manager, impersonated as PostgREST does): the transaction starts and fixes its now().
+    const a = new pg.Client({ connectionString: dbUrl! });
+    await a.connect();
+    try {
+      await a.query('begin');
+      await a.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claimsFor({ userId: U.adminJodhpur }))]);
+      await a.query('set local role authenticated');
+      const { rows: [start] } = await a.query<{ t: string }>('select now()::text as t');
+      // Session B (Accounts, through PostgREST): a receipt is recorded and committed after A started.
+      const receipt = await rpc<FinanceCommandResult>(accA.client, 'receipt_record', {
+        p_deal_id: deal,
+        p_fields: cashFields(branches.JDH, 1000n, randomPan()),
+        p_request_id: crypto.randomUUID(),
+      });
+      // Session A then takes the policy head and stores its version (unchanged values, so other suites see the same limits).
+      const { rows: [policy] } = await a.query<{ r: { id: string; status: string } }>(
+        'select public.finance_policy_update($1, $2::jsonb, null, $3, $4) as r',
+        [entityId, '{}', `Synthetic CI G19 race check ${runTag}`, crypto.randomUUID()],
+      );
+      await a.query('commit');
+      expect(policy!.r.status).toBe('effective');
+      const [row] = await ownerQuery<{ used: string; in_force: string; after_receipt: boolean; receipt_after_start: boolean }>(
+        `select r.policy_version_id as used, (authz.finance_policy_at(r.legal_entity_id, r.recorded_at)).id as in_force,
+                v.effective_at > r.recorded_at as after_receipt, r.recorded_at > $3::timestamptz as receipt_after_start
+         from public.customer_receipts r, public.finance_policy_versions v where r.id = $1 and v.id = $2`,
+        [receipt.id, policy!.r.id, start!.t],
+      );
+      // The receipt used the version in force at its own time; the new version starts after it.
+      expect(row!.used).toBe(row!.in_force);
+      expect(row!.used).not.toBe(policy!.r.id);
+      expect(row!.receipt_after_start).toBe(true);
+      expect(row!.after_receipt).toBe(true);
+    } catch (error) {
+      await a.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      await a.end();
+    }
   });
 
   it('an exact retry after a policy change returns the original; a changed payload is request_conflict', async () => {

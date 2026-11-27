@@ -9,6 +9,7 @@ import {
   bookingFormGet,
   bookingFormInstalled,
   bookingFormStartRaw,
+  bookingPassportItemsAdd,
   bookingPricesSave,
   bookingServiceSave,
   bookingTripSave,
@@ -35,6 +36,7 @@ import {
   parseBookingServiceForm,
   parseItemFileRemoveForm,
   parseItemFileUploadForm,
+  parsePassportBatchForm,
   priceHintField,
   serviceHintField,
 } from '../booking-form-forms';
@@ -42,12 +44,14 @@ import { formatInr, normalisePhone } from '../booking-form-model';
 import { asRpcClient, BookingCommandError, FUNCTION_MISSING_STATES } from '../commands';
 import {
   type BillingProposeResult,
+  BOOK_BATCH2_TEXT,
   type BookingActionResult,
   type BookingTravellersSaveResult,
   BOOKING_FORM_NOT_INSTALLED_TEXT,
   type DraftSaveResult,
   ERROR_TEXT,
   isSpecialRequestCode,
+  type PassportBatchResult,
   type SavedTravellersRead,
   SPECIAL_REQUEST_CODES,
   type TravellerIdentitySaveResult,
@@ -341,6 +345,48 @@ export async function saveBookingServiceAction(_prev: Prev<ServiceSaveResult>, f
     }
     if (error instanceof BookingCommandError && error.code === 'invalid_input' && error.hintKeys.length > 0) {
       return fail('invalid_input', [...new Set(error.hintKeys.map(serviceHintField))]);
+    }
+    return failWithConflict(error, rpc, v.dealId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Step 2 · passport for several applicants (booking reliability B2-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * "Save requirements" in a NEW passport drawer with two or more applicants
+ * chosen: booking_passport_items_add (one passport service per applicant, one
+ * transaction, replay-safe under one request id; each service keeps exactly
+ * one applicant). One applicant is still saved by saveBookingServiceAction,
+ * unchanged. On a database without the change: the existing "needs the
+ * database update" answer, nothing saved.
+ */
+export async function addPassportServicesAction(_prev: Prev<PassportBatchResult>, formData: FormData): Promise<BookingActionResult<PassportBatchResult>> {
+  const staff = await staffForAction();
+  if (staff === SESSION_ENDED) return fail('session');
+  const parsed = parsePassportBatchForm(formData);
+  if (!parsed.ok) return fail('invalid_input', parsed.fields);
+  const v = parsed.value;
+  const rpc = asRpcClient(staff.supabase);
+  try {
+    const result = await bookingPassportItemsAdd(rpc, {
+      versionId: v.versionId,
+      expectedRowVersion: v.expectedRowVersion,
+      facts: v.facts,
+      participants: v.participantSeqs,
+      requestId: v.requestId,
+    });
+    revalidateBook(v.dealId, 'draft_save');
+    return { ok: true, data: result, message: BOOK_BATCH2_TEXT.passportsAdded(result.items.length) };
+  } catch (error) {
+    if (isMissing(error)) return notInstalled();
+    if (isCode(error, 'version_changed')) revalidateBook(v.dealId, 'draft_save');
+    if (error instanceof BookingCommandError && error.code === 'too_many_items') {
+      return fail('too_many_items', [FIELD.participantSeq], BOOK_BATCH2_TEXT.passportLimit);
+    }
+    if (error instanceof BookingCommandError && error.code === 'invalid_input' && error.hintKeys.length > 0) {
+      return fail('invalid_input', [...new Set(error.hintKeys.map((k) => (k === 'travellers' ? FIELD.participantSeq : serviceHintField(k))))]);
     }
     return failWithConflict(error, rpc, v.dealId);
   }

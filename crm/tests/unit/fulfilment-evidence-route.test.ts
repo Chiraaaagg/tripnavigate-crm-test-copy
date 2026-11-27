@@ -36,7 +36,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   requireStaff.mockResolvedValue({ userId: 'u', supabase: { rpc } });
   adminFactory.mockReturnValue({ storage: { from: () => ({ createSignedUrl }) } });
-  rpc.mockResolvedValue({ data: { objectPath: PATH, fileName: 'ticket.pdf', mime: 'application/pdf' }, error: null });
+  // S11: file_view_begin runs the same authorize function and says where the file is.
+  rpc.mockResolvedValue({ data: { objectPath: PATH, fileName: 'ticket.pdf', mime: 'application/pdf', location: 'crm' }, error: null });
   createSignedUrl.mockResolvedValue({ data: { signedUrl: SIGNED }, error: null });
 });
 
@@ -46,7 +47,7 @@ describe('GET /app/bookings/evidence/[id]', () => {
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe(SIGNED);
     expect(res.headers.get('cache-control')).toContain('no-store');
-    expect(rpc).toHaveBeenCalledWith('booking_authorize_evidence_download', { p_evidence_id: EVIDENCE });
+    expect(rpc).toHaveBeenCalledWith('file_view_begin', { p_source_table: 'booking_evidence', p_source_id: EVIDENCE });
     expect(createSignedUrl).toHaveBeenCalledWith(PATH, 60, { download: 'ticket.pdf' });
     expect(rpc.mock.invocationCallOrder[0]!).toBeLessThan(adminFactory.mock.invocationCallOrder[0]!);
   });
@@ -70,7 +71,7 @@ describe('GET /app/bookings/evidence/[id]', () => {
   });
 
   it('404 when the authorization response is malformed (path traversal)', async () => {
-    rpc.mockResolvedValue({ data: { objectPath: '../other/file', fileName: 'a.pdf', mime: 'application/pdf' }, error: null });
+    rpc.mockResolvedValue({ data: { objectPath: '../other/file', fileName: 'a.pdf', mime: 'application/pdf', location: 'crm' }, error: null });
     expect((await call(EVIDENCE)).status).toBe(404);
     expect(adminFactory).not.toHaveBeenCalled();
   });

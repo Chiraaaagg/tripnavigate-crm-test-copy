@@ -31,6 +31,7 @@ import {
   withdrawPaymentClaimBookAction,
 } from './book-session-actions';
 import {
+  addPassportServicesAction,
   removeServiceFileAction,
   saveBillToAction,
   saveBookingCustomerAction,
@@ -135,6 +136,8 @@ export const BOOKING_FORM_ACTIONS: BookingFormActions = {
   ...BOOKING_FORM_V2_ACTIONS,
   // Booking reliability fix batch 1
   ...BOOKING_FORM_RELIABILITY_ACTIONS,
+  // Booking reliability fix batch 2 (B2-2): one passport service per applicant from one selection
+  addPassportServices: addPassportServicesAction,
 };
 
 /**

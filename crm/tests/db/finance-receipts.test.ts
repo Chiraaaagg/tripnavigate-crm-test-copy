@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AccountsDealDetailSchema } from '@/modules/finance/dto';
 import { type TestDb, asOwner, createTestDb } from '../helpers/db';
-import { ACC, ACC2, ANON, DEAL, DEAL2, MANAGER, PURCHASE, SALES, SUPER, daysAgo, financeHelpers, rid, sha, today } from './finance-support';
+import { ACC, ACC2, ANON, DEAL, DEAL2, MANAGER, PURCHASE, SALES, SUPER, daysAgo, financeHelpers, policyInForceFromTransactionStart, rid, sha, today } from './finance-support';
 import { CONFLICT_STATE } from '../helpers/sqlstates';
 
 /**
@@ -182,9 +182,10 @@ describe('retry identity', () => {
       const fields = await h.bankFields();
       const requestId = rid();
       const first = await h.record(ACC, DEAL, fields, requestId);
-      await h.one(SUPER, 'select public.finance_policy_update($1, $2::jsonb, null, $3, $4) as r', [
+      const lower = await h.one<{ id: string }>(SUPER, 'select public.finance_policy_update($1, $2::jsonb, null, $3, $4) as r', [
         await h.entityId(), JSON.stringify({ receiptMaxPaise: '100' }), 'Synthetic lower receipt maximum', rid(),
       ]);
+      await policyInForceFromTransactionStart(db, lower.id); // G19: same transaction
       const again = await h.record(ACC, DEAL, fields, requestId);
       expect(again).toEqual({ ...first, outcome: 'existing' });
       expect((await h.owner<{ n: number }>(`select count(*)::int as n from public.customer_receipts where deal_id = $1`, [DEAL]))[0]!.n).toBe(1);
@@ -285,9 +286,10 @@ describe('cash caps (contract 9.2)', () => {
 
   it('a zero cap turns cash off; the cap kind arrives in DETAIL', async () => {
     await asOwner(db, async () => {
-      await h.one(SUPER, 'select public.finance_policy_update($1, $2::jsonb, null, $3, $4) as r', [
+      const off = await h.one<{ id: string }>(SUPER, 'select public.finance_policy_update($1, $2::jsonb, null, $3, $4) as r', [
         await h.entityId(), JSON.stringify({ cashTripCapPaise: '0' }), 'Synthetic: cash off by policy', rid(),
       ]);
+      await policyInForceFromTransactionStart(db, off.id); // G19: same transaction
       await db.exec('savepoint s');
       let detail: string | undefined;
       try {

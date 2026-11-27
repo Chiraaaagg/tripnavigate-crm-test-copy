@@ -71,4 +71,9 @@ export interface BookActions {
   fillEmptyPrefill?: B11Action;
   /** Batch 2 (prefill_notice_dismiss): "Keep mine" on a "Bitrix now says …" notice (inline mode only). */
   dismissPrefillNotice?: B11Action;
+  /**
+   * Booking reliability B2-2 (booking_passport_items_add): a new passport service for two or
+   * more applicants, one service each. Booking form only; absent = one applicant, as before.
+   */
+  addPassportServices?: B11Action;
 }

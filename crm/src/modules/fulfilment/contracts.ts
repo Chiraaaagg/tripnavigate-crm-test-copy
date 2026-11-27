@@ -401,7 +401,8 @@ export const ISSUE_TEXT: Record<BookingIssueCode, string> = {
   billing_missing: 'Add the Bill To details: name, address, city, state and PIN code.',
   gstin_missing: 'This business is GST registered. Add the GSTIN.',
   trip_missing: 'Add the destination, whether the trip is domestic or international, and the trip dates.',
-  child_age_missing: 'Add the age of every child and infant.',
+  // Booking reliability W10c (fix batch 2, B2-1): a date of birth now counts.
+  child_age_missing: 'Add the date of birth, or the age, of every child and infant.',
   participation_missing: 'Every service needs at least one traveller taking part.',
   identity_missing: 'Add the date of birth and nationality of each traveller on an international flight, visa or passport service.',
   plan_missing: 'Add the payment plan (at least one instalment).',
@@ -500,6 +501,32 @@ export const BOOK_RELIABILITY_TEXT = {
   renameConfirm: 'Change name',
   /** W12 cancel button. */
   renameKeep: 'Keep the old name',
+} as const;
+
+/**
+ * Booking reliability fix batch 2: new texts W10a, W10b, W10d, W10e and W11a
+ * to W11d (build contract section 9 and addendum 1). W10c replaces
+ * ISSUE_TEXT.child_age_missing. Owner: OK to build; checked before go-live 2.
+ */
+export const BOOK_BATCH2_TEXT = {
+  /** W10a: passenger drawer, date of birth saved. */
+  ageAtTravel: (years: number) => `Age at travel: ${years} (from the date of birth, on the trip start date)`,
+  /** W10b: passenger drawer, date of birth saved, no trip dates yet. */
+  ageAfterTripDates: 'Age at travel is worked out once the trip dates are saved.',
+  /** W10d: warning (never a refusal; owner "warn and allow") when a child's or infant's age on the trip start is 18 or more. */
+  ageTooHigh:
+    'This date of birth makes the passenger 18 or older on the trip start date. Check the date, or change the passenger type. The booking can still be saved.',
+  /** W10e (proposed, addendum 1, owner Q4 "warn and allow"): never blocks the save. */
+  ageTypeMismatch:
+    'This date of birth does not match the passenger type on the trip start date (for example, an infant aged 3). Check the type. The booking can still be saved.',
+  /** W11a: passport drawer, new service: label of the applicant chips. */
+  applicantsLabel: 'Applicants',
+  /** W11b: passport drawer, new service: helper line. */
+  applicantsHelp: 'One passport service is added for each person you choose.',
+  /** W11c: after a batch add. */
+  passportsAdded: (count: number) => `${count} passport services added, one for each applicant.`,
+  /** W11d: limit refusal (nothing is added). */
+  passportLimit: 'A Deal can hold 20 services. Choose fewer applicants, or remove a service first. Nothing was added.',
 } as const;
 
 /** Shown instead of the proof list to readers who may not see proof files. */
@@ -765,7 +792,10 @@ export interface VisaServiceFacts {
   /** Document labels (not codes), 0..30, trimmed with single spaces, distinct ignoring case. */
   documentsNeeded?: string[] | null;
 }
-/** B1.1: passport service (Visa & Passport desk). Exactly one participant (readiness). */
+/**
+ * B1.1: passport service (Visa & Passport desk). Exactly one participant (readiness);
+ * several applicants are added as several items (booking_passport_items_add).
+ */
 export interface PassportServiceFacts {
   applicationType: PassportApplicationType;
   officeCity: string;
@@ -1752,8 +1782,27 @@ export interface TravellerIdentityFields {
 }
 export interface TravellerIdentitySaveResult {
   seq: number;
+  /** The identity row's version, as today. */
   rowVersion: number;
+  /**
+   * Booking reliability B2-1: the stored age (whole years at the trip start)
+   * after this save. Absent on a database without the change.
+   */
+  ageYears?: number | null;
+  /**
+   * B2-1: set when this save changed the stored age, which moves the draft's
+   * version; the screen records it as its own save (recordSave(from, to)).
+   */
+  draftRowVersion?: { from: number; to: number } | null;
 }
+
+/** booking_passport_items_add answer (booking reliability B2-2): one passport service per applicant. */
+export interface PassportBatchResult extends DraftSaveResult {
+  items: ReadonlyArray<{ itemId: string; itemNo: number; travellerSeq: number }>;
+}
+
+/** Most applicants one passport batch may add (the Deal limit of 20 services still applies). */
+export const PASSPORT_BATCH_MAX = 20;
 
 /** "K1234567" → "••••4567"; null/short → as is (never more than the last 4). */
 export function maskPassportNumber(value: string | null | undefined): string | null {

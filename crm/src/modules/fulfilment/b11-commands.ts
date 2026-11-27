@@ -45,6 +45,9 @@ import {
   type TravellerIdentityFields,
   type TravellerIdentitySaveResult,
   type TravellerIdProofRemoveResult,
+  PASSPORT_BATCH_MAX,
+  type PassportBatchResult,
+  type PassportServiceFacts,
   VISA_APPLICATION_STATES,
   VISA_DOCUMENT_STATUSES,
   type VisaApplicationFields,
@@ -706,7 +709,13 @@ export async function dealTravellersSaveDetails(
   return parseReply(fn, DraftSaveSchema, data);
 }
 
-const IdentitySaveSchema = z.object({ seq: z.number().int().min(1).max(100), rowVersion }) satisfies z.ZodType<TravellerIdentitySaveResult, unknown>;
+// Booking reliability B2-1: ageYears and draftRowVersion are optional (absent on a database without the change).
+const IdentitySaveSchema = z.object({
+  seq: z.number().int().min(1).max(100),
+  rowVersion,
+  ageYears: z.number().int().min(0).max(17).nullable().optional(),
+  draftRowVersion: z.object({ from: z.number().int().nonnegative(), to: z.number().int().positive() }).nullable().optional(),
+}) satisfies z.ZodType<TravellerIdentitySaveResult, unknown>;
 
 export async function travellerIdentitySave(
   client: RpcClient,
@@ -1479,6 +1488,35 @@ export async function bookingServiceSave(
     p_request_id: input.requestId,
   });
   return parseReply(fn, ServiceSaveSchema, data);
+}
+
+const PassportBatchSchema = z.object({
+  rowVersion,
+  contentHash: hash,
+  items: z
+    .array(z.object({ itemId: z.uuid(), itemNo: z.number().int().min(1).max(20), travellerSeq: z.number().int().min(1).max(100) }))
+    .min(1)
+    .max(PASSPORT_BATCH_MAX),
+}) satisfies z.ZodType<PassportBatchResult, unknown>;
+
+/**
+ * Booking reliability B2-2: booking_passport_items_add. One passport service per
+ * applicant from one selection, in one transaction, replay-safe under one
+ * request id. Each item keeps exactly one applicant.
+ */
+export async function bookingPassportItemsAdd(
+  client: RpcClient,
+  input: { versionId: string; expectedRowVersion: number; facts: PassportServiceFacts; participants: number[]; requestId: string },
+): Promise<PassportBatchResult> {
+  const fn = 'booking_passport_items_add';
+  const data = await callRpc(client, fn, {
+    p_version_id: input.versionId,
+    p_expected_row_version: input.expectedRowVersion,
+    p_facts: input.facts,
+    p_participants: input.participants,
+    p_request_id: input.requestId,
+  });
+  return parseReply(fn, PassportBatchSchema, data);
 }
 
 function withoutLegacyFare(estimate: FlightEstimate): Omit<FlightEstimate, 'fareTotalPaise'> {

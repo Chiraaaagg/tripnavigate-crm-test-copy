@@ -110,6 +110,15 @@ export function objectPathEndsWith(objectPath: string, id: string): boolean {
 }
 
 /**
+ * True when the path is exactly `segments` server-generated ids joined by "/"
+ * (no traversal, no leading slash): the shape the booking (4), department and
+ * flight (3) and ID-proof (4) authorize answers were checked against before S11.
+ */
+export function objectPathIsIds(objectPath: string, segments: number): boolean {
+  return new RegExp(`^[0-9a-f-]{36}(\\/[0-9a-f-]{36}){${segments - 1}}$`, 'i').test(objectPath);
+}
+
+/**
  * The rule the booking and department authorize answers were checked against
  * before (letters, digits, dot, space, underscore, dash; 1 to 120 characters).
  * Those handlers keep refusing any other recorded name, as before.

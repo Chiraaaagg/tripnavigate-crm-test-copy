@@ -1,6 +1,6 @@
 import 'server-only';
 import { z } from 'zod';
-import { deliverFile, objectPathEndsWith } from '@/modules/documents/server/file-delivery';
+import { deliverFile, objectPathEndsWith, objectPathIsIds } from '@/modules/documents/server/file-delivery';
 import { requireStaff } from '@/modules/identity/server/session';
 import { travellerIdProofAuthorizeDownload } from '../b11-commands';
 import { asRpcClient } from '../commands';
@@ -51,7 +51,7 @@ export async function idProofDownloadResponse(rawFileId: string): Promise<Respon
     signedUrlSeconds: EVIDENCE_SIGNED_URL_SECONDS,
     legacyAuthorize: () => travellerIdProofAuthorizeDownload(asRpcClient(staff.supabase), fileId.data),
     // The object path ends in the file id: anything else is refused like a missing file.
-    accept: (file) => objectPathEndsWith(file.objectPath, fileId.data),
+    accept: (file) => objectPathIsIds(file.objectPath, 4) && objectPathEndsWith(file.objectPath, fileId.data),
     // A neutral name: the stored name may carry a customer's name, and it would sit in the URL and logs.
     downloadName: (file) => {
       return Object.hasOwn(ID_PROOF_EXTENSION, file.mime) ? `id-proof.${ID_PROOF_EXTENSION[file.mime as EvidenceMime]}` : null;

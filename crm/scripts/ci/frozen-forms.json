@@ -6,7 +6,7 @@
     "'currentSlice' is the slice under way; the guard checks it when no --slice is given. Per slice, 'allow' lists frozen files the slice may add or edit, 'deletes' lists frozen files the slice may only delete (gone from the working tree; once the slice is on main the file is missing at the base too and the entry is history).",
     "Checked by scripts/ci/check-frozen-forms.mjs (CI, pull requests: base origin/main; the run prints the current slice's exceptions). The guard script and its unit test are frozen. Once this file exists at the base it may change in exactly two ways: 'currentSlice' may be set, and new slice entries may be added; every other key, and every slice entry that exists at the base, must stay as it is."
   ],
-  "currentSlice": "BF1",
+  "currentSlice": "BF2",
   "frozen": [
     "src/views/booking-form/**",
     "src/views/b11/**",
@@ -178,6 +178,17 @@
         "src/views/b11/session-link.tsx",
         "src/views/booking-form/refresh-dialog.tsx",
         "src/views/customer-messages/book-now-card.tsx",
+        "tests/unit/check-frozen-forms.test.ts"
+      ],
+      "deletes": []
+    },
+    "BF2": {
+      "note": "Booking fix go-live 2 (owner decision 5 of 23 Nov 2026, 'start rebuild' 27 Nov 2026): on the approved Book now form only, the passenger drawer shows 'Age at travel' as read-only text when a saved date of birth decides it, and warns (never blocks) when the date of birth does not fit the passenger type; the passport drawer for a NEW service lets several applicants be chosen, one passport service each. Visible changes are V7 and V8 of the booking-fix build contract section 10 (W10a to W10e, W11a to W11d), shown to the owner before go-live 2.",
+      "allow": [
+        "src/views/b11/shapes.ts",
+        "src/views/booking-form/passenger-drawer.tsx",
+        "src/views/booking-form/service-editor.tsx",
+        "src/views/booking-form/services-step.tsx",
         "tests/unit/check-frozen-forms.test.ts"
       ],
       "deletes": []

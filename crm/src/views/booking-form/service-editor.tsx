@@ -10,7 +10,7 @@ import { TravellerChips, type ChipPerson } from '@/components/ui/traveller-chips
 import { VISA_DOCUMENT_CATALOGUE } from '@/modules/visa/contracts';
 import type { BookingFormServiceItemView } from '@/modules/fulfilment/booking-form-contract';
 import { isIsoDate } from '@/modules/fulfilment/booking-form-model';
-import { BOOK_RELIABILITY_TEXT, ERROR_TEXT, type BookTravellerView, type ServiceType } from '@/modules/fulfilment/contracts';
+import { BOOK_BATCH2_TEXT, BOOK_RELIABILITY_TEXT, ERROR_TEXT, type BookTravellerView, type ServiceType } from '@/modules/fulfilment/contracts';
 import { ROUTES } from '@/modules/identity/contracts';
 import { AreaField, SelectField, TextField } from '../b11/controls';
 import { useSectionForm, type LatestOutcome } from '../b11/draft-sync';
@@ -81,6 +81,12 @@ export interface EditorEnv {
   /** Item files (flight screenshots). */
   fileActions: { upload: B11Action; remove: B11Action };
   filesEditable: boolean;
+  /**
+   * Booking reliability B2-2: a NEW passport service may name several applicants
+   * (one passport service each, booking_passport_items_add). False when editing
+   * a saved one, or when the booking form has no batch action.
+   */
+  passportBatch: boolean;
   onClose: () => void;
 }
 
@@ -228,8 +234,26 @@ export function useLiveProblem(check: () => string) {
 }
 
 /** The chips line used by every editor. */
-export function WhoChips({ env, label, value, onChange, single = false, error }: { env: EditorEnv; label: string; value: string[]; onChange: (v: string[]) => void; single?: boolean; error?: string | null }) {
-  return <TravellerChips id="svc-who" label={label} people={env.people} selected={value} onChange={onChange} single={single} disabled={!env.editable} note={env.unnamed} error={error} />;
+export function WhoChips({
+  env,
+  label,
+  value,
+  onChange,
+  single = false,
+  error,
+  help,
+}: {
+  env: EditorEnv;
+  label: string;
+  value: string[];
+  onChange: (v: string[]) => void;
+  single?: boolean;
+  error?: string | null;
+  /** A quiet helper line, shown before the "not named yet" note (B2-2: W11b). */
+  help?: string | null;
+}) {
+  const note = [help, env.unnamed].filter(Boolean).join(' ') || null;
+  return <TravellerChips id="svc-who" label={label} people={env.people} selected={value} onChange={onChange} single={single} disabled={!env.editable} note={note} error={error} />;
 }
 
 /** Hidden participant inputs. */
@@ -281,6 +305,22 @@ const APPLICATION_TYPES = [
   { value: 'minor', label: 'Minor' },
 ];
 
+/** B2-2: how many passport services a batch answer added (the answer's lines; else the applicants posted). */
+export function passportsAddedCount(result: UiResult, posted: number): number {
+  const items = result.ok ? (result as unknown as { data?: { items?: unknown } }).data?.items : undefined;
+  return Array.isArray(items) && items.length > 0 ? items.length : posted;
+}
+
+/**
+ * B2-2: the action a drawer post goes to. A NEW passport service with two or
+ * more applicants goes to the batch action (one passport service each); every
+ * other post, including one applicant, goes to the service save as before.
+ */
+export function actionForPost(fd: FormData, single: B11Action, batch: B11Action | null): B11Action {
+  const several = fd.get('serviceType') === 'passport' && !fd.get('itemId') && fd.getAll('participantSeq').length > 1;
+  return several && batch ? batch : single;
+}
+
 /** Activity, visa and passport (prototype: same fields as live, traveller chips added). */
 function OtherEditor({ env, type }: { env: EditorEnv; type: 'activity' | 'visa' | 'passport' }) {
   const toast = useFormToast();
@@ -303,6 +343,8 @@ function OtherEditor({ env, type }: { env: EditorEnv; type: 'activity' | 'visa' 
   }));
   const set = <K extends keyof typeof v>(k: K, x: (typeof v)[K]) => setV((s) => ({ ...s, [k]: x }));
   const [busy, setBusy] = useState(false);
+  // B2-2: a new passport service may name several applicants (one passport service is added for each).
+  const severalApplicants = type === 'passport' && env.passportBatch;
   const live = useLiveProblem(() =>
     type === 'activity' && (!v.name.trim() || !v.city.trim() || !isIsoDate(v.date))
       ? 'Add the activity, city and date.'
@@ -342,7 +384,8 @@ function OtherEditor({ env, type }: { env: EditorEnv; type: 'activity' | 'visa' 
     }, v);
     setBusy(false);
     if (r.ok) {
-      toast(type === 'activity' ? 'Activity saved.' : 'Requirements saved.');
+      const added = severalApplicants && v.who.length > 1 ? passportsAddedCount(r, v.who.length) : null;
+      toast(added !== null ? BOOK_BATCH2_TEXT.passportsAdded(added) : type === 'activity' ? 'Activity saved.' : 'Requirements saved.');
       env.onClose();
     } else live.setServer(refusalReason(r));
   };
@@ -408,7 +451,14 @@ function OtherEditor({ env, type }: { env: EditorEnv; type: 'activity' | 'visa' 
           disabled={!env.editable}
         />
       ) : null}
-      <WhoChips env={env} label={type === 'passport' ? 'Applicant' : type === 'activity' ? 'Who takes part' : 'Who needs a visa'} value={v.who} onChange={(x) => set('who', x)} single={type === 'passport'} />
+      <WhoChips
+        env={env}
+        label={severalApplicants ? BOOK_BATCH2_TEXT.applicantsLabel : type === 'passport' ? 'Applicant' : type === 'activity' ? 'Who takes part' : 'Who needs a visa'}
+        help={severalApplicants ? BOOK_BATCH2_TEXT.applicantsHelp : null}
+        value={v.who}
+        onChange={(x) => set('who', x)}
+        single={type === 'passport' && !severalApplicants}
+      />
       <AreaField id="svc-notes" name="notes" label="Requirements" optional rows={3} maxLength={2000} value={v.notes} onChange={(x) => set('notes', x)} disabled={!env.editable} />
     </EditorShell>
   );
@@ -429,6 +479,8 @@ export interface ServiceEditorProps {
   items: BookingFormServiceItemView[];
   searchHotels: SearchAction<HotelOption> | null;
   action: B11Action;
+  /** B2-2: booking_passport_items_add (a new passport service for several applicants); null = one applicant only. */
+  batchAction?: B11Action | null;
   fileActions: { upload: B11Action; remove: B11Action };
   filesEditable: boolean;
   onClose: () => void;
@@ -453,11 +505,12 @@ export function ServiceEditorDrawer(p: ServiceEditorProps) {
       const id = requestIdFor(last, key, newRequestId);
       fd.set('requestId', id);
       lastSend.current = { key, id, unknown: true };
-      const r = await (p.action as (prev: never, fd: FormData) => Promise<{ ok: boolean; code?: string }>)(prev, fd);
+      const target = actionForPost(fd, p.action, p.batchAction ?? null);
+      const r = await (target as (prev: never, fd: FormData) => Promise<{ ok: boolean; code?: string }>)(prev, fd);
       lastSend.current = { key, id, unknown: !r.ok && r.code === 'unexpected' };
       return r;
     },
-    [p.action],
+    [p.action, p.batchAction],
   );
   // Stable for the drawer's life (a new item bound after its first save keeps the same form).
   const [formId] = useState(() => (p.item ? `svc-${p.item.itemId}` : `svc-new-${p.type}`));
@@ -508,6 +561,7 @@ export function ServiceEditorDrawer(p: ServiceEditorProps) {
     searchHotels: p.searchHotels,
     fileActions: p.fileActions,
     filesEditable: p.filesEditable,
+    passportBatch: p.type === 'passport' && !p.item && Boolean(p.batchAction),
     onClose: p.onClose,
     bind: p.onBound,
     save: (build, values) =>

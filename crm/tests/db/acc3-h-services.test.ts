@@ -336,7 +336,9 @@ const R12_REASONS = ['one_task', 'access', 'money', 'history', 'core', 'notices'
 const R12_ALLOW: Record<string, (typeof R12_REASONS)[number]> = {
   // one_task
   'authz.flight_group_assignee': 'one_task', 'public.boarding_pass_slot_link': 'one_task',
-  'public.department_evidence_authorize_download': 'one_task', 'public.department_evidence_begin': 'one_task',
+  'public.department_evidence_authorize_download': 'one_task',
+  // S11: resolves one stored file's task to its deal (files of closed tasks are listed too).
+  'authz.file_move_source': 'one_task', 'public.department_evidence_begin': 'one_task',
   'public.department_evidence_finish': 'one_task', 'public.department_evidence_remove': 'one_task', 'public.flight_change_acknowledge': 'one_task',
   'public.flight_change_decide': 'one_task', 'public.flight_change_submit': 'one_task', 'public.flight_change_withdraw': 'one_task',
   'public.flight_group_claim': 'one_task', 'public.flight_group_complete': 'one_task', 'public.flight_group_reassign': 'one_task',

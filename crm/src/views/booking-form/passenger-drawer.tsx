@@ -6,12 +6,23 @@ import { Button } from '@/components/ui/button';
 import { Drawer, DrawerBody, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { Field, fieldDescribedBy } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Notice } from '@/components/ui/notice';
 import { SuggestMultiSelect } from '@/components/ui/suggest-multiselect';
-import { SPECIAL_REQUEST_CODES, SPECIAL_REQUEST_LABEL, isSpecialRequestCode, type BookTravellerView, type SpecialRequestCode, type TravellerIdentity, type TravellerType } from '@/modules/fulfilment/contracts';
+import {
+  BOOK_BATCH2_TEXT,
+  SPECIAL_REQUEST_CODES,
+  SPECIAL_REQUEST_LABEL,
+  isSpecialRequestCode,
+  type BookTravellerView,
+  type SpecialRequestCode,
+  type TravellerIdentity,
+  type TravellerIdentitySaveResult,
+  type TravellerType,
+} from '@/modules/fulfilment/contracts';
 import { EXTRA_PHONES_MAX } from './vn-types';
 import { AreaField, TextField } from '../b11/controls';
 import { maskPassport } from '../b11/book-fields';
-import { useSectionForm } from '../b11/draft-sync';
+import { useDraftSync, useSectionForm } from '../b11/draft-sync';
 import { refusedFields, ResultBox, type FieldRef, type UiResult } from '../b11/form-kit';
 import type { BookNowView } from '../b11/shapes';
 import { useSaveQueue } from './autosave-queue';
@@ -30,6 +41,14 @@ import type { PassengerActions } from './passengers-card';
  * (saveIdentity, its own row version, only for a saved passenger). Extra
  * phones and the passport block stay for the passengers who need them
  * (privacy and ID rules unchanged). ID proof is attached from the row.
+ *
+ * Booking reliability B2-1: for a child or infant with a saved date of birth
+ * the database keeps the age at travel (whole years on the trip start), so
+ * "Age at travel" becomes read-only text (W10a, or W10b before the trip dates
+ * are saved) and the drawer never changes the age then. A date of birth that
+ * does not fit the passenger type is warned and allowed (owner Q4: W10e; W10d
+ * for 18 or older). Only the number is shown; the date stays in the private
+ * details below.
  */
 
 export interface PassengerRow {
@@ -75,6 +94,81 @@ function identityValues(t: BookTravellerView | null): IdentityValues {
   };
 }
 
+// ---------------------------------------------------------------------------
+// B2-1: age at travel from the date of birth (pure; unit-tested)
+// ---------------------------------------------------------------------------
+
+function isoParts(value: string | null | undefined): [number, number, number] | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value ?? '');
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const t = new Date(Date.UTC(y, mo - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d ? [y, mo, d] : null;
+}
+
+/**
+ * Whole years on `on` for a date of birth (the database's authz.age_on): -1
+ * when the date of birth is after `on`; null when either date is missing or
+ * not a real date. A 29 February birthday counts from 1 March in other years.
+ */
+export function ageOn(dateOfBirth: string | null | undefined, on: string | null | undefined): number | null {
+  const b = isoParts(dateOfBirth);
+  const o = isoParts(on);
+  if (!b || !o) return null;
+  if (b[0] > o[0] || (b[0] === o[0] && (b[1] > o[1] || (b[1] === o[1] && b[2] > o[2])))) return -1;
+  const beforeBirthday = o[1] < b[1] || (o[1] === b[1] && o[2] < b[2]);
+  return o[0] - b[0] - (beforeBirthday ? 1 : 0);
+}
+
+/** What "Age at travel" shows for a child or infant. */
+export type AgeAtTravel = { kind: 'typed' } | { kind: 'derived'; years: number } | { kind: 'after_trip_dates' };
+
+/**
+ * B2-1 drawer states: no saved date of birth = the number field as today;
+ * a saved date of birth and no trip start = W10b; a saved date of birth and
+ * a stored age equal to the age on the trip start = W10a (read-only). Any
+ * other case (an older database that does not derive yet, or a number outside
+ * 0 to 17) keeps the number field, so an age can always be entered.
+ */
+export function ageAtTravel(
+  type: TravellerType,
+  savedDateOfBirth: string | null | undefined,
+  tripStart: string | null | undefined,
+  storedAge: number | null | undefined,
+): AgeAtTravel {
+  if (type === 'adult' || !isoParts(savedDateOfBirth)) return { kind: 'typed' };
+  if (!isoParts(tripStart)) return { kind: 'after_trip_dates' };
+  const years = ageOn(savedDateOfBirth, tripStart);
+  if (years !== null && years >= 0 && years <= 17 && storedAge === years) return { kind: 'derived', years };
+  return { kind: 'typed' };
+}
+
+/** Age bands used only for the warning (owner Q4: warn and allow): infant under 2, child 2 to 17. Adults get no age warning (owner, 27 November 2026). */
+export type AgeWarning = 'age_too_high' | 'type_mismatch';
+
+/** B2-1 warning for the date of birth in the drawer (never blocks a save). */
+export function ageWarning(type: TravellerType, dateOfBirth: string | null | undefined, tripStart: string | null | undefined): AgeWarning | null {
+  const years = ageOn(dateOfBirth, tripStart);
+  if (years === null || years < 0) return null;
+  if (type !== 'adult' && years >= 18) return 'age_too_high';
+  if (type === 'infant' && years >= 2) return 'type_mismatch';
+  if (type === 'child' && years < 2) return 'type_mismatch';
+  return null;
+}
+
+/** The age a drawer save posts: the stored number while the date of birth decides it (never a typed one). */
+export function ageForSave(state: AgeAtTravel, typed: string, stored: string): string {
+  return state.kind === 'typed' ? typed : stored;
+}
+
+/** draftRowVersion of an identity save answer (B2-1), when the save moved the draft's version. */
+export function draftVersionMove(result: unknown): { from: number; to: number } | null {
+  const data = (result as { ok?: unknown; data?: Partial<TravellerIdentitySaveResult> } | null)?.data;
+  const move = data?.draftRowVersion;
+  if (!(result as { ok?: unknown } | null)?.ok || !move) return null;
+  return Number.isInteger(move.from) && Number.isInteger(move.to) && move.to > move.from ? { from: move.from, to: move.to } : null;
+}
+
 const IDENTITY_REFS: FieldRef[] = [
   { field: 'dateOfBirth', id: 'pax-dob', label: 'Date of birth: a real date on or before travel.' },
   { field: 'dateOfMarriage', id: 'pax-dom', label: 'Date of marriage: a real date, not before the date of birth.' },
@@ -112,6 +206,7 @@ export function PassengerDrawer({
 }) {
   const queue = useSaveQueue();
   const toast = useFormToast();
+  const sync = useDraftSync();
   const [p, setP] = useState<PassengerRow>(row);
   const [nameError, setNameError] = useState<string | null>(null);
   const [rowRefused, setRowRefused] = useState(false);
@@ -137,6 +232,10 @@ export function PassengerDrawer({
   const rowDirty = JSON.stringify(p) !== JSON.stringify(row);
   const showPassport = Boolean(traveller?.identityRequired || traveller?.identity?.passportNumber || traveller?.identity?.nationality);
   const identityLocked = seq === null;
+  // B2-1: the saved date of birth decides the age at travel (W10a, W10b); the warning follows the date typed here.
+  const tripStart = view.trip?.start ?? null;
+  const age = ageAtTravel(p.type, traveller?.identity?.dateOfBirth ?? null, tripStart, traveller?.ageYears ?? null);
+  const warning = identityLocked ? null : ageWarning(p.type, iv.dateOfBirth, tripStart);
 
   // Change 4: a synchronous in-flight flag as well as the state.
   const inflight = useRef(false);
@@ -160,7 +259,7 @@ export function PassengerDrawer({
     setBusy(true);
     try {
       if (rowDirty) {
-        const saved = await onSave(p);
+        const saved = await onSave({ ...p, age: ageForSave(age, p.age, row.age) });
         if (!saved) {
           setRowRefused(true);
           return;
@@ -182,6 +281,9 @@ export function PassengerDrawer({
         for (const extra of iv.extraPhones.map((x) => x.trim()).filter(Boolean)) fd.append('passengerPhoneExtra', extra);
         const r = await queue.run(() => idf.post(fd));
         if (!r.ok) return;
+        // B2-1: a save that changed the stored age moved the draft's version; it is this browser's own save.
+        const moved = draftVersionMove(r);
+        if (moved) sync.recordSave(moved.from, moved.to);
         // A partial save ("… save after the database update.") stays on screen so it is read.
         if ('message' in r && typeof r.message === 'string' && /database update/i.test(r.message)) return;
       }
@@ -223,7 +325,13 @@ export function PassengerDrawer({
               </Field>
             </div>
             {p.type !== 'adult' ? (
-              <TextField id="pax-age" name="age" label="Age at travel" type="number" min={0} max={17} value={p.age} onChange={(x) => setP((s) => ({ ...s, age: x }))} disabled={!editable} className="max-w-30" />
+              age.kind === 'typed' ? (
+                <TextField id="pax-age" name="age" label="Age at travel" type="number" min={0} max={17} value={p.age} onChange={(x) => setP((s) => ({ ...s, age: x }))} disabled={!editable} className="max-w-30" />
+              ) : (
+                <p id="pax-age" className="m-0 text-base text-copy">
+                  {age.kind === 'derived' ? BOOK_BATCH2_TEXT.ageAtTravel(age.years) : BOOK_BATCH2_TEXT.ageAfterTripDates}
+                </p>
+              )
             ) : null}
             <SuggestMultiSelect
               id="pax-requests"
@@ -270,6 +378,11 @@ export function PassengerDrawer({
                   </>
                 ) : null}
               </div>
+              {warning ? (
+                <Notice tone="warning" role="status">
+                  <p>{warning === 'age_too_high' ? BOOK_BATCH2_TEXT.ageTooHigh : BOOK_BATCH2_TEXT.ageTypeMismatch}</p>
+                </Notice>
+              ) : null}
             </fieldset>
           </form>
           {rowRefused ? <ResultBox result={passengersResult} fields={passengerRefs} /> : null}

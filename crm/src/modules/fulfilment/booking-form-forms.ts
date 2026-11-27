@@ -11,7 +11,7 @@ import { CAR_KINDS, CUSTOMER_MARKETS, CUSTOMER_TYPES, PAX_TOTAL_MAX, PRICE_CATEG
 import { addDays, GST_REASON_LIMITS, GST_STATE_CODE, gstinMatchesState, isIsoDate, normalisePhone, POSTAL_CODE, rupeesToPaise, EMAIL_SHAPE } from './booking-form-model';
 import { parseBookCustomerForm, parseBookTripBlockForm, type BookCustomerForm, type BookTripBlockForm } from './b11-forms';
 import { derivedAdults } from './passenger-slots';
-import type { BillingProposalFields, ServiceFacts } from './contracts';
+import { PASSPORT_BATCH_MAX, type BillingProposalFields, type PassportServiceFacts, type ServiceFacts } from './contracts';
 import { FIELD, formReaders, type ParsedForm, parseServiceItemForm, readRowVersion, readUuid, requestItemsOk, type ServiceItemForm } from './forms';
 
 const { text, strings } = formReaders;
@@ -368,6 +368,39 @@ export function parseBookingServiceForm(formData: FormData): ParsedForm<BookingS
 }
 
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Booking reliability B2-2: the passport drawer adding NEW services for several
+ * applicants (booking_passport_items_add). Same field names as the service
+ * form; `participantSeq` repeats, one per applicant (1 to PASSPORT_BATCH_MAX,
+ * distinct). Only a new passport service: an itemId, another service type or
+ * no applicant is refused as invalid input. One applicant is still saved with
+ * the existing single-service form.
+ */
+export interface PassportBatchForm {
+  dealId: string;
+  versionId: string;
+  expectedRowVersion: number;
+  requestId: string;
+  facts: PassportServiceFacts;
+  participantSeqs: number[];
+}
+
+export function parsePassportBatchForm(formData: FormData): ParsedForm<PassportBatchForm> {
+  const base = parseBookingServiceForm(formData);
+  if (!base.ok) return base;
+  const v = base.value;
+  const fields: string[] = [];
+  if (v.serviceType !== 'passport' || v.facts.type !== 'passport') fields.push(FIELD.serviceType);
+  if (v.itemId !== null) fields.push(FIELD.itemId);
+  const seqs = v.participantSeqs ?? [];
+  if (seqs.length < 1 || seqs.length > PASSPORT_BATCH_MAX) fields.push(FIELD.participantSeq);
+  if (fields.length > 0 || v.facts.type !== 'passport') return { ok: false, fields };
+  return {
+    ok: true,
+    value: { dealId: v.dealId, versionId: v.versionId, expectedRowVersion: v.expectedRowVersion, requestId: v.requestId, facts: v.facts.facts, participantSeqs: [...seqs] },
+  };
+}
 
 /**
  * Book now v2: requests "for whom" of a hotel or flight drawer. Read when the

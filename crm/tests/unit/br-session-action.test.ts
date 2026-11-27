@@ -67,6 +67,7 @@ describe('session ended while Book now is open', () => {
     for (const expected of [
       'book-form-actions saveBookingCustomerAction',
       'book-form-actions saveBookingServiceAction',
+      'book-form-actions addPassportServicesAction',
       'book-form-actions saveBookingTravellersAction',
       'book-form-actions readBookingTravellersAction',
       'book-form-actions saveBookingIdentityAction',
