@@ -338,7 +338,7 @@ test.describe('Booking reliability investigation: journey @investigation', () =>
         const drawer = page.getByRole('dialog', { name: 'Passenger details' });
         const types = await main.locator('ol[aria-label="Passengers"] > li').evaluateAll((els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ')));
         const fixed: string[] = [];
-        if (/age of every child and infant/i.test(before)) {
+        if (/age of every child and infant|date of birth, or the age, of every child and infant/i.test(before)) {
           for (const [i, text] of types.entries()) {
             const age = /Infant/.test(text) ? '0' : /Child/.test(text) ? '8' : null;
             if (age === null) continue;

@@ -7156,6 +7156,9 @@ isOneToOne: false
 "booking_panel":
 { Args: { "p_deal_id": string }; Returns: Json
                            },
+"booking_passport_items_add":
+{ Args: { "p_expected_row_version": number,"p_facts": Json,"p_participants": (number)[],"p_request_id": string,"p_version_id": string }; Returns: Json
+                           },
 "booking_prefill_apply":
 { Args: { "p_expected_row_version": number,"p_fields": (string)[],"p_version_id": string }; Returns: Json
                            },
